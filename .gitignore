@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.js.map
+*.d.ts.map
+
+# ProtoBuf generated
+packages/core/src/types/generated/bundle.js
+packages/core/src/types/generated/bundle.d.ts
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+
+# Temporary
+.scratch/
+tmp/
+temp/
+
+# Go
+packages/backend/vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Taro
+.temp/

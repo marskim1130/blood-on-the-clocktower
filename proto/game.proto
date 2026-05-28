@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package clocktower;
+
+option go_package = "github.com/your-org/blood-on-the-clocktower/internal/game";
+
+// Player represents a player in the game
+message Player {
+  string id = 1;
+  string name = 2;
+  optional Character character = 3;
+  bool is_alive = 4;
+  int32 votes = 5;
+}
+
+// Character represents a character role
+message Character {
+  string id = 1;
+  string name = 2;
+  Team team = 3;
+  string ability = 4;
+}
+
+// Team enum
+enum Team {
+  TEAM_UNSPECIFIED = 0;
+  TEAM_GOOD = 1;
+  TEAM_EVIL = 2;
+}
+
+// GamePhase enum
+enum GamePhase {
+  GAME_PHASE_UNSPECIFIED = 0;
+  GAME_PHASE_SETUP = 1;
+  GAME_PHASE_DAY = 2;
+  GAME_PHASE_NIGHT = 3;
+  GAME_PHASE_VOTING = 4;
+  GAME_PHASE_FINISHED = 5;
+}
+
+// GameState represents the complete state of a game
+message GameState {
+  string id = 1;
+  GamePhase phase = 2;
+  repeated Player players = 3;
+  int32 day_number = 4;
+  optional string storyteller_id = 5;
+  map<string, string> votes = 6;  // voter_id -> target_id
+}
+
+// Game events for WebSocket communication
+message GameEvent {
+  oneof event {
+    PlayerJoined player_joined = 1;
+    PlayerLeft player_left = 2;
+    PhaseChanged phase_changed = 3;
+    VoteCast vote_cast = 4;
+    CharacterAssigned character_assigned = 5;
+  }
+}
+
+message PlayerJoined {
+  Player player = 1;
+}
+
+message PlayerLeft {
+  string player_id = 1;
+}
+
+message PhaseChanged {
+  GamePhase phase = 1;
+}
+
+message VoteCast {
+  string voter_id = 1;
+  optional string target_id = 2;
+}
+
+message CharacterAssigned {
+  string player_id = 1;
+  Character character = 2;
+}

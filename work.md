@@ -290,3 +290,48 @@ TDD 方式，先定义角色数据和验证逻辑，再实现 WebSocket 处理�
 ```bash
 git revert HEAD
 ```
+
+---
+
+## 2026-05-29 17:30 — 架构重构：分解 Hub 单体 + 提取 Connection 接口
+
+### 问题
+`hub.go` 是 426 行的单体模块，混合了 WebSocket 传输、房间生命周期和游戏逻辑。测试需要真实的 HTTP + WebSocket 连接。无法独立测试房间逻辑。
+
+### 解决方案
+按架构审查建议，将 Hub 分解为三个深度模块：
+
+1. **Connection 接口**（`conn.go`）— 传输层接缝，两个适配器：wsConn（生产）+ FakeConnection（测试）
+2. **Broadcaster 接口**（`broadcaster.go`）— 广播职责从 Room 移到 Hub
+3. **RoomManager**（`room_manager.go`）— 房间生命周期、客户端准入，无 GameState
+4. **GameSession**（`game_session.go`）— 游戏状态、命令处理，无房间/连接知识
+5. **Hub**（`hub.go`）— 薄路由器，实现 Broadcaster
+
+### 关键设计决策
+- `Client` 结构体（`Conn Connection` + `PlayerID string`），支持断线重连
+- `storytellerID` 仅由 GameSession 持有，避免数据不一致
+- `GameSession.Apply(cmd)` 使用 `sync.Mutex` 保证并发安全
+- 命令模式：`SetStorytellerCmd`、`AssignCharactersCmd`、`SubmitEventCmd`
+
+### 修改文件
+
+**新建：**
+- `internal/ws/conn.go` — Connection 接口 + Client + wsConn + FakeConnection
+- `internal/ws/broadcaster.go` — Broadcaster 接口
+- `internal/ws/room_manager.go` — Room + RoomManager
+- `internal/ws/room_manager_test.go` — 10 个单元测试（FakeConnection，无 HTTP）
+- `internal/ws/game_session.go` — GameSession + Commands
+- `internal/ws/game_session_test.go` — 10 个单元测试（纯领域逻辑）
+
+**修改：**
+- `internal/ws/hub.go` — 从 426 行瘦身到 ~310 行薄路由器
+
+### 测试结果
+- Go ws: 37 个测试通过（17 集成 + 10 RoomManager + 10 GameSession）
+- Go game: 6 个测试通过
+- TypeScript: 11 个测试通过
+
+### 撤回方式
+```bash
+git revert HEAD
+```

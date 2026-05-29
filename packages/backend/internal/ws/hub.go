@@ -2,9 +2,7 @@ package ws
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"sync"
 
@@ -16,44 +14,35 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-const defaultMaxPlayers = 10
-
-// Hub manages all rooms and WebSocket connections
+// Hub is the transport layer: WebSocket upgrade, message routing, broadcast dispatch.
+// Implements Broadcaster. No game logic, no room state.
 type Hub struct {
-	mu    sync.RWMutex
-	rooms map[string]*Room
+	rm         *RoomManager
+	sessions   map[string]*GameSession // roomID -> GameSession
+	mu         sync.RWMutex
+	connToRoom map[Connection]string // conn -> roomID (for disconnect lookup)
 }
 
-// Room represents a game room with connected clients
-type Room struct {
-	mu              sync.RWMutex
-	id              string
-	clients         map[*websocket.Conn]string // conn -> playerID
-	players         []game.Player
-	maxPlayers      int
-	creatorID       string
-	storytellerID   string
-	originalPlayers int // player count before storyteller was set
-}
-
-// NewHub creates a new Hub instance
 func NewHub() *Hub {
 	return &Hub{
-		rooms: make(map[string]*Room),
+		rm:         NewRoomManager(),
+		sessions:   make(map[string]*GameSession),
+		connToRoom: make(map[Connection]string),
 	}
 }
 
-// HandleWebSocket handles WebSocket upgrade and message routing
+// HandleWebSocket handles WebSocket upgrade and message routing.
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	wsConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("upgrade error: %v", err)
 		return
 	}
+	conn := newWSConn(wsConn)
 	defer conn.Close()
 
 	for {
-		_, raw, err := conn.ReadMessage()
+		_, raw, err := wsConn.ReadMessage()
 		if err != nil {
 			h.handleDisconnect(conn)
 			break
@@ -69,7 +58,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Hub) handleMessage(conn *websocket.Conn, msg ClientMessage) {
+func (h *Hub) handleMessage(conn Connection, msg ClientMessage) {
 	switch msg.Type {
 	case "CREATE_ROOM":
 		h.handleCreateRoom(conn, msg)
@@ -86,340 +75,263 @@ func (h *Hub) handleMessage(conn *websocket.Conn, msg ClientMessage) {
 	}
 }
 
-func (h *Hub) handleCreateRoom(conn *websocket.Conn, msg ClientMessage) {
-	maxPlayers := msg.MaxPlayers
-	if maxPlayers < 5 || maxPlayers > 15 {
-		maxPlayers = defaultMaxPlayers
-	}
+func (h *Hub) handleCreateRoom(conn Connection, msg ClientMessage) {
+	room := h.rm.CreateRoom(msg.PlayerID, msg.MaxPlayers)
 
-	roomID := h.generateRoomID()
+	room.mu.Lock()
+	room.clients[msg.PlayerID] = &Client{Conn: conn, PlayerID: msg.PlayerID}
+	room.mu.Unlock()
+
+	gs := NewGameSession()
+	gs.AddPlayer(game.Player{ID: msg.PlayerID, Name: msg.PlayerName, IsAlive: true})
 
 	h.mu.Lock()
-	room := &Room{
-		id:         roomID,
-		clients:    make(map[*websocket.Conn]string),
-		maxPlayers: maxPlayers,
-		creatorID:  msg.PlayerID,
-	}
-	h.rooms[roomID] = room
+	h.sessions[room.id] = gs
+	h.connToRoom[conn] = room.id
 	h.mu.Unlock()
 
-	player := game.Player{
-		ID:      msg.PlayerID,
-		Name:    msg.PlayerName,
-		IsAlive: true,
-	}
-
-	room.mu.Lock()
-	room.players = append(room.players, player)
-	room.clients[conn] = msg.PlayerID
-	room.mu.Unlock()
-
-	conn.WriteJSON(ServerMessage{
-		Type:   "ROOM_STATE",
-		RoomID: roomID,
-		State:  room.getState(),
-	})
-}
-
-func (h *Hub) handleJoinRoom(conn *websocket.Conn, msg ClientMessage) {
-	h.mu.RLock()
-	room, exists := h.rooms[msg.RoomID]
-	h.mu.RUnlock()
-
-	if !exists {
-		conn.WriteJSON(ServerMessage{
-			Type:  "ERROR",
-			Error: "room not found",
-		})
-		return
-	}
-
-	room.mu.Lock()
-	if len(room.players) >= room.maxPlayers {
-		room.mu.Unlock()
-		conn.WriteJSON(ServerMessage{
-			Type:  "ERROR",
-			Error: "room is full",
-		})
-		return
-	}
-
-	player := game.Player{
-		ID:      msg.PlayerID,
-		Name:    msg.PlayerName,
-		IsAlive: true,
-	}
-	room.players = append(room.players, player)
-	room.clients[conn] = msg.PlayerID
-	room.mu.Unlock()
-
-	conn.WriteJSON(ServerMessage{
+	conn.SendJSON(ServerMessage{
 		Type:   "ROOM_STATE",
 		RoomID: room.id,
-		State:  room.getState(),
-	})
-
-	event := game.GameEvent{
-		PlayerJoined: &game.PlayerJoined{Player: player},
-	}
-	room.broadcastExcept(conn, ServerMessage{
-		Type:  "EVENT_BROADCAST",
-		Event: &event,
+		State:  h.buildRoomState(room.id),
 	})
 }
 
-func (h *Hub) handleLeaveRoom(conn *websocket.Conn, msg ClientMessage) {
-	var targetRoom *Room
-	var playerID string
-
-	h.mu.Lock()
-	for _, room := range h.rooms {
-		room.mu.Lock()
-		if pid, ok := room.clients[conn]; ok {
-			targetRoom = room
-			playerID = pid
-			room.mu.Unlock()
-			break
-		}
-		room.mu.Unlock()
-	}
-	h.mu.Unlock()
-
-	if targetRoom == nil {
+func (h *Hub) handleJoinRoom(conn Connection, msg ClientMessage) {
+	err := h.rm.JoinRoom(msg.RoomID, conn, msg.PlayerID, msg.PlayerName)
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
 		return
 	}
 
-	targetRoom.mu.Lock()
-	delete(targetRoom.clients, conn)
-	for i, p := range targetRoom.players {
-		if p.ID == playerID {
-			targetRoom.players = append(targetRoom.players[:i], targetRoom.players[i+1:]...)
-			break
-		}
-	}
-	targetRoom.broadcast(ServerMessage{
-		Type:  "EVENT_BROADCAST",
-		Event: &game.GameEvent{PlayerLeft: &game.PlayerLeft{PlayerID: playerID}},
-	})
-	shouldDestroy := len(targetRoom.clients) == 0
-	roomID := targetRoom.id
-	targetRoom.mu.Unlock()
+	h.mu.Lock()
+	h.connToRoom[conn] = msg.RoomID
+	gs := h.sessions[msg.RoomID]
+	h.mu.Unlock()
 
-	if shouldDestroy {
+	if gs != nil {
+		gs.AddPlayer(game.Player{ID: msg.PlayerID, Name: msg.PlayerName, IsAlive: true})
+	}
+
+	conn.SendJSON(ServerMessage{
+		Type:   "ROOM_STATE",
+		RoomID: msg.RoomID,
+		State:  h.buildRoomState(msg.RoomID),
+	})
+
+	h.BroadcastExcept(msg.RoomID, msg.PlayerID, ServerMessage{
+		Type: "EVENT_BROADCAST",
+		Event: &game.GameEvent{
+			PlayerJoined: &game.PlayerJoined{
+				Player: game.Player{ID: msg.PlayerID, Name: msg.PlayerName, IsAlive: true},
+			},
+		},
+	})
+}
+
+func (h *Hub) handleLeaveRoom(conn Connection, msg ClientMessage) {
+	roomID, err := h.rm.LeaveRoom(msg.PlayerID)
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	h.mu.Lock()
+	delete(h.connToRoom, conn)
+	gs := h.sessions[roomID]
+	h.mu.Unlock()
+
+	if gs != nil {
+		gs.RemovePlayer(msg.PlayerID)
+	}
+
+	h.Broadcast(roomID, ServerMessage{
+		Type: "EVENT_BROADCAST",
+		Event: &game.GameEvent{
+			PlayerLeft: &game.PlayerLeft{PlayerID: msg.PlayerID},
+		},
+	})
+
+	// Clean up session if room destroyed
+	if h.rm.GetRoom(roomID) == nil {
 		h.mu.Lock()
-		delete(h.rooms, roomID)
+		delete(h.sessions, roomID)
 		h.mu.Unlock()
 	}
 }
 
-func (h *Hub) handleSetStoryteller(conn *websocket.Conn, msg ClientMessage) {
-	h.mu.RLock()
-	room, exists := h.rooms[msg.RoomID]
-	h.mu.RUnlock()
+func (h *Hub) handleSetStoryteller(conn Connection, msg ClientMessage) {
+	roomID := h.connToRoom[conn]
+	creatorID := h.rm.CreatorID(roomID)
 
-	if !exists {
-		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "room not found"})
-		return
+	senderID := ""
+	if client, rid := h.rm.GetClient(msg.PlayerID); client != nil {
+		senderID = msg.PlayerID
+		_ = rid
 	}
-
-	room.mu.Lock()
-	defer room.mu.Unlock()
+	_ = senderID
 
 	// Verify sender is the creator
-	senderID, ok := room.clients[conn]
-	if !ok || senderID != room.creatorID {
-		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "only room creator can set storyteller"})
+	if msg.PlayerID != creatorID {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only room creator can set storyteller"})
 		return
 	}
 
-	// Verify no storyteller already set
-	if room.storytellerID != "" {
-		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "storyteller already set"})
-		return
-	}
-
-	// Verify target player exists
-	found := false
-	for _, p := range room.players {
-		if p.ID == msg.TargetPlayerID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "target player not found"})
-		return
-	}
-
-	// Set storyteller and remove from player list
-	room.storytellerID = msg.TargetPlayerID
-	room.originalPlayers = len(room.players)
-	var newPlayers []game.Player
-	for _, p := range room.players {
-		if p.ID != msg.TargetPlayerID {
-			newPlayers = append(newPlayers, p)
-		}
-	}
-	room.players = newPlayers
-
-	// Broadcast updated state to all
-	room.broadcast(ServerMessage{
-		Type:  "ROOM_STATE",
-		RoomID: room.id,
-		State: room.getState(),
-	})
-}
-
-func (h *Hub) handleAssignCharacters(conn *websocket.Conn, msg ClientMessage) {
 	h.mu.RLock()
-	room, exists := h.rooms[msg.RoomID]
+	gs := h.sessions[roomID]
 	h.mu.RUnlock()
 
-	if !exists {
-		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "room not found"})
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
 		return
 	}
 
-	room.mu.Lock()
-	defer room.mu.Unlock()
-
-	// Verify sender is the storyteller
-	senderID := room.clients[conn]
-	if room.storytellerID == "" || senderID != room.storytellerID {
-		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "only storyteller can assign characters"})
+	result, err := gs.Apply(SetStorytellerCmd{
+		SenderID:       msg.PlayerID,
+		TargetPlayerID: msg.TargetPlayerID,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
 		return
 	}
 
-	// Validate assignment using actual player count (excluding storyteller)
-	playerCount := len(room.players)
-	if !game.ValidateAssignment(msg.Assignments, playerCount) {
-		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "invalid character assignment for player count"})
-		return
-	}
-
-	// Assign characters
-	for playerID, charID := range msg.Assignments {
-		charDef := game.GetCharacterByID(charID)
-		if charDef == nil {
-			continue
-		}
-		for i := range room.players {
-			if room.players[i].ID == playerID {
-				room.players[i].Character = &game.Character{
-					ID:      charDef.ID,
-					Name:    charDef.Name,
-					Team:    charDef.Team,
-					Ability: charDef.Ability,
-				}
-			}
-		}
-	}
-
-	// Broadcast CHARACTER_ASSIGNED events to all
-	for playerID, charID := range msg.Assignments {
-		charDef := game.GetCharacterByID(charID)
-		if charDef == nil {
-			continue
-		}
-		event := game.GameEvent{
-			CharacterAssigned: &game.CharacterAssigned{
-				PlayerID: playerID,
-				Character: game.Character{
-					ID:      charDef.ID,
-					Name:    charDef.Name,
-					Team:    charDef.Team,
-					Ability: charDef.Ability,
-				},
-			},
-		}
-		room.broadcast(ServerMessage{
-			Type:  "EVENT_BROADCAST",
-			Event: &event,
+	if result.Updated {
+		state := h.buildRoomState(roomID)
+		h.Broadcast(roomID, ServerMessage{
+			Type:   "ROOM_STATE",
+			RoomID: roomID,
+			State:  state,
 		})
 	}
 }
 
-func (h *Hub) handleSubmitEvent(conn *websocket.Conn, msg ClientMessage) {
+func (h *Hub) handleAssignCharacters(conn Connection, msg ClientMessage) {
+	roomID := h.connToRoom[conn]
+
+	h.mu.RLock()
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	result, err := gs.Apply(AssignCharactersCmd{
+		SenderID:   msg.PlayerID,
+		Assignments: msg.Assignments,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{
+			Type:  "EVENT_BROADCAST",
+			Event: &eventCopy,
+		})
+	}
+}
+
+func (h *Hub) handleSubmitEvent(conn Connection, msg ClientMessage) {
 	if msg.Event == nil {
 		return
 	}
 
+	roomID := h.connToRoom[conn]
+
 	h.mu.RLock()
-	defer h.mu.RUnlock()
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
 
-	for _, room := range h.rooms {
-		room.mu.RLock()
-		if _, ok := room.clients[conn]; ok {
-			room.broadcast(ServerMessage{
-				Type:  "EVENT_BROADCAST",
-				Event: msg.Event,
-			})
-		}
-		room.mu.RUnlock()
+	if gs == nil {
+		return
+	}
+
+	result, err := gs.Apply(SubmitEventCmd{
+		SenderID: msg.PlayerID,
+		Event:    *msg.Event,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{
+			Type:  "EVENT_BROADCAST",
+			Event: &eventCopy,
+		})
 	}
 }
 
-func (h *Hub) handleDisconnect(conn *websocket.Conn) {
+func (h *Hub) handleDisconnect(conn Connection) {
+	roomID, playerID, err := h.rm.RemoveClientByConn(conn)
+	if err != nil {
+		return
+	}
+
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	delete(h.connToRoom, conn)
+	gs := h.sessions[roomID]
+	h.mu.Unlock()
 
-	for id, room := range h.rooms {
-		room.mu.Lock()
-		if playerID, ok := room.clients[conn]; ok {
-			delete(room.clients, conn)
-			for i, p := range room.players {
-				if p.ID == playerID {
-					room.players = append(room.players[:i], room.players[i+1:]...)
-					break
-				}
-			}
-			event := game.GameEvent{
-				PlayerLeft: &game.PlayerLeft{PlayerID: playerID},
-			}
-			room.broadcast(ServerMessage{
-				Type:  "EVENT_BROADCAST",
-				Event: &event,
-			})
-			if len(room.clients) == 0 {
-				delete(h.rooms, id)
-			}
-		}
-		room.mu.Unlock()
+	if gs != nil {
+		gs.RemovePlayer(playerID)
+	}
+
+	h.Broadcast(roomID, ServerMessage{
+		Type: "EVENT_BROADCAST",
+		Event: &game.GameEvent{
+			PlayerLeft: &game.PlayerLeft{PlayerID: playerID},
+		},
+	})
+
+	if h.rm.GetRoom(roomID) == nil {
+		h.mu.Lock()
+		delete(h.sessions, roomID)
+		h.mu.Unlock()
 	}
 }
 
-func (h *Hub) generateRoomID() string {
-	for {
-		id := fmt.Sprintf("%06d", rand.Intn(1000000))
-		h.mu.RLock()
-		_, exists := h.rooms[id]
-		h.mu.RUnlock()
-		if !exists {
-			return id
-		}
+// --- Broadcaster implementation ---
+
+func (h *Hub) Broadcast(roomID string, msg ServerMessage) {
+	clients := h.rm.GetClientsByRoom(roomID)
+	for _, client := range clients {
+		client.Conn.SendJSON(msg)
 	}
 }
 
-func (r *Room) getState() *RoomState {
-	return &RoomState{
-		RoomID:        r.id,
-		Players:       r.players,
-		MaxPlayers:    r.maxPlayers,
-		StorytellerID: r.storytellerID,
-	}
-}
-
-func (r *Room) broadcast(msg ServerMessage) {
-	for conn := range r.clients {
-		conn.WriteJSON(msg)
-	}
-}
-
-func (r *Room) broadcastExcept(exclude *websocket.Conn, msg ServerMessage) {
-	for conn := range r.clients {
-		if conn != exclude {
-			conn.WriteJSON(msg)
+func (h *Hub) BroadcastExcept(roomID string, excludePlayerID string, msg ServerMessage) {
+	clients := h.rm.GetClientsByRoom(roomID)
+	for pid, client := range clients {
+		if pid != excludePlayerID {
+			client.Conn.SendJSON(msg)
 		}
 	}
+}
+
+func (h *Hub) SendTo(playerID string, msg ServerMessage) {
+	client, _ := h.rm.GetClient(playerID)
+	if client != nil {
+		client.Conn.SendJSON(msg)
+	}
+}
+
+func (h *Hub) buildRoomState(roomID string) *RoomState {
+	h.mu.RLock()
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if gs == nil {
+		return &RoomState{RoomID: roomID}
+	}
+
+	state := gs.StateForRoom(roomID)
+	state.MaxPlayers = h.rm.MaxPlayers(roomID)
+	return state
 }

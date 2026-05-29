@@ -121,3 +121,35 @@ git revert HEAD
 ### 结果
 - Issue #1: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/1
 - Labels: `ready-for-agent`
+
+---
+
+## 2026-05-29 10:00 — 拆解 PRD 为垂直切片
+
+### 操作
+将 PRD #1 拆解为 9 个垂直切片 issues，覆盖 35 个用户故事。
+
+### Issues 创建
+
+| Issue | 标题 | 阻塞 |
+|-------|------|------|
+| #2 | 基础设施：ProtoBuf + WebSocket 基础 | 无 |
+| #3 | 房间管理：创建/加入/销毁 | #2 |
+| #4 | Storyteller 指定 | #3 |
+| #5 | 角色分配：Trouble Brewing 角色集 | #4 |
+| #6 | 白天阶段：玩家列表 + 讨论 | #5 |
+| #7 | 提名系统 | #6 |
+| #8 | 投票系统 | #7 |
+| #9 | 处决 + 死亡宣告 | #8 |
+| #10 | 夜间阶段 + 胜负判定 | #9 |
+
+### 链接
+- Issue #2: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/2
+- Issue #3: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/3
+- Issue #4: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/4
+- Issue #5: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/5
+- Issue #6: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/6
+- Issue #7: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/7
+- Issue #8: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/8
+- Issue #9: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/9
+- Issue #10: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/10

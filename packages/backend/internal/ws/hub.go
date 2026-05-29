@@ -26,13 +26,14 @@ type Hub struct {
 
 // Room represents a game room with connected clients
 type Room struct {
-	mu           sync.RWMutex
-	id           string
-	clients      map[*websocket.Conn]string // conn -> playerID
-	players      []game.Player
-	maxPlayers   int
-	creatorID    string
-	storytellerID string
+	mu              sync.RWMutex
+	id              string
+	clients         map[*websocket.Conn]string // conn -> playerID
+	players         []game.Player
+	maxPlayers      int
+	creatorID       string
+	storytellerID   string
+	originalPlayers int // player count before storyteller was set
 }
 
 // NewHub creates a new Hub instance
@@ -78,6 +79,8 @@ func (h *Hub) handleMessage(conn *websocket.Conn, msg ClientMessage) {
 		h.handleLeaveRoom(conn, msg)
 	case "SET_STORYTELLER":
 		h.handleSetStoryteller(conn, msg)
+	case "ASSIGN_CHARACTERS":
+		h.handleAssignCharacters(conn, msg)
 	case "SUBMIT_EVENT":
 		h.handleSubmitEvent(conn, msg)
 	}
@@ -251,6 +254,7 @@ func (h *Hub) handleSetStoryteller(conn *websocket.Conn, msg ClientMessage) {
 
 	// Set storyteller and remove from player list
 	room.storytellerID = msg.TargetPlayerID
+	room.originalPlayers = len(room.players)
 	var newPlayers []game.Player
 	for _, p := range room.players {
 		if p.ID != msg.TargetPlayerID {
@@ -265,6 +269,75 @@ func (h *Hub) handleSetStoryteller(conn *websocket.Conn, msg ClientMessage) {
 		RoomID: room.id,
 		State: room.getState(),
 	})
+}
+
+func (h *Hub) handleAssignCharacters(conn *websocket.Conn, msg ClientMessage) {
+	h.mu.RLock()
+	room, exists := h.rooms[msg.RoomID]
+	h.mu.RUnlock()
+
+	if !exists {
+		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "room not found"})
+		return
+	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+
+	// Verify sender is the storyteller
+	senderID := room.clients[conn]
+	if room.storytellerID == "" || senderID != room.storytellerID {
+		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "only storyteller can assign characters"})
+		return
+	}
+
+	// Validate assignment using actual player count (excluding storyteller)
+	playerCount := len(room.players)
+	if !game.ValidateAssignment(msg.Assignments, playerCount) {
+		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "invalid character assignment for player count"})
+		return
+	}
+
+	// Assign characters
+	for playerID, charID := range msg.Assignments {
+		charDef := game.GetCharacterByID(charID)
+		if charDef == nil {
+			continue
+		}
+		for i := range room.players {
+			if room.players[i].ID == playerID {
+				room.players[i].Character = &game.Character{
+					ID:      charDef.ID,
+					Name:    charDef.Name,
+					Team:    charDef.Team,
+					Ability: charDef.Ability,
+				}
+			}
+		}
+	}
+
+	// Broadcast CHARACTER_ASSIGNED events to all
+	for playerID, charID := range msg.Assignments {
+		charDef := game.GetCharacterByID(charID)
+		if charDef == nil {
+			continue
+		}
+		event := game.GameEvent{
+			CharacterAssigned: &game.CharacterAssigned{
+				PlayerID: playerID,
+				Character: game.Character{
+					ID:      charDef.ID,
+					Name:    charDef.Name,
+					Team:    charDef.Team,
+					Ability: charDef.Ability,
+				},
+			},
+		}
+		room.broadcast(ServerMessage{
+			Type:  "EVENT_BROADCAST",
+			Event: &event,
+		})
+	}
 }
 
 func (h *Hub) handleSubmitEvent(conn *websocket.Conn, msg ClientMessage) {

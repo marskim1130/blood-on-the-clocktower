@@ -255,3 +255,38 @@ TDD 方式，在 Room 中添加 creatorID 和 storytellerID 字段，实现 SET_
 ```bash
 git revert HEAD
 ```
+
+---
+
+## 2026-05-29 16:15 — 实现 Issue #5：角色分配
+
+### 问题
+需要实现 Trouble Brewing 角色集和 Storyteller 角色分配功能。
+
+### 解决方案
+TDD 方式，先定义角色数据和验证逻辑，再实现 WebSocket 处理器。
+
+### 修改文件
+
+**角色系统：**
+- `packages/backend/internal/game/characters.go` — 22 个 Trouble Brewing 角色定义、角色分配验证
+- `packages/backend/internal/game/characters_test.go` — 6 个测试
+
+**WebSocket 处理器：**
+- `packages/backend/internal/ws/message.go` — 添加 Assignments 字段
+- `packages/backend/internal/ws/hub.go` — 添加 ASSIGN_CHARACTERS 处理器
+- `packages/backend/internal/ws/ws_test.go` — 17 个测试（14 个原有 + 3 个新增）
+
+**新增测试：**
+- TestStorytellerCanAssignCharacters — Storyteller 分配角色并广播
+- TestInvalidAssignmentRejected — 非法分配被拒绝
+- TestNonStorytellerCannotAssignCharacters — 非 Storyteller 无法分配
+
+### 测试结果
+- Go: 23 个测试通过（6 game + 17 ws）
+- TypeScript: 11 个测试通过
+
+### 撤回方式
+```bash
+git revert HEAD
+```

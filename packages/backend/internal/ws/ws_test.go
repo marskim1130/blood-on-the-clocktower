@@ -585,3 +585,179 @@ func TestNonStorytellerCannotPerformStorytellerActions(t *testing.T) {
 		t.Errorf("expected ERROR for non-creator, got %s", errResp.Type)
 	}
 }
+
+// --- Character assignment tests (Issue #5) ---
+
+func TestStorytellerCanAssignCharacters(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	ws1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws1.Close()
+	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws2.Close()
+	ws3, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws3.Close()
+	ws4, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws4.Close()
+	ws5, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws5.Close()
+
+	// Create room and join 5 players
+	ws1.WriteJSON(ClientMessage{Type: "CREATE_ROOM", PlayerName: "Alice", PlayerID: "p1", MaxPlayers: 5})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, _ := ws1.ReadMessage()
+	var roomResp ServerMessage
+	json.Unmarshal(raw, &roomResp)
+
+	connected := []*websocket.Conn{ws1}
+	for i, ws := range []*websocket.Conn{ws2, ws3, ws4, ws5} {
+		ws.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: fmt.Sprintf("P%d", i+2), PlayerID: fmt.Sprintf("p%d", i+2)})
+		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+		ws.ReadMessage() // ROOM_STATE for new player
+		// Drain PLAYER_JOINED broadcast from all existing connected clients
+		time.Sleep(20 * time.Millisecond)
+		for _, existing := range connected {
+			existing.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+			existing.ReadMessage()
+		}
+		connected = append(connected, ws)
+	}
+
+	// Set storyteller
+	ws1.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p1", TargetPlayerID: "p2"})
+	// Read ROOM_STATE from all clients (handler broadcasts to all)
+	for _, ws := range []*websocket.Conn{ws1, ws2, ws3, ws4, ws5} {
+		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, raw, err := ws.ReadMessage()
+		if err != nil {
+			t.Fatalf("failed to read storyteller broadcast: %v", err)
+		}
+		var msg ServerMessage
+		json.Unmarshal(raw, &msg)
+		if msg.Type != "ROOM_STATE" {
+			t.Errorf("expected ROOM_STATE, got %s", msg.Type)
+		}
+	}
+
+	// Storyteller (p2) assigns characters to remaining 4 players
+	// 4-player game: 3 townsfolk, 0 outsiders, 0 minions, 1 demon
+	assignments := map[string]string{
+		"p1": "washerwoman",
+		"p3": "librarian",
+		"p4": "investigator",
+		"p5": "imp",
+	}
+	ws2.WriteJSON(ClientMessage{Type: "ASSIGN_CHARACTERS", RoomID: roomResp.RoomID, PlayerID: "p2", Assignments: assignments})
+
+	// All connected clients should receive CHARACTER_ASSIGNED events (4 assignments = 4 broadcasts each)
+	for _, ws := range []*websocket.Conn{ws1, ws2, ws3, ws4, ws5} {
+		for i := 0; i < 4; i++ {
+			ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+			_, raw, err := ws.ReadMessage()
+			if err != nil {
+				t.Fatalf("failed to read character assignment %d: %v", i, err)
+			}
+			var msg ServerMessage
+			json.Unmarshal(raw, &msg)
+			if msg.Type != "EVENT_BROADCAST" {
+				t.Errorf("expected EVENT_BROADCAST, got %s", msg.Type)
+			}
+		}
+	}
+}
+
+func TestInvalidAssignmentRejected(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	ws1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws1.Close()
+	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws2.Close()
+
+	ws1.WriteJSON(ClientMessage{Type: "CREATE_ROOM", PlayerName: "Alice", PlayerID: "p1", MaxPlayers: 5})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, _ := ws1.ReadMessage()
+	var roomResp ServerMessage
+	json.Unmarshal(raw, &roomResp)
+
+	ws2.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Bob", PlayerID: "p2"})
+	ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws2.ReadMessage()
+	ws1.ReadMessage()
+
+	// Invalid: 2 players but trying to assign 5-player distribution
+	assignments := map[string]string{
+		"p1": "imp",
+		"p2": "imp",
+	}
+	ws1.WriteJSON(ClientMessage{Type: "ASSIGN_CHARACTERS", RoomID: roomResp.RoomID, PlayerID: "p1", Assignments: assignments})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := ws1.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+	var errResp ServerMessage
+	json.Unmarshal(raw, &errResp)
+	if errResp.Type != "ERROR" {
+		t.Errorf("expected ERROR for invalid assignment, got %s", errResp.Type)
+	}
+}
+
+func TestNonStorytellerCannotAssignCharacters(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	ws1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws1.Close()
+	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws2.Close()
+	ws3, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws3.Close()
+
+	ws1.WriteJSON(ClientMessage{Type: "CREATE_ROOM", PlayerName: "Alice", PlayerID: "p1", MaxPlayers: 5})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, _ := ws1.ReadMessage()
+	var roomResp ServerMessage
+	json.Unmarshal(raw, &roomResp)
+
+	ws2.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Bob", PlayerID: "p2"})
+	ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws2.ReadMessage()
+	ws1.ReadMessage()
+
+	ws3.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Charlie", PlayerID: "p3"})
+	ws3.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws3.ReadMessage()
+	ws1.ReadMessage()
+	ws2.ReadMessage()
+
+	// Set p2 as storyteller
+	ws1.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p1", TargetPlayerID: "p2"})
+	ws1.ReadMessage() // ROOM_STATE
+	ws2.ReadMessage()
+	ws3.ReadMessage()
+
+	// Non-storyteller (p3) tries to assign characters
+	ws3.WriteJSON(ClientMessage{Type: "ASSIGN_CHARACTERS", RoomID: roomResp.RoomID, PlayerID: "p3", Assignments: map[string]string{"p1": "imp", "p3": "washerwoman"}})
+	ws3.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := ws3.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+	var errResp ServerMessage
+	json.Unmarshal(raw, &errResp)
+	if errResp.Type != "ERROR" {
+		t.Errorf("expected ERROR for non-storyteller, got %s", errResp.Type)
+	}
+}

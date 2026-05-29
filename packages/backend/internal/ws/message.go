@@ -4,13 +4,14 @@ import "github.com/your-org/blood-on-the-clocktower/internal/game"
 
 // ClientMessage represents a message from client to server
 type ClientMessage struct {
-	Type           string          `json:"type"`
-	RoomID         string          `json:"roomId,omitempty"`
-	PlayerName     string          `json:"playerName,omitempty"`
-	PlayerID       string          `json:"playerId,omitempty"`
-	TargetPlayerID string          `json:"targetPlayerId,omitempty"`
-	MaxPlayers     int             `json:"maxPlayers,omitempty"`
-	Event          *game.GameEvent `json:"event,omitempty"`
+	Type           string            `json:"type"`
+	RoomID         string            `json:"roomId,omitempty"`
+	PlayerName     string            `json:"playerName,omitempty"`
+	PlayerID       string            `json:"playerId,omitempty"`
+	TargetPlayerID string            `json:"targetPlayerId,omitempty"`
+	MaxPlayers     int               `json:"maxPlayers,omitempty"`
+	Assignments    map[string]string `json:"assignments,omitempty"` // playerID -> characterID
+	Event          *game.GameEvent   `json:"event,omitempty"`
 }
 
 // ServerMessage represents a message from server to client

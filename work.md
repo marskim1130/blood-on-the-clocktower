@@ -77,3 +77,36 @@ Taro 4.x 的 React Native 支持不使用 `@tarojs/plugin-platform-rn` 包。正
 ```bash
 git revert HEAD
 ```
+
+---
+
+## 2026-05-28 14:45 — 创建 MVP PRD
+
+### 问题
+需要明确 MVP 范围和实现计划，为开发提供清晰指引。
+
+### 解决方案
+基于需求访谈，创建了 Human Storyteller 模式的 MVP PRD，包含：
+- 35 个用户故事
+- 9 个核心模块划分
+- 数据模型和 API 契约
+- 测试策略
+
+### 关键决策
+- 游戏模式：混合模式（人类 Storyteller 优先）
+- 自动化级别：最大自动化
+- 角色版本：Trouble Brewing only
+- 玩家规模：5-15 人
+- 并发目标：20-30 局（2c2g 服务器）
+- 持久化：Redis
+- 主平台：微信小程序
+- 用户系统：匿名房间制
+- 测试范围：Core Game Logic + Backend Services
+
+### 修改文件
+- `docs/prd/mvp-human-storyteller.md` — MVP PRD 文档
+
+### 撤回方式
+```bash
+git revert HEAD
+```

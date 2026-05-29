@@ -153,3 +153,40 @@ git revert HEAD
 - Issue #8: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/8
 - Issue #9: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/9
 - Issue #10: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/10
+
+---
+
+## 2026-05-29 14:30 — 实现 Issue #2：ProtoBuf + WebSocket 基础
+
+### 问题
+需要建立项目的基础设施：ProtoBuf 类型同步流水线和 Go ↔ TypeScript WebSocket 通信。
+
+### 解决方案
+TDD 方式实现，先写测试再写代码。
+
+### 修改文件
+
+**依赖更新：**
+- `package.json` — 添加 protobufjs、protobufjs-cli、ws、@types/ws 依赖
+
+**Go WebSocket 服务器：**
+- `packages/backend/internal/ws/message.go` — 消息类型定义（ClientMessage、ServerMessage、RoomState）
+- `packages/backend/internal/ws/hub.go` — WebSocket Hub（连接管理、房间路由、消息广播）
+- `packages/backend/internal/ws/ws_test.go` — 5 个测试：连接、加入房间、广播、房间隔离、端到端事件流
+- `packages/backend/cmd/server/main.go` — 改用 HTTP + WebSocket（替代 gRPC 骨架）
+
+**TypeScript WebSocket 客户端：**
+- `packages/core/src/websocket/index.ts` — 重写客户端，匹配服务器协议（ClientMessage/ServerMessage）
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts` — 3 个测试：连接状态、加入房间、断开发送
+
+**ProtoBuf 生成验证：**
+- `packages/core/src/types/generated/__tests__/proto-types.test.ts` — 8 个测试：Team/GamePhase 枚举、Player/GameState/GameEvent 接口
+
+### 测试结果
+- TypeScript: 11 个测试通过（2 个测试文件）
+- Go: 5 个测试通过（1 个测试文件）
+
+### 撤回方式
+```bash
+git revert HEAD
+```

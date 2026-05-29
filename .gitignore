@@ -12,6 +12,9 @@ build/
 packages/core/src/types/generated/bundle.js
 packages/core/src/types/generated/bundle.d.ts
 
+# Claude Code
+.claude/
+
 # IDE
 .vscode/
 .idea/

@@ -2,22 +2,23 @@ package main
 
 import (
 	"log"
-	"net"
+	"net/http"
 
-	"google.golang.org/grpc"
+	"github.com/your-org/blood-on-the-clocktower/internal/ws"
 )
 
 func main() {
-	lis, err := net.Listen("tcp", ":50051")
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
+	hub := ws.NewHub()
 
-	s := grpc.NewServer()
-	// Register your gRPC services here
+	http.HandleFunc("/ws", hub.HandleWebSocket)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
 
-	log.Println("Server listening on :50051")
-	if err := s.Serve(lis); err != nil {
+	addr := ":8080"
+	log.Printf("WebSocket server listening on %s", addr)
+	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
 }

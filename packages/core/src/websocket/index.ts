@@ -1,19 +1,52 @@
-import type { GameEvent } from '../types/index.js';
+import type { PlayerId } from '../types/index.js';
 
-type MessageHandler = (event: GameEvent) => void;
-type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+// Messages matching Go server protocol
+export interface ClientMessage {
+  readonly type: 'JOIN_ROOM' | 'SUBMIT_EVENT';
+  readonly roomId?: string;
+  readonly playerName?: string;
+  readonly playerId?: string;
+  readonly event?: Record<string, unknown>;
+}
 
-interface WebSocketClientOptions {
-  url: string;
-  reconnectInterval?: number;
-  maxReconnectAttempts?: number;
+export interface ServerMessage {
+  readonly type: 'ROOM_STATE' | 'EVENT_BROADCAST';
+  readonly roomId?: string;
+  readonly state?: RoomState;
+  readonly event?: GameServerEvent;
+}
+
+export interface RoomState {
+  readonly roomId: string;
+  readonly players: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly isAlive: boolean;
+  }>;
+}
+
+export type GameServerEvent =
+  | { readonly playerJoined: { readonly player: { readonly id: string; readonly name: string; readonly isAlive: boolean } } }
+  | { readonly playerLeft: { readonly playerId: string } }
+  | { readonly phaseChanged: { readonly phase: number } }
+  | { readonly voteCast: { readonly voterId: string; readonly targetId?: string } }
+  | { readonly characterAssigned: { readonly playerId: string; readonly character: { readonly id: string; readonly name: string; readonly team: number; readonly ability: string } } };
+
+type MessageHandler = (msg: ServerMessage) => void;
+type StatusHandler = (status: ConnectionStatus) => void;
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+export interface WebSocketClientOptions {
+  readonly url: string;
+  readonly reconnectInterval?: number;
+  readonly maxReconnectAttempts?: number;
 }
 
 export class GameWebSocketClient {
   private ws: WebSocket | null = null;
   private options: Required<WebSocketClientOptions>;
   private handlers: Set<MessageHandler> = new Set();
-  private statusHandlers: Set<(status: ConnectionStatus) => void> = new Set();
+  private statusHandlers: Set<StatusHandler> = new Set();
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _status: ConnectionStatus = 'disconnected';
@@ -43,8 +76,8 @@ export class GameWebSocketClient {
 
     this.ws.onmessage = (event) => {
       try {
-        const gameEvent: GameEvent = JSON.parse(event.data as string);
-        this.handlers.forEach((handler) => handler(gameEvent));
+        const msg: ServerMessage = JSON.parse(event.data as string);
+        this.handlers.forEach((handler) => handler(msg));
       } catch {
         console.error('Failed to parse WebSocket message');
       }
@@ -70,11 +103,15 @@ export class GameWebSocketClient {
     this.setStatus('disconnected');
   }
 
-  send(event: GameEvent): void {
+  joinRoom(roomId: string, playerId: string, playerName: string): void {
+    this.send({ type: 'JOIN_ROOM', roomId, playerId, playerName });
+  }
+
+  send(msg: ClientMessage): void {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not connected');
     }
-    this.ws.send(JSON.stringify(event));
+    this.ws.send(JSON.stringify(msg));
   }
 
   onMessage(handler: MessageHandler): () => void {
@@ -82,7 +119,7 @@ export class GameWebSocketClient {
     return () => this.handlers.delete(handler);
   }
 
-  onStatusChange(handler: (status: ConnectionStatus) => void): () => void {
+  onStatusChange(handler: StatusHandler): () => void {
     this.statusHandlers.add(handler);
     return () => this.statusHandlers.delete(handler);
   }
@@ -101,5 +138,3 @@ export class GameWebSocketClient {
     }, this.options.reconnectInterval);
   }
 }
-
-export type { ConnectionStatus, WebSocketClientOptions };

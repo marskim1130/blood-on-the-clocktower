@@ -26,11 +26,13 @@ type Hub struct {
 
 // Room represents a game room with connected clients
 type Room struct {
-	mu         sync.RWMutex
-	id         string
-	clients    map[*websocket.Conn]string // conn -> playerID
-	players    []game.Player
-	maxPlayers int
+	mu           sync.RWMutex
+	id           string
+	clients      map[*websocket.Conn]string // conn -> playerID
+	players      []game.Player
+	maxPlayers   int
+	creatorID    string
+	storytellerID string
 }
 
 // NewHub creates a new Hub instance
@@ -74,6 +76,8 @@ func (h *Hub) handleMessage(conn *websocket.Conn, msg ClientMessage) {
 		h.handleJoinRoom(conn, msg)
 	case "LEAVE_ROOM":
 		h.handleLeaveRoom(conn, msg)
+	case "SET_STORYTELLER":
+		h.handleSetStoryteller(conn, msg)
 	case "SUBMIT_EVENT":
 		h.handleSubmitEvent(conn, msg)
 	}
@@ -92,6 +96,7 @@ func (h *Hub) handleCreateRoom(conn *websocket.Conn, msg ClientMessage) {
 		id:         roomID,
 		clients:    make(map[*websocket.Conn]string),
 		maxPlayers: maxPlayers,
+		creatorID:  msg.PlayerID,
 	}
 	h.rooms[roomID] = room
 	h.mu.Unlock()
@@ -205,6 +210,63 @@ func (h *Hub) handleLeaveRoom(conn *websocket.Conn, msg ClientMessage) {
 	}
 }
 
+func (h *Hub) handleSetStoryteller(conn *websocket.Conn, msg ClientMessage) {
+	h.mu.RLock()
+	room, exists := h.rooms[msg.RoomID]
+	h.mu.RUnlock()
+
+	if !exists {
+		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "room not found"})
+		return
+	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+
+	// Verify sender is the creator
+	senderID, ok := room.clients[conn]
+	if !ok || senderID != room.creatorID {
+		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "only room creator can set storyteller"})
+		return
+	}
+
+	// Verify no storyteller already set
+	if room.storytellerID != "" {
+		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "storyteller already set"})
+		return
+	}
+
+	// Verify target player exists
+	found := false
+	for _, p := range room.players {
+		if p.ID == msg.TargetPlayerID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		conn.WriteJSON(ServerMessage{Type: "ERROR", Error: "target player not found"})
+		return
+	}
+
+	// Set storyteller and remove from player list
+	room.storytellerID = msg.TargetPlayerID
+	var newPlayers []game.Player
+	for _, p := range room.players {
+		if p.ID != msg.TargetPlayerID {
+			newPlayers = append(newPlayers, p)
+		}
+	}
+	room.players = newPlayers
+
+	// Broadcast updated state to all
+	room.broadcast(ServerMessage{
+		Type:  "ROOM_STATE",
+		RoomID: room.id,
+		State: room.getState(),
+	})
+}
+
 func (h *Hub) handleSubmitEvent(conn *websocket.Conn, msg ClientMessage) {
 	if msg.Event == nil {
 		return
@@ -268,9 +330,10 @@ func (h *Hub) generateRoomID() string {
 
 func (r *Room) getState() *RoomState {
 	return &RoomState{
-		RoomID:     r.id,
-		Players:    r.players,
-		MaxPlayers: r.maxPlayers,
+		RoomID:        r.id,
+		Players:       r.players,
+		MaxPlayers:    r.maxPlayers,
+		StorytellerID: r.storytellerID,
 	}
 }
 

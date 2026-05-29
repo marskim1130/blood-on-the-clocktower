@@ -223,3 +223,35 @@ TDD 方式，在 Issue #2 的 Hub 基础上扩展房间管理功能。
 ```bash
 git revert HEAD
 ```
+
+---
+
+## 2026-05-29 16:00 — 实现 Issue #4：Storyteller 指定
+
+### 问题
+需要实现 Storyteller 角色的指定和权限验证。
+
+### 解决方案
+TDD 方式，在 Room 中添加 creatorID 和 storytellerID 字段，实现 SET_STORYTELLER 处理器。
+
+### 修改文件
+
+**Go WebSocket 服务器：**
+- `packages/backend/internal/ws/message.go` — 添加 TargetPlayerID、StorytellerID 字段
+- `packages/backend/internal/ws/hub.go` — 添加 SET_STORYTELLER 处理器（权限验证、移除玩家列表、广播）
+- `packages/backend/internal/ws/ws_test.go` — 14 个测试（10 个原有 + 4 个新增）
+
+**新增测试：**
+- TestSetStoryteller — 指定 Storyteller 并广播
+- TestStorytellerRemovedFromPlayerList — Storyteller 从玩家列表移除
+- TestOnlyOneStoryteller — 只能有一个 Storyteller
+- TestNonStorytellerCannotPerformStorytellerActions — 非创建者无法指定
+
+### 测试结果
+- Go: 14 个测试通过
+- TypeScript: 11 个测试通过
+
+### 撤回方式
+```bash
+git revert HEAD
+```

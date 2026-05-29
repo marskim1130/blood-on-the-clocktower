@@ -405,3 +405,183 @@ func TestRoomAutoDestroysWhenEmpty(t *testing.T) {
 		t.Errorf("expected ERROR after room destroyed, got %s", errResp.Type)
 	}
 }
+
+// --- Storyteller tests (Issue #4) ---
+
+func TestSetStoryteller(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	ws1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws1.Close()
+	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws2.Close()
+
+	// Create room, player 1 is creator
+	ws1.WriteJSON(ClientMessage{Type: "CREATE_ROOM", PlayerName: "Alice", PlayerID: "p1"})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, _ := ws1.ReadMessage()
+	var roomResp ServerMessage
+	json.Unmarshal(raw, &roomResp)
+
+	// Player 2 joins
+	ws2.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Bob", PlayerID: "p2"})
+	ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws2.ReadMessage()
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws1.ReadMessage() // PLAYER_JOINED
+
+	// Creator sets player 2 as Storyteller
+	ws1.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p1", TargetPlayerID: "p2"})
+
+	// Both should receive ROOM_STATE update with storytellerId
+	for _, ws := range []*websocket.Conn{ws1, ws2} {
+		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, raw, err := ws.ReadMessage()
+		if err != nil {
+			t.Fatalf("failed to read response: %v", err)
+		}
+		var msg ServerMessage
+		json.Unmarshal(raw, &msg)
+		if msg.Type != "ROOM_STATE" {
+			t.Errorf("expected ROOM_STATE, got %s", msg.Type)
+		}
+		if msg.State == nil || msg.State.StorytellerID != "p2" {
+			t.Errorf("expected storytellerId=p2, got %v", msg.State)
+		}
+	}
+}
+
+func TestStorytellerRemovedFromPlayerList(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	ws1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws1.Close()
+	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws2.Close()
+
+	ws1.WriteJSON(ClientMessage{Type: "CREATE_ROOM", PlayerName: "Alice", PlayerID: "p1"})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, _ := ws1.ReadMessage()
+	var roomResp ServerMessage
+	json.Unmarshal(raw, &roomResp)
+
+	ws2.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Bob", PlayerID: "p2"})
+	ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws2.ReadMessage()
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws1.ReadMessage()
+
+	// Set player 2 as Storyteller
+	ws1.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p1", TargetPlayerID: "p2"})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, _ = ws1.ReadMessage()
+	var stateMsg ServerMessage
+	json.Unmarshal(raw, &stateMsg)
+
+	// Storyteller (p2) should not be in player list
+	if stateMsg.State == nil {
+		t.Fatal("expected non-nil state")
+	}
+	for _, p := range stateMsg.State.Players {
+		if p.ID == "p2" {
+			t.Error("storyteller should be removed from player list")
+		}
+	}
+}
+
+func TestOnlyOneStoryteller(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	ws1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws1.Close()
+	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws2.Close()
+	ws3, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws3.Close()
+
+	ws1.WriteJSON(ClientMessage{Type: "CREATE_ROOM", PlayerName: "Alice", PlayerID: "p1"})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, _ := ws1.ReadMessage()
+	var roomResp ServerMessage
+	json.Unmarshal(raw, &roomResp)
+
+	ws2.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Bob", PlayerID: "p2"})
+	ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws2.ReadMessage()
+	ws1.ReadMessage() // broadcast
+
+	ws3.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Charlie", PlayerID: "p3"})
+	ws3.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws3.ReadMessage()
+	ws1.ReadMessage() // broadcast
+	ws2.ReadMessage() // broadcast
+
+	// Set p2 as Storyteller
+	ws1.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p1", TargetPlayerID: "p2"})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws1.ReadMessage() // ROOM_STATE
+	ws2.ReadMessage() // broadcast
+	ws3.ReadMessage() // broadcast
+
+	// Try to set p3 as Storyteller (should fail)
+	ws1.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p1", TargetPlayerID: "p3"})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := ws1.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+	var errResp ServerMessage
+	json.Unmarshal(raw, &errResp)
+	if errResp.Type != "ERROR" {
+		t.Errorf("expected ERROR, got %s", errResp.Type)
+	}
+}
+
+func TestNonStorytellerCannotPerformStorytellerActions(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	ws1, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws1.Close()
+	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws2.Close()
+
+	ws1.WriteJSON(ClientMessage{Type: "CREATE_ROOM", PlayerName: "Alice", PlayerID: "p1"})
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, _ := ws1.ReadMessage()
+	var roomResp ServerMessage
+	json.Unmarshal(raw, &roomResp)
+
+	ws2.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Bob", PlayerID: "p2"})
+	ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	ws2.ReadMessage()
+	ws1.ReadMessage()
+
+	// Non-storyteller player tries to set storyteller (should fail, only creator can)
+	ws2.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p2", TargetPlayerID: "p1"})
+	ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := ws2.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read response: %v", err)
+	}
+	var errResp ServerMessage
+	json.Unmarshal(raw, &errResp)
+	if errResp.Type != "ERROR" {
+		t.Errorf("expected ERROR for non-creator, got %s", errResp.Type)
+	}
+}

@@ -110,3 +110,14 @@ git revert HEAD
 ```bash
 git revert HEAD
 ```
+
+---
+
+## 2026-05-28 15:00 — 创建 GitHub Issue
+
+### 操作
+使用 gh CLI 创建 PRD issue 并设置 triage labels。
+
+### 结果
+- Issue #1: https://github.com/CodeApeKQ/blood-on-the-clocktower/issues/1
+- Labels: `ready-for-agent`

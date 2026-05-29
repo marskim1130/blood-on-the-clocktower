@@ -190,3 +190,36 @@ TDD 方式实现，先写测试再写代码。
 ```bash
 git revert HEAD
 ```
+
+---
+
+## 2026-05-29 14:50 — 实现 Issue #3：房间管理
+
+### 问题
+需要实现房间的完整生命周期：创建、加入、离开、销毁，以及人数限制。
+
+### 解决方案
+TDD 方式，在 Issue #2 的 Hub 基础上扩展房间管理功能。
+
+### 修改文件
+
+**Go WebSocket 服务器：**
+- `packages/backend/internal/ws/message.go` — 添加 MaxPlayers、Error 字段
+- `packages/backend/internal/ws/hub.go` — 添加 CREATE_ROOM、LEAVE_ROOM 处理器，房间验证，自动销毁
+- `packages/backend/internal/ws/ws_test.go` — 10 个测试（5 个原有 + 5 个新增）
+
+**新增测试：**
+- TestCreateRoomGeneratesUniqueID — 创建房间生成 6 位唯一 ID
+- TestJoinNonExistentRoomReturnsError — 加入不存在房间返回错误
+- TestJoinFullRoomReturnsError — 房间满员拒绝加入
+- TestLeaveRoomRemovesPlayer — 玩家离开广播 PLAYER_LEFT
+- TestRoomAutoDestroysWhenEmpty — 最后玩家离开后房间销毁
+
+### 测试结果
+- Go: 10 个测试通过
+- TypeScript: 11 个测试通过
+
+### 撤回方式
+```bash
+git revert HEAD
+```

@@ -1,5 +1,63 @@
 # Work Log
 
+## 2026-05-30 15:10 — 前端状态机第一阶段初始化
+### 问题
+需要引导用户学习前端的 Branded Types 模式以及 Zustand 状态管理设计。
+### 解决方案
+1. 切换工作区至第一个 Git 提交（哈希 `17fe71b9031fc051176aa78775ca5b8aab8e8536`）。
+2. 在根目录下重新建立教学审计日志，开启 TypeScript 前端核心库的第一阶段教学。
+### 修改文件
+- `work.md` (重建)
+### 撤回方式
+```bash
+git checkout main
+```
+
+---
+
+## 2026-05-30 15:11 — 修复 state-machine/index.ts 的 GameId 漏导 Bug
+### 问题
+Zustand 初始化状态机时对 id 字段使用了 `'' as GameId` 类型转换，但第 2 行的 import 语句漏导了 `GameId` 类型，导致 TypeScript 编译器报错 `Cannot find name 'GameId'`。
+### 解决方案
+在 `packages/core/src/state-machine/index.ts` 导入声明中加上 `GameId` 类型。
+### 修改文件
+- `packages/core/src/state-machine/index.ts`
+### 撤回方式
+```bash
+git checkout -- packages/core/src/state-machine/index.ts
+```
+
+---
+
+## 2026-05-30 15:56 — 前端状态机 TDD 红（RED）阶段初始化
+### 问题
+需要实战测试 TypeScript 类型与 Zustand 状态机，根据 TDD 规范，需先建立失败断言。
+### 解决方案
+在 `packages/core/src/state-machine/__tests__` 下创建了 `state_syntax.test.ts`，并写入一个必定断言失败的测试用例。
+### 修改文件
+- `packages/core/src/state-machine/__tests__/state_syntax.test.ts`
+### 撤回方式
+```bash
+rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
+```
+
+---
+
+## 2026-05-30 16:15 — 前端状态机 TDD 绿（GREEN）阶段测试通过
+### 问题
+第一阶段的测试用例已完成编写，需要验证 Branded Types 的编译防护与 Zustand 状态机的状态转移正确性，并完成第一阶段的测试闭环。
+### 解决方案
+1. 用户在本地执行 `pnpm --filter @clocktower/core test`。
+2. 单元测试全部通过，验证了 `PLAYER_JOINED`、`VOTE_CAST`、`PHASE_CHANGED` 事件的状态转移及 Branded Types 的静态类型安全。
+### 修改文件
+- `packages/core/src/state-machine/__tests__/state_syntax.test.ts` (绿阶段已充实并确认通过)
+### 撤回方式
+```bash
+git checkout -- packages/core/src/state-machine/__tests__/state_syntax.test.ts
+```
+
+---
+
 ## 2026-05-28 14:30 — 项目初始化
 
 ### 问题

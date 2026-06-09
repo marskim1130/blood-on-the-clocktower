@@ -42,7 +42,7 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close()
 
 	for {
-		_, raw, err := wsConn.ReadMessage()
+		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			h.handleDisconnect(conn)
 			break
@@ -79,7 +79,7 @@ func (h *Hub) handleCreateRoom(conn Connection, msg ClientMessage) {
 	room := h.rm.CreateRoom(msg.PlayerID, msg.MaxPlayers)
 
 	room.mu.Lock()
-	room.clients[msg.PlayerID] = &Client{Conn: conn, PlayerID: msg.PlayerID}
+	room.addClient(conn, msg.PlayerID)
 	room.mu.Unlock()
 
 	gs := NewGameSession()
@@ -130,7 +130,23 @@ func (h *Hub) handleJoinRoom(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) handleLeaveRoom(conn Connection, msg ClientMessage) {
-	roomID, err := h.rm.LeaveRoom(msg.PlayerID)
+	// Derive room and player identity from the connection, not from the message.
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	playerID := h.rm.GetPlayerByConn(roomID, conn)
+	if playerID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	_, err := h.rm.LeaveRoom(playerID)
 	if err != nil {
 		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
 		return
@@ -142,13 +158,13 @@ func (h *Hub) handleLeaveRoom(conn Connection, msg ClientMessage) {
 	h.mu.Unlock()
 
 	if gs != nil {
-		gs.RemovePlayer(msg.PlayerID)
+		gs.RemovePlayer(playerID)
 	}
 
 	h.Broadcast(roomID, ServerMessage{
 		Type: "EVENT_BROADCAST",
 		Event: &game.GameEvent{
-			PlayerLeft: &game.PlayerLeft{PlayerID: msg.PlayerID},
+			PlayerLeft: &game.PlayerLeft{PlayerID: playerID},
 		},
 	})
 
@@ -161,25 +177,28 @@ func (h *Hub) handleLeaveRoom(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) handleSetStoryteller(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
 	roomID := h.connToRoom[conn]
-	creatorID := h.rm.CreatorID(roomID)
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
 
-	senderID := ""
-	if client, rid := h.rm.GetClient(msg.PlayerID); client != nil {
-		senderID = msg.PlayerID
-		_ = rid
-	}
-	_ = senderID
-
-	// Verify sender is the creator
-	if msg.PlayerID != creatorID {
-		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only room creator can set storyteller"})
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
 		return
 	}
 
-	h.mu.RLock()
-	gs := h.sessions[roomID]
-	h.mu.RUnlock()
+	// Derive sender identity from the connection, not from the message
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	creatorID := h.rm.CreatorID(roomID)
+	if senderID != creatorID {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only room creator can set storyteller"})
+		return
+	}
 
 	if gs == nil {
 		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
@@ -187,7 +206,7 @@ func (h *Hub) handleSetStoryteller(conn Connection, msg ClientMessage) {
 	}
 
 	result, err := gs.Apply(SetStorytellerCmd{
-		SenderID:       msg.PlayerID,
+		SenderID:       senderID,
 		TargetPlayerID: msg.TargetPlayerID,
 	})
 	if err != nil {
@@ -206,19 +225,30 @@ func (h *Hub) handleSetStoryteller(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) handleAssignCharacters(conn Connection, msg ClientMessage) {
-	roomID := h.connToRoom[conn]
-
 	h.mu.RLock()
+	roomID := h.connToRoom[conn]
 	gs := h.sessions[roomID]
 	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
 
 	if gs == nil {
 		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
 		return
 	}
 
+	// Derive sender identity from the connection, not from the message
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
 	result, err := gs.Apply(AssignCharactersCmd{
-		SenderID:   msg.PlayerID,
+		SenderID:    senderID,
 		Assignments: msg.Assignments,
 	})
 	if err != nil {
@@ -240,18 +270,29 @@ func (h *Hub) handleSubmitEvent(conn Connection, msg ClientMessage) {
 		return
 	}
 
-	roomID := h.connToRoom[conn]
-
 	h.mu.RLock()
+	roomID := h.connToRoom[conn]
 	gs := h.sessions[roomID]
 	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
 
 	if gs == nil {
 		return
 	}
 
+	// Derive sender identity from the connection, not from the message
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
 	result, err := gs.Apply(SubmitEventCmd{
-		SenderID: msg.PlayerID,
+		SenderID: senderID,
 		Event:    *msg.Event,
 	})
 	if err != nil {
@@ -269,15 +310,19 @@ func (h *Hub) handleSubmitEvent(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) handleDisconnect(conn Connection) {
+	// Always clean up connToRoom, even if RemoveClientByConn fails
+	h.mu.Lock()
+	delete(h.connToRoom, conn)
+	h.mu.Unlock()
+
 	roomID, playerID, err := h.rm.RemoveClientByConn(conn)
 	if err != nil {
 		return
 	}
 
-	h.mu.Lock()
-	delete(h.connToRoom, conn)
+	h.mu.RLock()
 	gs := h.sessions[roomID]
-	h.mu.Unlock()
+	h.mu.RUnlock()
 
 	if gs != nil {
 		gs.RemovePlayer(playerID)
@@ -301,8 +346,10 @@ func (h *Hub) handleDisconnect(conn Connection) {
 
 func (h *Hub) Broadcast(roomID string, msg ServerMessage) {
 	clients := h.rm.GetClientsByRoom(roomID)
-	for _, client := range clients {
-		client.Conn.SendJSON(msg)
+	for pid, client := range clients {
+		if err := client.Conn.SendJSON(msg); err != nil {
+			log.Printf("broadcast to %s in room %s failed: %v", pid, roomID, err)
+		}
 	}
 }
 
@@ -310,7 +357,9 @@ func (h *Hub) BroadcastExcept(roomID string, excludePlayerID string, msg ServerM
 	clients := h.rm.GetClientsByRoom(roomID)
 	for pid, client := range clients {
 		if pid != excludePlayerID {
-			client.Conn.SendJSON(msg)
+			if err := client.Conn.SendJSON(msg); err != nil {
+				log.Printf("broadcast to %s in room %s failed: %v", pid, roomID, err)
+			}
 		}
 	}
 }
@@ -318,7 +367,9 @@ func (h *Hub) BroadcastExcept(roomID string, excludePlayerID string, msg ServerM
 func (h *Hub) SendTo(playerID string, msg ServerMessage) {
 	client, _ := h.rm.GetClient(playerID)
 	if client != nil {
-		client.Conn.SendJSON(msg)
+		if err := client.Conn.SendJSON(msg); err != nil {
+			log.Printf("send to player %s failed: %v", playerID, err)
+		}
 	}
 }
 

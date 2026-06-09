@@ -18,6 +18,13 @@ type Room struct {
 	creatorID  string
 }
 
+func (r *Room) addClient(conn Connection, playerID string) {
+	r.clients[playerID] = &Client{
+		Conn:     conn,
+		PlayerID: playerID,
+	}
+}
+
 // RoomManager manages room lifecycle.
 // No game rules, no broadcasting.
 type RoomManager struct {
@@ -36,9 +43,8 @@ func (rm *RoomManager) CreateRoom(creatorID string, maxPlayers int) *Room {
 		maxPlayers = defaultMaxPlayers
 	}
 
-	roomID := rm.generateRoomID()
-
 	rm.mu.Lock()
+	roomID := rm.generateRoomIDUnlocked()
 	room := &Room{
 		id:         roomID,
 		clients:    make(map[string]*Client),
@@ -67,10 +73,7 @@ func (rm *RoomManager) JoinRoom(roomID string, conn Connection, playerID, player
 		return fmt.Errorf("room is full")
 	}
 
-	room.clients[playerID] = &Client{
-		Conn:     conn,
-		PlayerID: playerID,
-	}
+	room.addClient(conn, playerID)
 	return nil
 }
 
@@ -142,6 +145,27 @@ func (rm *RoomManager) GetClient(playerID string) (*Client, string) {
 	return nil, ""
 }
 
+// GetPlayerByConn returns the playerID that owns the given connection,
+// searching within the specified room. Returns empty string if not found.
+func (rm *RoomManager) GetPlayerByConn(roomID string, conn Connection) string {
+	rm.mu.RLock()
+	room, exists := rm.rooms[roomID]
+	rm.mu.RUnlock()
+
+	if !exists {
+		return ""
+	}
+
+	room.mu.RLock()
+	defer room.mu.RUnlock()
+	for pid, client := range room.clients {
+		if client.Conn == conn {
+			return pid
+		}
+	}
+	return ""
+}
+
 func (rm *RoomManager) GetClientsByRoom(roomID string) map[string]*Client {
 	rm.mu.RLock()
 	room, exists := rm.rooms[roomID]
@@ -203,14 +227,15 @@ func (rm *RoomManager) PlayerCount(roomID string) int {
 	return len(room.clients)
 }
 
-func (rm *RoomManager) generateRoomID() string {
-	for {
+// generateRoomIDUnlocked generates a unique 6-digit room ID.
+// Must be called while holding rm.mu (Lock or RLock).
+func (rm *RoomManager) generateRoomIDUnlocked() string {
+	const maxAttempts = 1000000
+	for i := 0; i < maxAttempts; i++ {
 		id := fmt.Sprintf("%06d", rand.Intn(1000000))
-		rm.mu.RLock()
-		_, exists := rm.rooms[id]
-		rm.mu.RUnlock()
-		if !exists {
+		if _, exists := rm.rooms[id]; !exists {
 			return id
 		}
 	}
+	panic("room ID space exhausted")
 }

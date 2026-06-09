@@ -393,3 +393,187 @@ git revert HEAD
 ```bash
 git revert HEAD
 ```
+
+## 2026-06-09 — Hub 重构代码审查 + Issue 发布
+
+### 问题
+对 commit `d6dafe3`（refactor: decompose Hub monolith into three deep modules）进行全量代码审查，识别潜在缺陷并发布为可独立领取的 Issues。
+
+### 解决方案
+1. 启动 9 个独立搜索代理（逐行扫描、移除行为审计、跨文件追踪、Go 语言陷阱、包装器检查、复用机会、简化机会、效率问题、架构深度检查）
+2. 汇总 72 个候选发现，去重为 13 个独立缺陷
+3. 启动 3 个验证代理，12 个 CONFIRMED、1 个 REFUTED
+4. 缺口扫描发现 6 个额外缺陷
+5. 整合为 7 个垂直切片 Issues 发布到 GitHub
+
+### 发现的关键缺陷
+- 🔴 **数据竞争**: `h.connToRoom` 在 3 个 handler 中无锁读取，Go 并发 map 读写触发 fatal panic
+- 🔴 **授权绕过**: 信任客户端 `msg.PlayerID` 而非从连接推导身份
+- 🟠 **wsConn 缺少写互斥锁**: gorilla/websocket 要求单写入者
+- 🟠 **generateRoomID TOCTOU**: 唯一性检查与插入分离
+- 🟠 **AddPlayer 无去重**: 重连场景产生重复玩家条目
+- 🟡 **双重玩家列表非原子更新**: room.clients 与 gs.players 可能漂移
+
+### 发布的 Issues
+- #23: connToRoom 数据竞争修复
+- #24: 授权绕过修复（从连接推导身份）
+- #25: wsConn 写互斥锁
+- #26: generateRoomID TOCTOU 修复
+- #27: AddPlayer/JoinRoom/connToRoom 修复
+- #28: 接口完善 + 错误处理
+- #29: playerID 校验（依赖 #24）
+
+### 修改文件
+- 无代码修改（纯审查 + Issue 发布）
+
+### 撤回方式
+```bash
+# 关闭所有发布的 Issues
+gh issue close 23 24 25 26 27 28 29
+```
+
+## 2026-06-09 — TDD 修复 Issue #23: connToRoom 数据竞争
+
+### 问题
+`handleSetStoryteller`、`handleAssignCharacters`、`handleSubmitEvent` 读取 `h.connToRoom[conn]` 未持有 `h.mu`，与并发写入构成 fatal 并发 map 访问。
+
+### 解决方案（TDD 流程）
+1. **RED**: 编写 `TestConnToRoomRaceSetStoryteller` — 并发 join + storyteller 调用，触发 `fatal error: concurrent map read and map write` at hub.go:164
+2. **GREEN**: 为 3 个 handler 的 `h.connToRoom[conn]` 读取添加 `h.mu.RLock()` 保护；合并 `handleAssignCharacters` 和 `handleSubmitEvent` 中原本分离的两次 RLock 为一次
+3. **验证**: 10 次连续运行全部通过，全量测试无回归
+
+### 修改文件
+- `internal/ws/hub.go` — 3 处 connToRoom 读取添加 RLock
+- `internal/ws/hub_race_test.go` — 新增 3 个竞态测试
+
+### 撤回方式
+```bash
+git revert HEAD
+```
+
+## 2026-06-09 — TDD 修复全部 7 个 Code Review Issues (#23-#29)
+
+### 问题
+代码审查发现的 15 个缺陷，整合为 7 个 Issues，使用 TDD 流程逐个修复。
+
+### 修复汇总（TDD: RED → GREEN → 重构）
+
+| Issue | 修复内容 | 关键变更 |
+|-------|---------|---------|
+| #23 | connToRoom 数据竞争 | 3 个 handler 添加 RLock 保护 |
+| #24 | 授权绕过 | 从连接推导身份，删除死代码 |
+| #25 | wsConn 写互斥锁 | 添加 sync.Mutex 到 wsConn |
+| #26 | generateRoomID TOCTOU | 唯一性检查移入 Lock 临界区 |
+| #27 | AddPlayer 去重 + connToRoom 泄漏 | AddPlayer 更新逻辑 + handleDisconnect 重构 |
+| #28 | 接口完善 + 错误处理 | Connection.ReadMessage + Broadcast 错误日志 |
+| #29 | playerID 校验 | applyAssignCharacters 验证 playerID 存在 |
+
+### 新增测试（13 个）
+- `hub_race_test.go`: 3 个竞态测试（connToRoom 并发读写）
+- `hub_auth_test.go`: 2 个授权测试（伪造 PlayerID）
+- `conn_test.go`: 1 个并发写入测试
+- `room_manager_race_test.go`: 1 个并发唯一性测试
+- `player_dedup_test.go`: 3 个去重/泄漏测试
+- `game_session_test.go`: 1 个伪造 playerID 测试
+- `conn.go`: FakeConnection.ReadMessage + ClearMessages
+
+### 修改文件
+- `internal/ws/hub.go` — 6 处修改
+- `internal/ws/conn.go` — 接口扩展 + wsConn mutex
+- `internal/ws/room_manager.go` — GetPlayerByConn + generateRoomIDUnlocked
+- `internal/ws/game_session.go` — AddPlayer 去重 + playerID 校验
+
+### 测试结果
+- 44 个测试全部通过（含 13 个新增）
+
+### 撤回方式
+```bash
+git revert HEAD
+```
+
+## 2026-06-09 16:07:37 --- Code Review 缺口缺陷二次 TDD 修复 --- 使用垂直切片 RED→GREEN→Refactor 修复 --- 修改 backend ws 模块与测试
+
+### 问题
+在 Issue #23-#29 修复后的二次代码审查中，又发现 9 个缺口问题：
+- `handleLeaveRoom` 仍信任客户端 `msg.PlayerID`，攻击者可伪造 `PlayerID` 踢出其他玩家
+- `FakeConnection.ReadMessage` 在 `incomingCh` 路径下无法被 `Close()` 唤醒，测试可能挂死
+- `FakeConnection.ReadMessage` 使用 busy-wait goroutine 轮询 `closed`，存在 goroutine 泄漏风险
+- `FakeConnection.incomingCh` 读取缺少互斥保护，存在测试 data race 风险
+- `handleSetStoryteller` 对未知连接返回误导性的 `no game session`
+- `handleSetStoryteller` 传入 `SetStorytellerCmd` 的 `SenderID` 仍使用可伪造的 `msg.PlayerID`
+- `handleAssignCharacters` / `handleSubmitEvent` 对未知连接处理不一致
+- `generateRoomIDUnlocked` 在 6 位房间号耗尽时无限循环
+- `handleCreateRoom` 直接写 `room.clients`，绕过房间成员添加语义
+
+### 解决方案
+1. **RED → GREEN: LeaveRoom 授权绕过**
+   - 新增 `TestLeaveRoomIgnoresForgedPlayerID`
+   - `handleLeaveRoom` 改为从 `connToRoom` + `GetPlayerByConn` 派生真实 `playerID`
+   - 删除 `connToRoom`、移除 `GameSession.players`、广播 `PlayerLeft` 全部使用派生身份
+2. **RED → GREEN: FakeConnection 阻塞/泄漏修复**
+   - 新增 `TestFakeConnectionReadMessageClosePropagation`
+   - 新增 `TestFakeConnectionReadMessageReturnsData`
+   - `FakeConnection` 增加 `closeCh`
+   - `Close()` 幂等关闭 `closeCh`
+   - `ReadMessage()` 使用 `select` 同时监听 `incomingCh` 与 `closeCh`，移除 busy-wait goroutine 与 `time.Sleep`
+3. **RED → GREEN: 未知连接与 SetStoryteller 身份一致性**
+   - 新增 `TestSetStorytellerRejectsUnknownConnection`
+   - 新增 `TestSetStorytellerUsesConnectionIdentity`
+   - 新增 `TestAssignCharactersRejectsUnknownConnection`
+   - 新增 `TestSubmitEventRejectsUnknownConnection`
+   - 3 个 handler 对 `roomID == ""` / 派生 `senderID == ""` 返回 `not in any room`
+   - `SetStorytellerCmd.SenderID` 改用连接派生的 `senderID`
+   - `handleSetStoryteller` 合并 `connToRoom` 与 `sessions` 的 RLock 读取，缩小 TOCTOU 窗口
+4. **RED → GREEN: RoomID 耗尽保护**
+   - 新增 `TestGenerateRoomIDExhaustionPanics`
+   - `generateRoomIDUnlocked` 增加 `maxAttempts`，房间号空间耗尽时 fail-fast panic，避免永久循环
+5. **Refactor: 创建房间成员添加语义统一**
+   - 新增 `TestCreateRoomRegistersCreatorByConnection` 作为特征测试 [Characterization Test]
+   - 提取 `Room.addClient` 私有 helper
+   - `handleCreateRoom` 与 `RoomManager.JoinRoom` 共享成员添加逻辑
+
+### 修改文件
+- `packages/backend/internal/ws/hub.go`
+  - `handleLeaveRoom` 从连接推导身份
+  - `handleSetStoryteller` 未知连接检查、合并锁读取、使用派生 `senderID`
+  - `handleAssignCharacters` / `handleSubmitEvent` 增加未知连接检查
+  - `handleCreateRoom` 改用 `room.addClient`
+- `packages/backend/internal/ws/conn.go`
+  - `FakeConnection` 增加 `closeCh`
+  - `Close()` 幂等关闭
+  - `ReadMessage()` 改为 `select`，移除轮询 goroutine
+- `packages/backend/internal/ws/room_manager.go`
+  - 新增 `Room.addClient`
+  - `JoinRoom` 复用 `addClient`
+  - `generateRoomIDUnlocked` 增加耗尽保护
+- `packages/backend/internal/ws/conn_test.go`
+  - 新增 FakeConnection 关闭传播与读消息测试
+- `packages/backend/internal/ws/hub_auth_test.go`
+  - 新增 LeaveRoom 伪造身份、未知连接、SetStoryteller 身份一致性测试
+- `packages/backend/internal/ws/room_manager_race_test.go`
+  - 新增房间号耗尽 fail-fast 测试
+- `packages/backend/internal/ws/player_dedup_test.go`
+  - 新增创建房间注册创建者连接测试
+
+### 测试结果
+- `go test ./internal/ws/ -count=1 -timeout 30s` ✅ 通过
+- `go test ./... -count=1 -timeout 60s` ✅ 通过
+- `git diff --check` ✅ 无 whitespace error；仅 Windows CRLF 提示
+- `CGO_ENABLED=1 go test -race ./internal/ws/ -count=1 -timeout 60s` ✅ 通过
+- `CGO_ENABLED=1 go test -race ./... -count=1 -timeout 90s` ✅ 通过
+
+### 撤回方式
+```bash
+# 若本次修改作为单独提交：
+git revert HEAD
+
+# 若仍在工作区未提交：
+git checkout -- packages/backend/internal/ws/conn.go \
+  packages/backend/internal/ws/hub.go \
+  packages/backend/internal/ws/room_manager.go \
+  packages/backend/internal/ws/conn_test.go \
+  packages/backend/internal/ws/hub_auth_test.go \
+  packages/backend/internal/ws/room_manager_race_test.go \
+  packages/backend/internal/ws/player_dedup_test.go \
+  work.md
+```

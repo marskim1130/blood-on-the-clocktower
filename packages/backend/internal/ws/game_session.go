@@ -61,6 +61,12 @@ func (gs *GameSession) SetPlayers(players []game.Player) {
 func (gs *GameSession) AddPlayer(player game.Player) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
+	for i, p := range gs.players {
+		if p.ID == player.ID {
+			gs.players[i] = player
+			return
+		}
+	}
 	gs.players = append(gs.players, player)
 }
 
@@ -146,6 +152,17 @@ func (gs *GameSession) applySetStoryteller(cmd SetStorytellerCmd) (ApplyResult, 
 func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResult, error) {
 	if gs.storytellerID == "" || cmd.SenderID != gs.storytellerID {
 		return ApplyResult{}, fmt.Errorf("only storyteller can assign characters")
+	}
+
+	// Verify all playerIDs in assignments match actual players
+	playerSet := make(map[string]bool, len(gs.players))
+	for _, p := range gs.players {
+		playerSet[p.ID] = true
+	}
+	for playerID := range cmd.Assignments {
+		if !playerSet[playerID] {
+			return ApplyResult{}, fmt.Errorf("player %s not found in game", playerID)
+		}
 	}
 
 	playerCount := len(gs.players)

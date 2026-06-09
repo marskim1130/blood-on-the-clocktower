@@ -130,6 +130,31 @@ func TestGameSessionAssignCharactersNonStoryteller(t *testing.T) {
 	}
 }
 
+func TestGameSessionAssignCharactersBogusPlayerIDs(t *testing.T) {
+	gs := NewGameSession()
+	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
+	gs.AddPlayer(game.Player{ID: "p2", Name: "Bob", IsAlive: true})
+	gs.AddPlayer(game.Player{ID: "p3", Name: "Charlie", IsAlive: true})
+	gs.AddPlayer(game.Player{ID: "p4", Name: "Dave", IsAlive: true})
+	gs.AddPlayer(game.Player{ID: "p5", Name: "Eve", IsAlive: true})
+
+	gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p1"})
+
+	// Use non-existent playerIDs — should be rejected
+	_, err := gs.Apply(AssignCharactersCmd{
+		SenderID: "p1",
+		Assignments: map[string]string{
+			"x1": "washerwoman",
+			"x2": "librarian",
+			"x3": "investigator",
+			"x4": "imp",
+		},
+	})
+	if err == nil {
+		t.Error("expected error for non-existent playerIDs in assignments")
+	}
+}
+
 func TestGameSessionSubmitEvent(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})

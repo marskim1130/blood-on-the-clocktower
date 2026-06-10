@@ -53,6 +53,16 @@ function gameReducer(state: GameState, event: GameEvent): GameState {
         ),
       };
 
+    case 'GAME_OVER':
+      return {
+        ...state,
+        phase: 'finished',
+        players: state.players.map((p) => {
+          const revealed = event.revealedPlayers.find((r) => r.playerId === p.id);
+          return revealed ? { ...p, character: revealed.character } : p;
+        }),
+      };
+
     default:
       return state;
   }

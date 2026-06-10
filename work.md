@@ -1,5 +1,192 @@
 # Work Log
 
+## 2026-06-10 18:24 — 代码审查修复
+
+### 问题
+代码审查发现以下问题需要修复：
+
+**CRITICAL:**
+1. `package.json` 缺少 `./night-phase` 子路径导出
+2. `death-system/index.ts` 使用类型断言绕过 `readonly` 约束
+
+**HIGH:**
+3. `night-phase` 的 `firstNightOnly` 字段从未使用（死代码）
+4. `voteReducer` 的 `ctx` 参数不安全的默认值
+5. `VotePhase` 包含未使用的 `'nominating'` 状态
+6. `checkWinAfterNightDeath` 中胜利条件检查顺序错误
+
+### 解决方案
+
+1. **添加 `./night-phase` 子路径导出** — `package.json`
+2. **修复 readonly 突变** — 使用展开运算符替代类型断言
+3. **移除 `firstNightOnly` 字段** — 从 `WakeOrderEntry` 接口和所有常量中移除
+4. **使 `ctx` 参数必需** — 移除默认值，强制调用者提供上下文
+5. **移除 `'nominating'` 状态** — 从 `VotePhase` 类型中移除
+6. **修复胜利条件顺序** — 先检查 Imp 自杀（更具体的原因），再检查多数派
+
+### 修改文件
+- `packages/core/package.json` — 添加 night-phase 子路径导出
+- `packages/core/src/death-system/index.ts` — 修复 readonly 突变
+- `packages/core/src/night-phase/index.ts` — 移除 firstNightOnly 字段
+- `packages/core/src/vote-engine/index.ts` — 使 ctx 必需，移除 nominating 状态
+- `packages/core/src/vote-engine/__tests__/vote-engine.test.ts` — 更新测试以传递必需的 ctx
+- `packages/core/src/win-conditions/index.ts` — 修复胜利条件检查顺序
+
+### 测试结果
+- ✅ 全部 130 个测试通过
+- ✅ TypeScript 类型检查通过
+- ✅ 后端 Go 测试通过
+
+### 撤回方式
+```bash
+git checkout -- packages/core/package.json
+git checkout -- packages/core/src/death-system/index.ts
+git checkout -- packages/core/src/night-phase/index.ts
+git checkout -- packages/core/src/vote-engine/index.ts
+git checkout -- packages/core/src/vote-engine/__tests__/vote-engine.test.ts
+git checkout -- packages/core/src/win-conditions/index.ts
+```
+
+---
+
+## 2026-06-10 18:09 — MVP 核心逻辑模块完成
+
+### 问题
+项目缺少完整的游戏循环逻辑，无法从头到尾运行一局 Blood on the Clocktower 游戏。需要实现投票引擎、死亡系统、胜利条件、夜间阶段四个核心模块。
+
+### 解决方案
+通过并行工作流同时开发四个独立模块，采用统一的架构模式（纯函数 reducer + 不可变状态 + 验证器）：
+
+#### 1. 投票引擎（Vote Engine）— 已有实现
+- 文件：`packages/core/src/vote-engine/index.ts`
+- 功能：提名系统、投票机制、多数决阈值、幽灵票、处决判定
+- 测试：37 个单元测试
+
+#### 2. 死亡系统（Death System）— 已有实现
+- 文件：`packages/core/src/death-system/index.ts`
+- 功能：死亡记录、幽灵票、死亡触发器（Saint、Scarlet Woman、Ravenkeeper、Undertaker）
+- 测试：50 个单元测试
+
+#### 3. 胜利条件（Win Conditions）— 已有实现 + 新增测试
+- 文件：`packages/core/src/win-conditions/index.ts`
+- 功能：善良获胜（Imp 处决、市长结局）、邪恶获胜（2 人存活、Saint 处决、Imp 自杀）
+- 测试：32 个单元测试（本次新增）
+
+#### 4. 夜间阶段（Night Phase）— 本次新建
+- 文件：`packages/core/src/night-phase/index.ts`
+- 功能：唤醒顺序系统、角色能力执行、Storyteller 夜间操作、黎明结果解析
+- 特性：
+  - 第一夜唤醒顺序（9 个角色）
+  - 后续夜唤醒顺序（8 个角色）
+  - 12 种夜间行动类型
+  - 行动验证和状态追踪
+  - 黎明结果生成
+
+### 架构设计
+所有模块遵循统一模式：
+- **纯函数 Reducer**：`(state, event) => newState`
+- **不可变状态**：使用 `ReadonlyMap`、`ReadonlySet`、`readonly` 属性
+- **验证器**：独立的验证函数，返回错误码或 `null`
+- **事件驱动**：通过事件类型触发状态转换
+
+### 修改文件
+- `packages/core/src/night-phase/index.ts`（新建）— 夜间阶段实现
+- `packages/core/src/win-conditions/__tests__/win-conditions.test.ts`（新建）— 32 个单元测试
+- `packages/core/src/death-system/index.ts` — 修复 TypeScript 类型错误
+
+### 测试结果
+- ✅ 全部 130 个测试通过（5 个测试文件）
+- ✅ TypeScript 类型检查通过
+- ✅ 后端 Go 测试通过
+
+### 撤回方式
+```bash
+rm packages/core/src/night-phase/index.ts
+rm packages/core/src/win-conditions/__tests__/win-conditions.test.ts
+git checkout -- packages/core/src/death-system/index.ts
+```
+
+---
+
+## 2026-06-10 16:47 — 实现死亡系统（Death System）
+
+### 问题
+游戏缺少玩家死亡系统。Blood on the Clocktower 需要：死亡追踪（死因、死亡日、击杀者）、幽灵票机制（死人获得 1 次幽灵票）、死亡触发器（Saint、Scarlet Woman、Ravenkeeper、Undertaker）、死亡事件广播。
+
+### 解决方案
+采用与 vote-engine 相同的架构模式（纯函数 reducer + 不可变状态 + 验证器），实现死亡系统：
+
+1. **`DeathState` 接口**：跟踪死亡记录（`deaths: Map`）和剩余幽灵票（`ghostVotesRemaining: Set`）
+2. **`DeathCause` 类型**：`'execution' | 'night_kill' | 'ability'` 三种死因
+3. **`DeathRecord` 接口**：记录 playerId、cause、dayNumber、killedBy
+4. **`DeathEvent` 联合类型**：PLAYER_DIED / GHOST_VOTE_CAST 两种事件
+5. **`deathReducer` 纯函数**：事件驱动的状态转换，含完整验证（防止重复死亡、无效日数、重复使用幽灵票）
+6. **`computeDeathTriggers` 纯函数**：根据死亡上下文计算触发器
+   - `saint_execution`：Saint 被处决时邪恶阵营立即获胜
+   - `scarlet_woman`：Imp 死亡且存活 5+ 人时，Scarlet Woman 变为 Imp
+   - `ravenkeeper`：Ravenkeeper 夜间死亡时可查看一名玩家角色
+   - `undertaker`：处决发生时 Undertaker 学习被处决者角色
+7. **6 个便捷辅助函数**：isDead、getDeathRecord、hasGhostVote、getDeathCount、getDeathsByCause、getDeathsOnDay、createDeathAnnouncement
+8. **50 个单元测试**：覆盖死亡记录、幽灵票、所有触发器场景、完整游戏集成场景
+
+### 设计决策
+- **触发器与 Reducer 分离**：`deathReducer` 只负责状态转换，`computeDeathTriggers` 独立计算触发器。游戏引擎负责消费触发器并执行副作用，保持 reducer 纯函数特性。
+- **幽灵票双重追踪**：`DeathState.ghostVotesRemaining` 记录剩余幽灵票资格，`VoteState.ghostVotesUsed`（已有）记录投票引擎中的使用情况。两个模块各司其职。
+- **DeathAnnouncement 不含 killedBy**：广播给所有玩家的公告只包含 playerId、cause、dayNumber，击杀者信息为私有上下文。
+
+### 修改文件
+- `packages/core/src/death-system/index.ts`（新建）— 死亡系统实现
+- `packages/core/src/death-system/__tests__/death-system.test.ts`（新建）— 50 个单元测试
+- `packages/core/src/index.ts` — 添加 death-system 导出
+- `packages/core/package.json` — 添加 `./death-system` 子路径导出
+
+### 测试结果
+- 全部 98 个测试通过（50 新 + 48 已有）
+
+### 撤回方式
+```bash
+rm packages/core/src/death-system/index.ts
+rm packages/core/src/death-system/__tests__/death-system.test.ts
+git checkout -- packages/core/src/index.ts
+git checkout -- packages/core/package.json
+```
+
+---
+
+## 2026-06-10 16:36 — 实现投票引擎（Vote Engine）
+
+### 问题
+游戏缺少投票系统实现。Blood on the Clocktower 需要：提名系统（活人提名活人）、投票机制（活人投票+死人幽灵票）、多数决阈值计算、投票状态追踪和状态转换。
+
+### 解决方案
+采用与 state-machine 相同的架构模式（纯函数 reducer + 不可变状态），实现投票引擎：
+
+1. **`VoteState` 接口**：跟踪投票阶段、提名人、被提名人、已投票记录、幽灵票使用情况、存活玩家数、投票结果
+2. **`VoteEvent` 联合类型**：NOMINATED / VOTE_CAST / VOTING_RESOLVED / VOTE_RESET 四种事件
+3. **`voteReducer` 纯函数**：事件驱动的状态转换，包含完整的参数验证（self-nomination、dead nominator/nominee、duplicate vote、spent ghost vote）
+4. **`computeMajorityThreshold`**：`ceil(alivePlayers / 2)` 多数决计算
+5. **`countVotes`**：统计赞成/反对票数的工具函数
+6. **37 个单元测试**：覆盖提名验证、投票验证、幽灵票、完整投票轮次、边界情况
+
+### 修改文件
+- `packages/core/src/vote-engine/index.ts`（新建）— 投票引擎实现
+- `packages/core/src/vote-engine/__tests__/vote-engine.test.ts`（新建）— 37 个单元测试
+- `packages/core/src/index.ts` — 添加 vote-engine 导出
+- `packages/core/package.json` — 添加 `./vote-engine` 子路径导出
+
+### 测试结果
+- ✅ 全部 48 个测试通过（37 新 + 11 已有）
+
+### 撤回方式
+```bash
+rm packages/core/src/vote-engine/index.ts
+rm packages/core/src/vote-engine/__tests__/vote-engine.test.ts
+git checkout -- packages/core/src/index.ts
+git checkout -- packages/core/package.json
+```
+
+---
+
 ## 2026-06-10 14:27 — 修复 TypeScript 类型检查错误和 ESLint 配置
 
 ### 问题

@@ -35,7 +35,14 @@ export type GameEvent =
   | { readonly type: 'PLAYER_LEFT'; readonly playerId: PlayerId }
   | { readonly type: 'PHASE_CHANGED'; readonly phase: GamePhase }
   | { readonly type: 'VOTE_CAST'; readonly voterId: PlayerId; readonly targetId: PlayerId | null }
-  | { readonly type: 'CHARACTER_ASSIGNED'; readonly playerId: PlayerId; readonly character: Character };
+  | { readonly type: 'CHARACTER_ASSIGNED'; readonly playerId: PlayerId; readonly character: Character }
+  | {
+      readonly type: 'GAME_OVER';
+      readonly winner: Team;
+      readonly reason: string;
+      readonly description: string;
+      readonly revealedPlayers: readonly { readonly playerId: PlayerId; readonly character: Character | null }[];
+    };
 
 // Type-safe branded constructor
 export function createPlayerId(id: string): PlayerId {

@@ -11,6 +11,22 @@
       "types": "./dist/state-machine/index.d.ts",
       "import": "./dist/state-machine/index.js"
     },
+    "./vote-engine": {
+      "types": "./dist/vote-engine/index.d.ts",
+      "import": "./dist/vote-engine/index.js"
+    },
+    "./death-system": {
+      "types": "./dist/death-system/index.d.ts",
+      "import": "./dist/death-system/index.js"
+    },
+    "./win-conditions": {
+      "types": "./dist/win-conditions/index.d.ts",
+      "import": "./dist/win-conditions/index.js"
+    },
+    "./night-phase": {
+      "types": "./dist/night-phase/index.d.ts",
+      "import": "./dist/night-phase/index.js"
+    },
     "./websocket": {
       "types": "./dist/websocket/index.d.ts",
       "import": "./dist/websocket/index.js"

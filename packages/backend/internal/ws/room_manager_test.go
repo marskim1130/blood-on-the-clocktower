@@ -67,11 +67,13 @@ func TestRoomManagerJoinNonExistentRoom(t *testing.T) {
 
 func TestRoomManagerJoinFullRoom(t *testing.T) {
 	rm := NewRoomManager()
-	room := rm.CreateRoom("p1", 5)
+	room := rm.CreateRoom("storyteller", 5)
 
-	for i := 0; i < 5; i++ {
+	for _, playerID := range []string{"storyteller", "p1", "p2", "p3", "p4", "p5"} {
 		conn := NewFakeConnection()
-		rm.JoinRoom(room.id, conn, "p"+string(rune('1'+i)), "Player")
+		if err := rm.JoinRoom(room.id, conn, playerID, "Player"); err != nil {
+			t.Fatalf("unexpected join error for %s: %v", playerID, err)
+		}
 	}
 
 	conn := NewFakeConnection()

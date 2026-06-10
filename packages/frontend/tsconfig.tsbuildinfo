@@ -1,0 +1,1 @@
+{"root":["./src/app.config.ts","./src/app.tsx","./src/lib/taro-websocket-transport.test.ts","./src/lib/taro-websocket-transport.ts","./src/pages/index/index.config.ts","./src/pages/index/index.tsx"],"version":"5.9.3"}

@@ -14,7 +14,7 @@ type Room struct {
 	mu         sync.RWMutex
 	id         string
 	clients    map[string]*Client // playerID -> Client
-	maxPlayers int
+	maxPlayers int                // actual players, excluding storyteller capacity
 	creatorID  string
 }
 
@@ -69,7 +69,7 @@ func (rm *RoomManager) JoinRoom(roomID string, conn Connection, playerID, player
 	room.mu.Lock()
 	defer room.mu.Unlock()
 
-	if len(room.clients) >= room.maxPlayers {
+	if _, reconnecting := room.clients[playerID]; !reconnecting && len(room.clients) >= room.maxPlayers+1 {
 		return fmt.Errorf("room is full")
 	}
 

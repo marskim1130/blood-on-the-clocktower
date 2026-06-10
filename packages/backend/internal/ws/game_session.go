@@ -14,7 +14,7 @@ type SetStorytellerCmd struct {
 }
 
 type AssignCharactersCmd struct {
-	SenderID   string
+	SenderID    string
 	Assignments map[string]string // playerID -> characterID
 }
 
@@ -28,7 +28,7 @@ type Command interface {
 	commandTag()
 }
 
-func (SetStorytellerCmd) commandTag()  {}
+func (SetStorytellerCmd) commandTag()   {}
 func (AssignCharactersCmd) commandTag() {}
 func (SubmitEventCmd) commandTag()      {}
 
@@ -217,13 +217,33 @@ func (gs *GameSession) applySubmitEvent(cmd SubmitEventCmd) (ApplyResult, error)
 	return ApplyResult{Events: []game.GameEvent{cmd.Event}, Updated: true}, nil
 }
 
-// StateForRoom builds a RoomState snapshot.
+// StateForRoom builds a complete RoomState snapshot.
 func (gs *GameSession) StateForRoom(roomID string) *RoomState {
+	return gs.stateForRoom(roomID, true, "")
+}
+
+// StateForRoomForRecipient builds a recipient-specific RoomState snapshot.
+// Storyteller sees all character assignments; players only see their own.
+func (gs *GameSession) StateForRoomForRecipient(roomID, recipientID string) *RoomState {
+	return gs.stateForRoom(roomID, false, recipientID)
+}
+
+func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID string) *RoomState {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
+	canSeeAll := forceSeeAll || (gs.storytellerID != "" && recipientID == gs.storytellerID)
 	players := make([]game.Player, len(gs.players))
-	copy(players, gs.players)
+	for i, player := range gs.players {
+		players[i] = player
+		if player.Character != nil {
+			character := *player.Character
+			players[i].Character = &character
+		}
+		if !canSeeAll && player.ID != recipientID {
+			players[i].Character = nil
+		}
+	}
 
 	return &RoomState{
 		RoomID:        roomID,

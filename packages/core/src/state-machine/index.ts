@@ -1,12 +1,12 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { GameState, GameEvent, GamePhase, Player, PlayerId } from '../types/index.js';
+import type { GameState, GameEvent, GameId } from '../types/index.js';
 
 interface GameStore {
   state: GameState;
   dispatch: (event: GameEvent) => void;
 }
 
-const initialState: GameState = {
+const defaultState: GameState = {
   id: '' as GameId,
   phase: 'setup',
   players: [],
@@ -60,7 +60,7 @@ function gameReducer(state: GameState, event: GameEvent): GameState {
 
 export function createGameStore(initialState?: Partial<GameState>): StoreApi<GameStore> {
   return createStore<GameStore>()((set) => ({
-    state: { ...initialState, ...initialState } as GameState,
+    state: { ...defaultState, ...initialState } as GameState,
     dispatch: (event: GameEvent) =>
       set((store) => ({ state: gameReducer(store.state, event) })),
   }));

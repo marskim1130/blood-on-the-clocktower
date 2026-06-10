@@ -3,7 +3,6 @@ import {
   Team,
   GamePhase,
   type ProtoPlayer,
-  type ProtoCharacter,
   type ProtoGameState,
   type ProtoGameEvent,
 } from '../index.js';

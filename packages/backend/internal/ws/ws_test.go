@@ -285,8 +285,8 @@ func TestJoinFullRoomReturnsError(t *testing.T) {
 	var roomResp ServerMessage
 	json.Unmarshal(raw, &roomResp)
 
-	// Fill room to capacity (5 players)
-	for i := 2; i <= 5; i++ {
+	// Fill room to capacity: maxPlayers counts actual players, plus one storyteller seat.
+	for i := 2; i <= 6; i++ {
 		ws, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
 		defer ws.Close()
 		ws.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: fmt.Sprintf("P%d", i), PlayerID: fmt.Sprintf("p%d", i)})
@@ -297,10 +297,10 @@ func TestJoinFullRoomReturnsError(t *testing.T) {
 		ws1.ReadMessage()
 	}
 
-	// Third player should be rejected
+	// Seventh connection should be rejected.
 	ws3, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
 	defer ws3.Close()
-	ws3.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Charlie", PlayerID: "p3"})
+	ws3.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: "Overflow", PlayerID: "p7"})
 	ws3.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, raw, err := ws3.ReadMessage()
 	if err != nil {
@@ -605,8 +605,10 @@ func TestStorytellerCanAssignCharacters(t *testing.T) {
 	defer ws4.Close()
 	ws5, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
 	defer ws5.Close()
+	ws6, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer ws6.Close()
 
-	// Create room and join 5 players
+	// Create room and join one storyteller plus 5 actual players.
 	ws1.WriteJSON(ClientMessage{Type: "CREATE_ROOM", PlayerName: "Alice", PlayerID: "p1", MaxPlayers: 5})
 	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, raw, _ := ws1.ReadMessage()
@@ -614,7 +616,7 @@ func TestStorytellerCanAssignCharacters(t *testing.T) {
 	json.Unmarshal(raw, &roomResp)
 
 	connected := []*websocket.Conn{ws1}
-	for i, ws := range []*websocket.Conn{ws2, ws3, ws4, ws5} {
+	for i, ws := range []*websocket.Conn{ws2, ws3, ws4, ws5, ws6} {
 		ws.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomResp.RoomID, PlayerName: fmt.Sprintf("P%d", i+2), PlayerID: fmt.Sprintf("p%d", i+2)})
 		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 		ws.ReadMessage() // ROOM_STATE for new player
@@ -627,10 +629,10 @@ func TestStorytellerCanAssignCharacters(t *testing.T) {
 		connected = append(connected, ws)
 	}
 
-	// Set storyteller
-	ws1.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p1", TargetPlayerID: "p2"})
-	// Read ROOM_STATE from all clients (handler broadcasts to all)
-	for _, ws := range []*websocket.Conn{ws1, ws2, ws3, ws4, ws5} {
+	// Set p1 as storyteller.
+	ws1.WriteJSON(ClientMessage{Type: "SET_STORYTELLER", RoomID: roomResp.RoomID, PlayerID: "p1", TargetPlayerID: "p1"})
+	// Read ROOM_STATE from all clients.
+	for _, ws := range []*websocket.Conn{ws1, ws2, ws3, ws4, ws5, ws6} {
 		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 		_, raw, err := ws.ReadMessage()
 		if err != nil {
@@ -643,28 +645,42 @@ func TestStorytellerCanAssignCharacters(t *testing.T) {
 		}
 	}
 
-	// Storyteller (p2) assigns characters to remaining 4 players
-	// 4-player game: 3 townsfolk, 0 outsiders, 0 minions, 1 demon
+	// Storyteller assigns characters to 5 actual players.
 	assignments := map[string]string{
-		"p1": "washerwoman",
+		"p2": "washerwoman",
 		"p3": "librarian",
 		"p4": "investigator",
-		"p5": "imp",
+		"p5": "poisoner",
+		"p6": "imp",
 	}
-	ws2.WriteJSON(ClientMessage{Type: "ASSIGN_CHARACTERS", RoomID: roomResp.RoomID, PlayerID: "p2", Assignments: assignments})
+	ws1.WriteJSON(ClientMessage{Type: "ASSIGN_CHARACTERS", RoomID: roomResp.RoomID, PlayerID: "p1", Assignments: assignments})
 
-	// All connected clients should receive CHARACTER_ASSIGNED events (4 assignments = 4 broadcasts each)
-	for _, ws := range []*websocket.Conn{ws1, ws2, ws3, ws4, ws5} {
-		for i := 0; i < 4; i++ {
+	// Storyteller receives every private assignment plus a complete ROOM_STATE.
+	for i := 0; i < 6; i++ {
+		ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, raw, err := ws1.ReadMessage()
+		if err != nil {
+			t.Fatalf("storyteller failed to read character assignment/state %d: %v", i, err)
+		}
+		var msg ServerMessage
+		json.Unmarshal(raw, &msg)
+		if msg.Type != "EVENT_BROADCAST" && msg.Type != "ROOM_STATE" {
+			t.Errorf("expected EVENT_BROADCAST or ROOM_STATE, got %s", msg.Type)
+		}
+	}
+
+	// Each actual player receives only their own private assignment plus their own ROOM_STATE.
+	for _, ws := range []*websocket.Conn{ws2, ws3, ws4, ws5, ws6} {
+		for i := 0; i < 2; i++ {
 			ws.SetReadDeadline(time.Now().Add(2 * time.Second))
 			_, raw, err := ws.ReadMessage()
 			if err != nil {
-				t.Fatalf("failed to read character assignment %d: %v", i, err)
+				t.Fatalf("player failed to read private assignment/state %d: %v", i, err)
 			}
 			var msg ServerMessage
 			json.Unmarshal(raw, &msg)
-			if msg.Type != "EVENT_BROADCAST" {
-				t.Errorf("expected EVENT_BROADCAST, got %s", msg.Type)
+			if msg.Type != "EVENT_BROADCAST" && msg.Type != "ROOM_STATE" {
+				t.Errorf("expected EVENT_BROADCAST or ROOM_STATE, got %s", msg.Type)
 			}
 		}
 	}

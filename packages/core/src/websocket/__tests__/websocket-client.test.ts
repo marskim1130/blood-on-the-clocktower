@@ -102,8 +102,8 @@ describe('GameWebSocketClient', () => {
     await new Promise((r) => setTimeout(r, 100));
 
     expect(messages).toHaveLength(1);
-    expect(messages[0].type).toBe('ROOM_STATE');
-    expect(messages[0].roomId).toBe('room-1');
+    expect(messages[0]!.type).toBe('ROOM_STATE');
+    expect(messages[0]!.roomId).toBe('room-1');
 
     client.disconnect();
   });

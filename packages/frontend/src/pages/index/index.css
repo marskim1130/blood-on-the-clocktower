@@ -1,0 +1,191 @@
+.page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24px;
+  background: #f7f1e8;
+}
+
+.hero {
+  padding: 32px 28px;
+  margin-bottom: 24px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #4b1113, #8a2c2f);
+  color: #fffaf0;
+}
+
+.title {
+  display: block;
+  font-size: 38px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.subtitle {
+  display: block;
+  font-size: 24px;
+  line-height: 1.5;
+  opacity: 0.86;
+}
+
+.card {
+  padding: 24px;
+  margin-bottom: 22px;
+  border: 1px solid #e2d3be;
+  border-radius: 20px;
+  background: #fffaf0;
+  box-shadow: 0 8px 20px rgba(70, 35, 24, 0.08);
+}
+
+.sectionTitle {
+  display: block;
+  font-size: 30px;
+  font-weight: 700;
+  margin-bottom: 18px;
+  color: #4b1113;
+}
+
+.status {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.status-connected {
+  color: #247447;
+}
+
+.status-connecting {
+  color: #9a6b13;
+}
+
+.status-error {
+  color: #a82525;
+}
+
+.status-disconnected {
+  color: #685b51;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 76px;
+  padding: 0 22px;
+  margin-bottom: 16px;
+  border: 1px solid #d3bfa5;
+  border-radius: 14px;
+  background: #fff;
+  color: #2f201b;
+  font-size: 26px;
+}
+
+.row {
+  display: flex;
+  gap: 16px;
+}
+
+.button {
+  flex: 1;
+  margin: 0 0 16px 0;
+  border-radius: 14px;
+  background: #e8dcc9;
+  color: #3a2b24;
+  font-size: 26px;
+}
+
+.primary {
+  background: #4b1113;
+  color: #fffaf0;
+}
+
+.warn {
+  background: #d08b2d;
+  color: #fffaf0;
+}
+
+.miniButton {
+  min-width: 150px;
+  margin: 0;
+  border-radius: 12px;
+  background: #4b1113;
+  color: #fffaf0;
+  font-size: 22px;
+}
+
+.mono {
+  display: block;
+  margin-bottom: 12px;
+  color: #67584f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 22px;
+  word-break: break-all;
+}
+
+.hint {
+  display: block;
+  margin-top: 8px;
+  color: #7b6a5f;
+  font-size: 22px;
+  line-height: 1.5;
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 0;
+  border-bottom: 1px solid #eadbc7;
+}
+
+.playerInfo {
+  flex: 1;
+}
+
+.playerName {
+  display: block;
+  color: #2f201b;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.character {
+  padding: 20px;
+  margin-bottom: 16px;
+  border-radius: 16px;
+  background: #f3eadb;
+}
+
+.characterName {
+  display: block;
+  margin-bottom: 10px;
+  color: #4b1113;
+  font-size: 32px;
+  font-weight: 700;
+}
+
+.ability {
+  display: block;
+  margin-top: 12px;
+  color: #3a2b24;
+  font-size: 24px;
+  line-height: 1.5;
+}
+
+.error {
+  padding: 18px 22px;
+  margin-bottom: 22px;
+  border-radius: 16px;
+  background: #ffe2df;
+  color: #9f1f1f;
+  font-size: 24px;
+}
+
+.log {
+  display: block;
+  padding: 8px 0;
+  color: #574840;
+  font-size: 22px;
+  border-bottom: 1px solid #efe4d4;
+}

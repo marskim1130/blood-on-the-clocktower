@@ -93,7 +93,7 @@ func (h *Hub) handleCreateRoom(conn Connection, msg ClientMessage) {
 	conn.SendJSON(ServerMessage{
 		Type:   "ROOM_STATE",
 		RoomID: room.id,
-		State:  h.buildRoomState(room.id),
+		State:  h.buildRoomStateForRecipient(room.id, msg.PlayerID),
 	})
 }
 
@@ -116,7 +116,7 @@ func (h *Hub) handleJoinRoom(conn Connection, msg ClientMessage) {
 	conn.SendJSON(ServerMessage{
 		Type:   "ROOM_STATE",
 		RoomID: msg.RoomID,
-		State:  h.buildRoomState(msg.RoomID),
+		State:  h.buildRoomStateForRecipient(msg.RoomID, msg.PlayerID),
 	})
 
 	h.BroadcastExcept(msg.RoomID, msg.PlayerID, ServerMessage{
@@ -129,7 +129,7 @@ func (h *Hub) handleJoinRoom(conn Connection, msg ClientMessage) {
 	})
 }
 
-func (h *Hub) handleLeaveRoom(conn Connection, msg ClientMessage) {
+func (h *Hub) handleLeaveRoom(conn Connection, _ ClientMessage) {
 	// Derive room and player identity from the connection, not from the message.
 	h.mu.RLock()
 	roomID := h.connToRoom[conn]
@@ -215,12 +215,7 @@ func (h *Hub) handleSetStoryteller(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		state := h.buildRoomState(roomID)
-		h.Broadcast(roomID, ServerMessage{
-			Type:   "ROOM_STATE",
-			RoomID: roomID,
-			State:  state,
-		})
+		h.BroadcastRoomState(roomID)
 	}
 }
 
@@ -257,11 +252,19 @@ func (h *Hub) handleAssignCharacters(conn Connection, msg ClientMessage) {
 	}
 
 	for _, event := range result.Events {
+		if event.CharacterAssigned != nil {
+			h.sendCharacterAssignment(roomID, senderID, event.CharacterAssigned)
+			continue
+		}
 		eventCopy := event
 		h.Broadcast(roomID, ServerMessage{
 			Type:  "EVENT_BROADCAST",
 			Event: &eventCopy,
 		})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
 	}
 }
 
@@ -373,16 +376,56 @@ func (h *Hub) SendTo(playerID string, msg ServerMessage) {
 	}
 }
 
-func (h *Hub) buildRoomState(roomID string) *RoomState {
+func (h *Hub) BroadcastRoomState(roomID string) {
+	clients := h.rm.GetClientsByRoom(roomID)
+	for pid, client := range clients {
+		msg := ServerMessage{
+			Type:   "ROOM_STATE",
+			RoomID: roomID,
+			State:  h.buildRoomStateForRecipient(roomID, pid),
+		}
+		if err := client.Conn.SendJSON(msg); err != nil {
+			log.Printf("room state to %s in room %s failed: %v", pid, roomID, err)
+		}
+	}
+}
+
+func (h *Hub) sendCharacterAssignment(roomID, storytellerID string, assignment *game.CharacterAssigned) {
+	clients := h.rm.GetClientsByRoom(roomID)
+
+	playerEvent := game.GameEvent{CharacterAssigned: assignment}
+	if playerClient := clients[assignment.PlayerID]; playerClient != nil {
+		if err := playerClient.Conn.SendJSON(ServerMessage{
+			Type:  "EVENT_BROADCAST",
+			Event: &playerEvent,
+		}); err != nil {
+			log.Printf("send assignment to player %s in room %s failed: %v", assignment.PlayerID, roomID, err)
+		}
+	}
+
+	if storytellerID != "" && storytellerID != assignment.PlayerID {
+		storytellerEvent := game.GameEvent{CharacterAssigned: assignment}
+		if storytellerClient := clients[storytellerID]; storytellerClient != nil {
+			if err := storytellerClient.Conn.SendJSON(ServerMessage{
+				Type:  "EVENT_BROADCAST",
+				Event: &storytellerEvent,
+			}); err != nil {
+				log.Printf("send assignment to storyteller %s in room %s failed: %v", storytellerID, roomID, err)
+			}
+		}
+	}
+}
+
+func (h *Hub) buildRoomStateForRecipient(roomID, recipientID string) *RoomState {
 	h.mu.RLock()
 	gs := h.sessions[roomID]
 	h.mu.RUnlock()
 
 	if gs == nil {
-		return &RoomState{RoomID: roomID}
+		return &RoomState{RoomID: roomID, MaxPlayers: h.rm.MaxPlayers(roomID)}
 	}
 
-	state := gs.StateForRoom(roomID)
+	state := gs.StateForRoomForRecipient(roomID, recipientID)
 	state.MaxPlayers = h.rm.MaxPlayers(roomID)
 	return state
 }

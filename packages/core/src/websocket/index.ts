@@ -6,7 +6,15 @@ export interface ClientMessage {
     | 'LEAVE_ROOM'
     | 'SET_STORYTELLER'
     | 'ASSIGN_CHARACTERS'
-    | 'SUBMIT_EVENT';
+    | 'SUBMIT_EVENT'
+    | 'START_GAME'
+    | 'CHANGE_PHASE'
+    | 'NOMINATE'
+    | 'CAST_VOTE'
+    | 'RESOLVE_NOMINATION'
+    | 'EXECUTE_PLAYER'
+    | 'SUBMIT_NIGHT_ACTION'
+    | 'RESOLVE_NIGHT';
   readonly roomId?: string;
   readonly playerName?: string;
   readonly playerId?: string;
@@ -14,6 +22,18 @@ export interface ClientMessage {
   readonly maxPlayers?: number;
   readonly assignments?: Record<string, string>;
   readonly event?: Record<string, unknown>;
+  /** Phase name for CHANGE_PHASE (e.g. 'day', 'night', 'voting'). */
+  readonly phase?: string;
+  /** Nominee player id for NOMINATE. */
+  readonly nomineeId?: string;
+  /** Boolean vote decision for CAST_VOTE: true = guilty, false = innocent. */
+  readonly decision?: boolean;
+  /** Player id for EXECUTE_PLAYER. */
+  readonly executePlayerId?: string;
+  /** Night action type for SUBMIT_NIGHT_ACTION (e.g. 'kill', 'poison'). */
+  readonly actionType?: string;
+  /** Target player ids for SUBMIT_NIGHT_ACTION. */
+  readonly targetIds?: readonly string[];
 }
 
 export interface ServerMessage {
@@ -49,7 +69,12 @@ export type GameServerEvent =
   | { readonly playerLeft: { readonly playerId: string } }
   | { readonly phaseChanged: { readonly phase: number } }
   | { readonly voteCast: { readonly voterId: string; readonly targetId?: string } }
-  | { readonly characterAssigned: { readonly playerId: string; readonly character: GameCharacter } };
+  | { readonly characterAssigned: { readonly playerId: string; readonly character: GameCharacter } }
+  | { readonly playerDied: { readonly playerId: string; readonly cause: string; readonly dayNumber: number } }
+  | { readonly nominationStarted: { readonly nominatorId: string; readonly nomineeId: string } }
+  | { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number } }
+  | { readonly nightAction: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result: string | null } }
+  | { readonly gameOver: { readonly winner: string; readonly reason: string; readonly description: string } };
 
 type MessageHandler = (msg: ServerMessage) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
@@ -266,6 +291,38 @@ export class GameWebSocketClient {
 
   submitEvent(event: Record<string, unknown>): void {
     this.send({ type: 'SUBMIT_EVENT', event });
+  }
+
+  startGame(): void {
+    this.send({ type: 'START_GAME' });
+  }
+
+  changePhase(phase: string): void {
+    this.send({ type: 'CHANGE_PHASE', phase });
+  }
+
+  nominate(nomineeId: string): void {
+    this.send({ type: 'NOMINATE', nomineeId });
+  }
+
+  castVote(decision: boolean): void {
+    this.send({ type: 'CAST_VOTE', decision });
+  }
+
+  resolveNomination(): void {
+    this.send({ type: 'RESOLVE_NOMINATION' });
+  }
+
+  executePlayer(playerId: string): void {
+    this.send({ type: 'EXECUTE_PLAYER', executePlayerId: playerId });
+  }
+
+  submitNightAction(actionType: string, targetIds: readonly string[]): void {
+    this.send({ type: 'SUBMIT_NIGHT_ACTION', actionType, targetIds });
+  }
+
+  resolveNight(): void {
+    this.send({ type: 'RESOLVE_NIGHT' });
   }
 
   send(msg: ClientMessage): void {

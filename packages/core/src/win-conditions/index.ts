@@ -1,5 +1,4 @@
-import type { PlayerId, Team, Character } from '../types/index.js';
-import type { DeathCause } from '../death-system/index.js';
+import type { PlayerId, Team, Character, DeathCause } from '../types/index.js';
 
 // ─── Win Condition Types ─────────────────────────────────────────
 

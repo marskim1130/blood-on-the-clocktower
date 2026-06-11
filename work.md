@@ -1,5 +1,72 @@
 # Work Log
 
+## 2026-06-11 09:41 — MVP 前后端集成完成
+
+### 问题
+核心逻辑模块（投票引擎、死亡系统、胜利条件、夜间阶段）已完成，需要集成到前后端以支持完整游戏流程。
+
+### 解决方案
+
+#### 后端集成 (Go)
+1. **更新 `packages/backend/internal/game/game.go`**:
+   - 新增事件类型：PlayerDied、NominationStarted、NominationResolved、NightAction、GameEnded
+   - 新增枚举：DeathCause、NightActionType、WinReason
+   - 新增结构：Nomination、DeathRecord、NightAction
+
+2. **更新 `packages/backend/internal/ws/game_session.go`** (+616 行):
+   - 新增命令：StartGame、ChangePhase、Nominate、CastVote、ResolveNomination、ExecutePlayer、SubmitNightAction、ResolveNight
+   - 实现阶段转换逻辑
+   - 实现胜利条件检查
+   - 实现夜间行动处理
+
+3. **更新 `packages/backend/internal/ws/message.go`**:
+   - 新增消息类型
+   - 更新 RoomState 包含完整游戏状态
+
+#### 前端集成 (TypeScript)
+1. **更新 `packages/core/src/types/index.ts`**:
+   - 新增类型：DeathCause、NominationState、NightActionRecord
+   - 扩展 GameState 和 GameEvent
+
+2. **更新 `packages/core/src/state-machine/index.ts`**:
+   - 新增事件处理：PLAYER_DIED、NOMINATION_STARTED、NOMINATION_RESOLVED、NIGHT_ACTION、GAME_OVER
+
+3. **更新 `packages/core/src/websocket/index.ts`**:
+   - 新增 8 个消息类型和对应的客户端方法
+
+4. **更新 `packages/frontend/src/pages/index/index.tsx`**:
+   - 完整游戏 UI：阶段显示、投票界面、夜间控制、死亡追踪、胜利条件
+
+5. **更新 `packages/frontend/src/pages/index/index.css`**:
+   - 新增游戏 UI 样式
+
+### 测试结果
+- ✅ 后端 Go 测试通过
+- ✅ Core TypeScript 测试通过 (130 个测试)
+- ✅ 前端 TypeScript 类型检查通过
+- ✅ 前端构建成功
+
+### 修改文件
+- `packages/backend/internal/game/game.go`
+- `packages/backend/internal/ws/game_session.go`
+- `packages/backend/internal/ws/message.go`
+- `packages/core/src/types/index.ts`
+- `packages/core/src/state-machine/index.ts`
+- `packages/core/src/websocket/index.ts`
+- `packages/core/src/death-system/index.ts`
+- `packages/core/src/win-conditions/index.ts`
+- `packages/frontend/src/pages/index/index.tsx`
+- `packages/frontend/src/pages/index/index.css`
+
+### 撤回方式
+```bash
+git checkout -- packages/backend/
+git checkout -- packages/core/src/
+git checkout -- packages/frontend/src/
+```
+
+---
+
 ## 2026-06-10 18:24 — 代码审查修复
 
 ### 问题

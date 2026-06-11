@@ -1,9 +1,6 @@
-import type { PlayerId, Character } from '../types/index.js';
+import type { PlayerId, Character, DeathCause } from '../types/index.js';
 
 // ─── Death System Types ──────────────────────────────────────────
-
-/** How a player died. */
-export type DeathCause = 'execution' | 'night_kill' | 'ability';
 
 /** Record of a single player's death. */
 export interface DeathRecord {

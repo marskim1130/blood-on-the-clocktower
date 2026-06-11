@@ -60,18 +60,34 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 func (h *Hub) handleMessage(conn Connection, msg ClientMessage) {
 	switch msg.Type {
-	case "CREATE_ROOM":
+	case MsgCreateRoom:
 		h.handleCreateRoom(conn, msg)
-	case "JOIN_ROOM":
+	case MsgJoinRoom:
 		h.handleJoinRoom(conn, msg)
-	case "LEAVE_ROOM":
+	case MsgLeaveRoom:
 		h.handleLeaveRoom(conn, msg)
-	case "SET_STORYTELLER":
+	case MsgSetStoryteller:
 		h.handleSetStoryteller(conn, msg)
-	case "ASSIGN_CHARACTERS":
+	case MsgAssignCharacters:
 		h.handleAssignCharacters(conn, msg)
-	case "SUBMIT_EVENT":
+	case MsgSubmitEvent:
 		h.handleSubmitEvent(conn, msg)
+	case MsgStartGame:
+		h.handleStartGame(conn, msg)
+	case MsgChangePhase:
+		h.handleChangePhase(conn, msg)
+	case MsgNominate:
+		h.handleNominate(conn, msg)
+	case MsgCastVote:
+		h.handleCastVote(conn, msg)
+	case MsgResolveNomination:
+		h.handleResolveNomination(conn, msg)
+	case MsgExecutePlayer:
+		h.handleExecutePlayer(conn, msg)
+	case MsgSubmitNightAction:
+		h.handleSubmitNightAction(conn, msg)
+	case MsgResolveNight:
+		h.handleResolveNight(conn, msg)
 	}
 }
 

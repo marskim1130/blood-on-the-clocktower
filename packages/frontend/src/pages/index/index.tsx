@@ -297,10 +297,11 @@ export default function IndexPage() {
     if ('phaseChanged' in event) {
       const phaseMap: Record<number, GamePhase> = {
         0: 'setup',
-        1: 'day',
-        2: 'voting',
+        1: 'setup',
+        2: 'day',
         3: 'night',
-        4: 'finished',
+        4: 'voting',
+        5: 'finished',
       };
       const phaseValue = (event as { readonly phaseChanged: { readonly phase: number } }).phaseChanged.phase;
       const mapped = phaseMap[phaseValue];

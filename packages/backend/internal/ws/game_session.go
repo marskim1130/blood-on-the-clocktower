@@ -33,8 +33,8 @@ type ChangePhaseCmd struct {
 }
 
 type NominateCmd struct {
-	SenderID   string
-	NomineeID  string
+	SenderID  string
+	NomineeID string
 }
 
 type CastVoteCmd struct {
@@ -107,7 +107,7 @@ type GameSession struct {
 	nightActions   []game.NightAction
 	deaths         []game.DeathRecord
 	ghostVotesUsed map[string]bool      // playerID -> whether ghost vote was used
-	winner          *game.GameEndedEvent // set when game ends
+	winner         *game.GameEndedEvent // set when game ends
 }
 
 func NewGameSession() *GameSession {
@@ -349,6 +349,9 @@ func (gs *GameSession) applyStartGame(cmd StartGameCmd) (ApplyResult, error) {
 	}
 	if gs.storytellerID == "" {
 		return ApplyResult{}, fmt.Errorf("storyteller must be set before starting the game")
+	}
+	if cmd.SenderID != gs.storytellerID {
+		return ApplyResult{}, fmt.Errorf("only the storyteller can start the game")
 	}
 
 	// Verify all players have characters assigned

@@ -1,6 +1,12 @@
 package ws
 
-import "github.com/your-org/blood-on-the-clocktower/internal/game"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/your-org/blood-on-the-clocktower/internal/game"
+)
 
 // Client-to-server message type constants.
 const (
@@ -22,39 +28,99 @@ const (
 
 // ClientMessage represents a message from client to server
 type ClientMessage struct {
-	Type           string            `json:"type"`
-	RoomID         string            `json:"roomId,omitempty"`
-	PlayerName     string            `json:"playerName,omitempty"`
-	PlayerID       string            `json:"playerId,omitempty"`
-	TargetPlayerID string            `json:"targetPlayerId,omitempty"`
-	MaxPlayers     int               `json:"maxPlayers,omitempty"`
-	Assignments    map[string]string `json:"assignments,omitempty"` // playerID -> characterID
-	Event          *game.GameEvent   `json:"event,omitempty"`
-	NomineeID      string            `json:"nomineeId,omitempty"`   // NOMINATE target
-	Decision       *bool             `json:"decision,omitempty"`    // CAST_VOTE value
-	Phase          game.GamePhase    `json:"phase,omitempty"`      // CHANGE_PHASE target
-	ActionType     string            `json:"actionType,omitempty"` // SUBMIT_NIGHT_ACTION type
-	TargetIDs      []string          `json:"targetIds,omitempty"`  // SUBMIT_NIGHT_ACTION targets
+	Type            string            `json:"type"`
+	RoomID          string            `json:"roomId,omitempty"`
+	PlayerName      string            `json:"playerName,omitempty"`
+	PlayerID        string            `json:"playerId,omitempty"`
+	TargetPlayerID  string            `json:"targetPlayerId,omitempty"`
+	ExecutePlayerID string            `json:"executePlayerId,omitempty"`
+	MaxPlayers      int               `json:"maxPlayers,omitempty"`
+	Assignments     map[string]string `json:"assignments,omitempty"` // playerID -> characterID
+	Event           *game.GameEvent   `json:"event,omitempty"`
+	NomineeID       string            `json:"nomineeId,omitempty"`  // NOMINATE target
+	Decision        *bool             `json:"decision,omitempty"`   // CAST_VOTE value
+	Phase           ClientGamePhase   `json:"phase,omitempty"`      // CHANGE_PHASE target
+	ActionType      string            `json:"actionType,omitempty"` // SUBMIT_NIGHT_ACTION type
+	TargetIDs       []string          `json:"targetIds,omitempty"`  // SUBMIT_NIGHT_ACTION targets
+}
+
+// ClientGamePhase accepts both the numeric protocol enum and the current
+// frontend string names ("day", "night", etc.).
+type ClientGamePhase game.GamePhase
+
+func (p ClientGamePhase) GamePhase() game.GamePhase {
+	return game.GamePhase(p)
+}
+
+func (p *ClientGamePhase) UnmarshalJSON(raw []byte) error {
+	if string(raw) == "null" {
+		*p = ClientGamePhase(game.GamePhaseUnspecified)
+		return nil
+	}
+
+	var numeric int
+	if err := json.Unmarshal(raw, &numeric); err == nil {
+		*p = ClientGamePhase(game.GamePhase(numeric))
+		return nil
+	}
+
+	var named string
+	if err := json.Unmarshal(raw, &named); err != nil {
+		return err
+	}
+
+	phase, ok := parseClientGamePhase(named)
+	if !ok {
+		return fmt.Errorf("unknown game phase %q", named)
+	}
+	*p = ClientGamePhase(phase)
+	return nil
+}
+
+func parseClientGamePhase(value string) (game.GamePhase, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "unspecified", "0":
+		return game.GamePhaseUnspecified, true
+	case "setup", "1":
+		return game.GamePhaseSetup, true
+	case "day", "2":
+		return game.GamePhaseDay, true
+	case "night", "3":
+		return game.GamePhaseNight, true
+	case "voting", "4":
+		return game.GamePhaseVoting, true
+	case "finished", "5":
+		return game.GamePhaseFinished, true
+	default:
+		return game.GamePhaseUnspecified, false
+	}
+}
+
+func (msg ClientMessage) targetPlayerID() string {
+	if msg.TargetPlayerID != "" {
+		return msg.TargetPlayerID
+	}
+	return msg.ExecutePlayerID
 }
 
 // ServerMessage represents a message from server to client
 type ServerMessage struct {
-	Type    string          `json:"type"`
-	RoomID  string          `json:"roomId,omitempty"`
-	State   *RoomState      `json:"state,omitempty"`
-	Event   *game.GameEvent `json:"event,omitempty"`
-	Error   string          `json:"error,omitempty"`
+	Type   string          `json:"type"`
+	RoomID string          `json:"roomId,omitempty"`
+	State  *RoomState      `json:"state,omitempty"`
+	Event  *game.GameEvent `json:"event,omitempty"`
+	Error  string          `json:"error,omitempty"`
 }
 
 // RoomState represents the current state of a room
 type RoomState struct {
-	RoomID        string           `json:"roomId"`
-	Players       []game.Player    `json:"players"`
-	MaxPlayers    int              `json:"maxPlayers"`
-	StorytellerID string           `json:"storytellerId,omitempty"`
-	Phase         game.GamePhase   `json:"phase"`
-	DayNumber     int32            `json:"dayNumber"`
-	Nomination    *game.Nomination `json:"nomination,omitempty"`
+	RoomID        string               `json:"roomId"`
+	Players       []game.Player        `json:"players"`
+	MaxPlayers    int                  `json:"maxPlayers"`
+	StorytellerID string               `json:"storytellerId,omitempty"`
+	Phase         game.GamePhase       `json:"phase"`
+	DayNumber     int32                `json:"dayNumber"`
+	Nomination    *game.Nomination     `json:"nomination,omitempty"`
 	Deaths        []game.DeathRecord   `json:"deaths,omitempty"`
 	Winner        *game.GameEndedEvent `json:"winner,omitempty"`
 }

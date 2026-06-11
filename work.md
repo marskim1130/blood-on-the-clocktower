@@ -394,3 +394,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 - 无（测试通过，无需修改）
 ### 撤回方式
 - 无需撤回
+
+---
+
+2026-06-11 10:41:19 +08:00 --- 发现 WebSocket 游戏流程新增处理器存在 START_GAME 权限缺失、CHANGE_PHASE 字符串阶段无法反序列化、EXECUTE_PLAYER 字段名不兼容、SUBMIT_NIGHT_ACTION 泄露夜间行动目标，以及前端阶段枚举映射错误 --- 使用服务端消息兼容解析、会话层权限校验、夜间行动定向发送、客户端字段统一、前端阶段映射修正和回归测试解决 --- 修改了 packages/backend/internal/ws/message.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/core/src/websocket/index.ts、packages/frontend/src/pages/index/index.tsx
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/message.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/core/src/websocket/index.ts packages/frontend/src/pages/index/index.tsx work.md`，并删除 `packages/backend/internal/ws/hub_game_flow_test.go`。

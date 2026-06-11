@@ -28,7 +28,7 @@ export interface ClientMessage {
   readonly nomineeId?: string;
   /** Boolean vote decision for CAST_VOTE: true = guilty, false = innocent. */
   readonly decision?: boolean;
-  /** Player id for EXECUTE_PLAYER. */
+  /** Legacy alias for EXECUTE_PLAYER; prefer targetPlayerId. */
   readonly executePlayerId?: string;
   /** Night action type for SUBMIT_NIGHT_ACTION (e.g. 'kill', 'poison'). */
   readonly actionType?: string;
@@ -314,7 +314,7 @@ export class GameWebSocketClient {
   }
 
   executePlayer(playerId: string): void {
-    this.send({ type: 'EXECUTE_PLAYER', executePlayerId: playerId });
+    this.send({ type: 'EXECUTE_PLAYER', targetPlayerId: playerId });
   }
 
   submitNightAction(actionType: string, targetIds: readonly string[]): void {

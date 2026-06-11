@@ -328,6 +328,351 @@ func (h *Hub) handleSubmitEvent(conn Connection, msg ClientMessage) {
 	}
 }
 
+func (h *Hub) handleStartGame(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	result, err := gs.Apply(StartGameCmd{SenderID: senderID})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
+	}
+}
+
+func (h *Hub) handleChangePhase(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	// Storyteller-only command.
+	if senderID != gs.StorytellerID() {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only the storyteller can change phase"})
+		return
+	}
+
+	result, err := gs.Apply(ChangePhaseCmd{
+		SenderID: senderID,
+		Phase:    msg.Phase.GamePhase(),
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
+	}
+}
+
+func (h *Hub) handleNominate(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	result, err := gs.Apply(NominateCmd{
+		SenderID:  senderID,
+		NomineeID: msg.NomineeID,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
+	}
+}
+
+func (h *Hub) handleCastVote(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	if msg.Decision == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "decision is required"})
+		return
+	}
+
+	result, err := gs.Apply(CastVoteCmd{
+		SenderID: senderID,
+		Decision: *msg.Decision,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
+	}
+}
+
+func (h *Hub) handleResolveNomination(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	// Storyteller-only command.
+	if senderID != gs.StorytellerID() {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only the storyteller can resolve a nomination"})
+		return
+	}
+
+	result, err := gs.Apply(ResolveNominationCmd{SenderID: senderID})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
+	}
+}
+
+func (h *Hub) handleExecutePlayer(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	// Storyteller-only command.
+	if senderID != gs.StorytellerID() {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only the storyteller can execute a player"})
+		return
+	}
+
+	result, err := gs.Apply(ExecutePlayerCmd{
+		SenderID: senderID,
+		PlayerID: msg.targetPlayerID(),
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
+	}
+}
+
+func (h *Hub) handleSubmitNightAction(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	result, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   senderID,
+		ActionType: msg.ActionType,
+		TargetIDs:  msg.TargetIDs,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		if event.NightActionSubmitted != nil {
+			h.sendNightActionSubmitted(roomID, gs.StorytellerID(), event.NightActionSubmitted)
+			continue
+		}
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
+	}
+}
+
+func (h *Hub) handleResolveNight(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	// Storyteller-only command.
+	if senderID != gs.StorytellerID() {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only the storyteller can resolve the night"})
+		return
+	}
+
+	result, err := gs.Apply(ResolveNightCmd{SenderID: senderID})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.BroadcastRoomState(roomID)
+	}
+}
+
 func (h *Hub) handleDisconnect(conn Connection) {
 	// Always clean up connToRoom, even if RemoveClientByConn fails
 	h.mu.Lock()
@@ -427,6 +772,32 @@ func (h *Hub) sendCharacterAssignment(roomID, storytellerID string, assignment *
 				Event: &storytellerEvent,
 			}); err != nil {
 				log.Printf("send assignment to storyteller %s in room %s failed: %v", storytellerID, roomID, err)
+			}
+		}
+	}
+}
+
+func (h *Hub) sendNightActionSubmitted(roomID, storytellerID string, action *game.NightActionEvent) {
+	clients := h.rm.GetClientsByRoom(roomID)
+
+	actionEvent := game.GameEvent{NightActionSubmitted: action}
+	if actorClient := clients[action.ActorID]; actorClient != nil {
+		if err := actorClient.Conn.SendJSON(ServerMessage{
+			Type:  "EVENT_BROADCAST",
+			Event: &actionEvent,
+		}); err != nil {
+			log.Printf("send night action to actor %s in room %s failed: %v", action.ActorID, roomID, err)
+		}
+	}
+
+	if storytellerID != "" && storytellerID != action.ActorID {
+		storytellerEvent := game.GameEvent{NightActionSubmitted: action}
+		if storytellerClient := clients[storytellerID]; storytellerClient != nil {
+			if err := storytellerClient.Conn.SendJSON(ServerMessage{
+				Type:  "EVENT_BROADCAST",
+				Event: &storytellerEvent,
+			}); err != nil {
+				log.Printf("send night action to storyteller %s in room %s failed: %v", storytellerID, roomID, err)
 			}
 		}
 	}

@@ -1,4 +1,5 @@
 import type { PlayerId, Character } from '../types/index.js';
+import { getScriptWakeOrder } from '../scripts/index.js';
 
 // ─── Night Phase Types ──────────────────────────────────────────
 
@@ -48,29 +49,22 @@ export interface WakeOrderEntry {
  * First night wake order for Trouble Brewing.
  */
 export const FIRST_NIGHT_ORDER: readonly WakeOrderEntry[] = [
-  { characterId: 'poisoner', order: 1, actionType: 'poison' },
-  { characterId: 'washerwoman', order: 2, actionType: 'learn_townsfolk' },
-  { characterId: 'librarian', order: 3, actionType: 'learn_outsider' },
-  { characterId: 'investigator', order: 4, actionType: 'learn_minion' },
-  { characterId: 'chef', order: 5, actionType: 'learn_evil_pairs' },
-  { characterId: 'empath', order: 6, actionType: 'learn_evil_neighbors' },
-  { characterId: 'fortune_teller', order: 7, actionType: 'check_demon' },
-  { characterId: 'butler', order: 8, actionType: 'learn_master' },
-  { characterId: 'imp', order: 9, actionType: 'kill' },
+  ...getScriptWakeOrder('trouble_brewing', 1).map(({ characterId, order, actionType }) => ({
+    characterId,
+    order,
+    actionType,
+  })),
 ];
 
 /**
  * Subsequent night wake order for Trouble Brewing.
  */
 export const SUBSEQUENT_NIGHT_ORDER: readonly WakeOrderEntry[] = [
-  { characterId: 'poisoner', order: 1, actionType: 'poison' },
-  { characterId: 'monk', order: 2, actionType: 'protect' },
-  { characterId: 'imp', order: 3, actionType: 'kill' },
-  { characterId: 'empath', order: 4, actionType: 'learn_evil_neighbors' },
-  { characterId: 'fortune_teller', order: 5, actionType: 'check_demon' },
-  { characterId: 'undertaker', order: 6, actionType: 'learn_executed' },
-  { characterId: 'butler', order: 7, actionType: 'learn_master' },
-  { characterId: 'ravenkeeper', order: 8, actionType: 'learn_died' },
+  ...getScriptWakeOrder('trouble_brewing', 2).map(({ characterId, order, actionType }) => ({
+    characterId,
+    order,
+    actionType,
+  })),
 ];
 
 // ─── Initial State ───────────────────────────────────────────────

@@ -27,6 +27,10 @@
       "types": "./dist/night-phase/index.d.ts",
       "import": "./dist/night-phase/index.js"
     },
+    "./scripts": {
+      "types": "./dist/scripts/index.d.ts",
+      "import": "./dist/scripts/index.js"
+    },
     "./websocket": {
       "types": "./dist/websocket/index.d.ts",
       "import": "./dist/websocket/index.js"

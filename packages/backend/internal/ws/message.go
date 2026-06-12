@@ -24,6 +24,7 @@ const (
 	MsgCastVote           = "CAST_VOTE"
 	MsgResolveNomination  = "RESOLVE_NOMINATION"
 	MsgExecutePlayer      = "EXECUTE_PLAYER"
+	MsgUseSlayerAbility   = "USE_SLAYER_ABILITY"
 	MsgSubmitNightAction  = "SUBMIT_NIGHT_ACTION"
 	MsgResolveNight       = "RESOLVE_NIGHT"
 	MsgEndGame            = "END_GAME"

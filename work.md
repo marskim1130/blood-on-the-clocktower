@@ -538,3 +538,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 16:24:15 +08:00 --- 发现后端夜晚结算 [Night Resolution] 对 `protect` 行动和 Soldier 免疫只记录动作但不生效，Imp 夜杀 [Imp Night Kill] 仍会杀死 Monk 保护目标或 Soldier --- 使用夜晚防护结算 [Night Protection Resolution]：在 `ResolveNight` 中先收集 Storyteller 裁决的 Monk 保护目标 [Protected Targets]，再处理 kill 行动；若目标被保护或角色是 Soldier，则跳过死亡记录 [Death Record] 和 `PlayerDied` 事件；补充 Monk 保护目标不死亡、Soldier 被夜杀不死亡的回归测试，并通过 `go test ./...`、`git diff --check` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go work.md`。
+
+---
+
+2026-06-12 16:30:37 +08:00 --- 发现后端尚未实现 Slayer 白天能力 [Slayer Ability]：玩家无法在白天发起一次性射击，服务端也没有持久化能力使用状态 [Ability Usage State]，重启后可能重置 --- 使用显式 `USE_SLAYER_ABILITY` 命令 [Explicit Command] 贯通 Hub 与 GameSession：Hub 从连接身份 [Connection Identity] 推导能力使用者，不信任客户端伪造的 `playerId`；GameSession 限制只有存活 Slayer 能在白天使用一次，命中恶魔则以能力死亡 [Ability Death] 结算并触发胜负判断，未命中只消耗使用次数；快照持久化 `slayerUsed`，补充会话层命中/未命中测试、Hub 伪造身份测试和 Redis 快照恢复断言，并通过 `go test ./...`、`git diff --check` --- 修改了 packages/backend/internal/ws/message.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/hub_game_flow_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/message.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/persistence.go packages/backend/internal/ws/persistence_test.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/hub_game_flow_test.go work.md`。

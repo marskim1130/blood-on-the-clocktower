@@ -484,6 +484,69 @@ func TestGameSessionResolveNightDoesNotKillSoldier(t *testing.T) {
 	}
 }
 
+func TestGameSessionSlayerAbilityKillsDemon(t *testing.T) {
+	gs := slayerSession(t)
+
+	result, err := gs.Apply(UseSlayerAbilityCmd{
+		SenderID:       "slayer",
+		TargetPlayerID: "imp",
+	})
+	if err != nil {
+		t.Fatalf("unexpected Slayer ability error: %v", err)
+	}
+	if len(result.Events) < 2 {
+		t.Fatalf("expected death and game ended events, got %#v", result.Events)
+	}
+	if result.Events[0].PlayerDied == nil ||
+		result.Events[0].PlayerDied.PlayerID != "imp" ||
+		result.Events[0].PlayerDied.Cause != game.DeathCauseAbility {
+		t.Fatalf("expected ability death for Imp, got %#v", result.Events)
+	}
+
+	state := gs.StateForRoom("room-1")
+	imp := findPlayerInState(t, state, "imp")
+	if imp.IsAlive {
+		t.Fatal("expected Imp to die from Slayer ability")
+	}
+	if state.Winner == nil || state.Winner.Winner != game.TeamGood {
+		t.Fatalf("expected good win after Slayer kills demon, got %#v", state.Winner)
+	}
+}
+
+func TestGameSessionSlayerAbilityMissConsumesUse(t *testing.T) {
+	gs := slayerSession(t)
+
+	result, err := gs.Apply(UseSlayerAbilityCmd{
+		SenderID:       "slayer",
+		TargetPlayerID: "p1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected Slayer ability error: %v", err)
+	}
+	if len(result.Events) != 0 {
+		t.Fatalf("expected missed Slayer shot to broadcast no events, got %#v", result.Events)
+	}
+	if !result.Updated {
+		t.Fatal("expected missed Slayer shot to update used ability state")
+	}
+	state := gs.StateForRoom("room-1")
+	p1 := findPlayerInState(t, state, "p1")
+	if !p1.IsAlive {
+		t.Fatal("expected non-demon target to remain alive")
+	}
+
+	_, err = gs.Apply(UseSlayerAbilityCmd{
+		SenderID:       "slayer",
+		TargetPlayerID: "imp",
+	})
+	if err == nil {
+		t.Fatal("expected second Slayer ability use to be rejected")
+	}
+	if err.Error() != "Slayer ability already used" {
+		t.Fatalf("expected already used error, got %q", err.Error())
+	}
+}
+
 func TestGameSessionRemovePlayer(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
@@ -606,5 +669,24 @@ func nightProtectionSession(t *testing.T) *GameSession {
 		nightNumber:    2,
 		nightWakeIndex: 2,
 		ghostVotesUsed: map[string]bool{},
+	}
+}
+
+func slayerSession(t *testing.T) *GameSession {
+	t.Helper()
+	return &GameSession{
+		players: []game.Player{
+			{ID: "slayer", Name: "Slayer", IsAlive: true, Character: testCharacter(t, "slayer")},
+			{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+			{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
+			{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
+			{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+		},
+		storytellerID:  "storyteller",
+		scriptID:       game.TroubleBrewingScriptID,
+		phase:          game.GamePhaseDay,
+		dayNumber:      1,
+		ghostVotesUsed: map[string]bool{},
+		slayerUsed:     map[string]bool{},
 	}
 }

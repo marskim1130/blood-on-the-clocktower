@@ -51,6 +51,7 @@ type gameSessionSnapshot struct {
 	NightActions    []game.NightAction   `json:"nightActions,omitempty"`
 	Deaths          []game.DeathRecord   `json:"deaths,omitempty"`
 	GhostVotesUsed  map[string]bool      `json:"ghostVotesUsed,omitempty"`
+	SlayerUsed      map[string]bool      `json:"slayerUsed,omitempty"`
 	Winner          *game.GameEndedEvent `json:"winner,omitempty"`
 }
 
@@ -385,6 +386,7 @@ func (gs *GameSession) snapshot() gameSessionSnapshot {
 		NightActions:    cloneNightActions(gs.nightActions),
 		Deaths:          cloneDeaths(gs.deaths),
 		GhostVotesUsed:  cloneGhostVotesUsed(gs.ghostVotesUsed),
+		SlayerUsed:      cloneGhostVotesUsed(gs.slayerUsed),
 		Winner:          cloneWinner(gs.winner),
 	}
 }
@@ -397,6 +399,10 @@ func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
 	ghostVotesUsed := cloneGhostVotesUsed(snapshot.GhostVotesUsed)
 	if ghostVotesUsed == nil {
 		ghostVotesUsed = make(map[string]bool)
+	}
+	slayerUsed := cloneGhostVotesUsed(snapshot.SlayerUsed)
+	if slayerUsed == nil {
+		slayerUsed = make(map[string]bool)
 	}
 
 	return &GameSession{
@@ -412,6 +418,7 @@ func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
 		nightActions:    cloneNightActions(snapshot.NightActions),
 		deaths:          cloneDeaths(snapshot.Deaths),
 		ghostVotesUsed:  ghostVotesUsed,
+		slayerUsed:      slayerUsed,
 		winner:          cloneWinner(snapshot.Winner),
 	}
 }

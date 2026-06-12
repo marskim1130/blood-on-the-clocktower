@@ -77,6 +77,7 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 				Phase:          game.GamePhaseDay,
 				DayNumber:      2,
 				GhostVotesUsed: map[string]bool{"p1": true},
+				SlayerUsed:     map[string]bool{"p2": true},
 				Deaths: []game.DeathRecord{
 					{PlayerID: "p1", Cause: game.DeathCauseNightKill, DayNumber: 1},
 				},
@@ -104,6 +105,9 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 	}
 	if !session.GhostVotesUsed["p1"] {
 		t.Fatalf("expected restored ghost vote usage, got %#v", session.GhostVotesUsed)
+	}
+	if !session.SlayerUsed["p2"] {
+		t.Fatalf("expected restored Slayer ability usage, got %#v", session.SlayerUsed)
 	}
 	if len(session.Deaths) != 1 || session.Deaths[0].PlayerID != "p1" {
 		t.Fatalf("expected restored death record, got %#v", session.Deaths)

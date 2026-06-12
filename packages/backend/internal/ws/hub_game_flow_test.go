@@ -574,6 +574,45 @@ func TestCompleteMVPGameFlowFromFirstNightToGoodWin(t *testing.T) {
 	assertRoomDestroyed(t, h, roomID, append([]*FakeConnection{storytellerConn}, mapValues(playerConns)...)...)
 }
 
+func TestUseSlayerAbilityUsesConnectionIdentity(t *testing.T) {
+	h, storytellerConn, playerConns, roomID := setupSlayerAssignedRoom(t)
+
+	h.handleMessage(storytellerConn, ClientMessage{Type: MsgStartGame})
+	assertNoErrorMessages(t, storytellerConn.Messages())
+	h.handleMessage(storytellerConn, ClientMessage{
+		Type:  MsgChangePhase,
+		Phase: ClientGamePhase(game.GamePhaseDay),
+	})
+	assertNoErrorMessages(t, storytellerConn.Messages())
+	clearAllMessages(storytellerConn, playerConns)
+
+	h.handleMessage(playerConns["p1"], ClientMessage{
+		Type:           MsgUseSlayerAbility,
+		PlayerID:       "p2",
+		TargetPlayerID: "p5",
+	})
+	assertNoErrorMessages(t, playerConns["p1"].Messages())
+
+	death := lastPlayerDied(t, storytellerConn.Messages())
+	if death.PlayerID != "p5" || death.Cause != game.DeathCauseAbility {
+		t.Fatalf("expected p5 ability death, got %#v", death)
+	}
+	gameEnded := lastGameEnded(t, storytellerConn.Messages())
+	if gameEnded.Winner != game.TeamGood || gameEnded.Reason != game.WinReasonImpExecuted {
+		t.Fatalf("expected good demon-dead win, got %#v", gameEnded)
+	}
+
+	finalState := lastRoomState(t, storytellerConn.Messages())
+	if finalState.Phase != game.GamePhaseFinished {
+		t.Fatalf("expected finished phase after Slayer hit, got %d", finalState.Phase)
+	}
+	p5 := findPlayerInState(t, finalState, "p5")
+	if p5.IsAlive {
+		t.Fatal("expected p5 Imp to be dead after Slayer hit")
+	}
+	assertRoomDestroyed(t, h, roomID, append([]*FakeConnection{storytellerConn}, mapValues(playerConns)...)...)
+}
+
 func TestStorytellerNightActionMustMatchCurrentWakeStep(t *testing.T) {
 	h, storytellerConn, _, _ := setupStartedRoom(t)
 
@@ -1003,6 +1042,30 @@ func setupDayAfterFirstNight(t *testing.T) (*Hub, *FakeConnection, map[string]*F
 func setupAssignedRoom(t *testing.T) (*Hub, *FakeConnection, map[string]*FakeConnection, string) {
 	t.Helper()
 
+	return setupAssignedRoomWithAssignments(t, map[string]string{
+		"p1": "washerwoman",
+		"p2": "librarian",
+		"p3": "investigator",
+		"p4": "poisoner",
+		"p5": "imp",
+	})
+}
+
+func setupSlayerAssignedRoom(t *testing.T) (*Hub, *FakeConnection, map[string]*FakeConnection, string) {
+	t.Helper()
+
+	return setupAssignedRoomWithAssignments(t, map[string]string{
+		"p1": "slayer",
+		"p2": "librarian",
+		"p3": "investigator",
+		"p4": "poisoner",
+		"p5": "imp",
+	})
+}
+
+func setupAssignedRoomWithAssignments(t *testing.T, assignments map[string]string) (*Hub, *FakeConnection, map[string]*FakeConnection, string) {
+	t.Helper()
+
 	h := NewHub()
 	storytellerConn := NewFakeConnection()
 	h.handleMessage(storytellerConn, ClientMessage{
@@ -1030,14 +1093,8 @@ func setupAssignedRoom(t *testing.T) (*Hub, *FakeConnection, map[string]*FakeCon
 		TargetPlayerID: "storyteller",
 	})
 	h.handleMessage(storytellerConn, ClientMessage{
-		Type: MsgAssignCharacters,
-		Assignments: map[string]string{
-			"p1": "washerwoman",
-			"p2": "librarian",
-			"p3": "investigator",
-			"p4": "poisoner",
-			"p5": "imp",
-		},
+		Type:        MsgAssignCharacters,
+		Assignments: assignments,
 	})
 	assertNoErrorMessages(t, storytellerConn.Messages())
 	clearAllMessages(storytellerConn, playerConns)
@@ -1138,6 +1195,19 @@ func lastGameEnded(t *testing.T, messages []any) *game.GameEndedEvent {
 		return msg.Event.GameEnded
 	}
 	t.Fatalf("expected game ended event in %#v", messages)
+	return nil
+}
+
+func lastPlayerDied(t *testing.T, messages []any) *game.PlayerDiedEvent {
+	t.Helper()
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, ok := messages[i].(ServerMessage)
+		if !ok || msg.Event == nil || msg.Event.PlayerDied == nil {
+			continue
+		}
+		return msg.Event.PlayerDied
+	}
+	t.Fatalf("expected player died event in %#v", messages)
 	return nil
 }
 

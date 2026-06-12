@@ -52,6 +52,11 @@ type ExecutePlayerCmd struct {
 	PlayerID string
 }
 
+type UseSlayerAbilityCmd struct {
+	SenderID       string
+	TargetPlayerID string
+}
+
 type SubmitNightActionCmd struct {
 	SenderID   string
 	ActionType string
@@ -100,6 +105,7 @@ func (NominateCmd) commandTag()           {}
 func (CastVoteCmd) commandTag()           {}
 func (ResolveNominationCmd) commandTag()  {}
 func (ExecutePlayerCmd) commandTag()      {}
+func (UseSlayerAbilityCmd) commandTag()   {}
 func (SubmitNightActionCmd) commandTag()  {}
 func (ResolveNightCmd) commandTag()       {}
 func (KickPlayerCmd) commandTag()         {}
@@ -132,6 +138,7 @@ type GameSession struct {
 	nightActions   []game.NightAction
 	deaths         []game.DeathRecord
 	ghostVotesUsed map[string]bool      // playerID -> whether ghost vote was used
+	slayerUsed     map[string]bool      // playerID -> whether Slayer ability was used
 	winner         *game.GameEndedEvent // set when game ends
 }
 
@@ -144,6 +151,7 @@ func NewGameSession(scriptIDs ...string) *GameSession {
 	return &GameSession{
 		phase:          game.GamePhaseSetup,
 		ghostVotesUsed: make(map[string]bool),
+		slayerUsed:     make(map[string]bool),
 		scriptID:       scriptID,
 	}
 }
@@ -297,6 +305,8 @@ func (gs *GameSession) Apply(cmd Command) (ApplyResult, error) {
 		return gs.applyResolveNomination(c)
 	case ExecutePlayerCmd:
 		return gs.applyExecutePlayer(c)
+	case UseSlayerAbilityCmd:
+		return gs.applyUseSlayerAbility(c)
 	case SubmitNightActionCmd:
 		return gs.applySubmitNightAction(c)
 	case ResolveNightCmd:
@@ -846,6 +856,75 @@ func (gs *GameSession) applyExecutePlayer(cmd ExecutePlayerCmd) (ApplyResult, er
 		gs.winner = won
 		events = append(events, game.GameEvent{GameEnded: won})
 		gs.phase = game.GamePhaseFinished
+	}
+
+	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+// ────────────────────────────────────────────────
+// UseSlayerAbilityCmd
+// ────────────────────────────────────────────────
+
+func (gs *GameSession) applyUseSlayerAbility(cmd UseSlayerAbilityCmd) (ApplyResult, error) {
+	if gs.phase != game.GamePhaseDay {
+		return ApplyResult{}, fmt.Errorf("Slayer ability can only be used during the day phase")
+	}
+	if cmd.TargetPlayerID == "" {
+		return ApplyResult{}, fmt.Errorf("target player is required")
+	}
+
+	slayerIdx := gs.findPlayerIndex(cmd.SenderID)
+	if slayerIdx == -1 {
+		return ApplyResult{}, fmt.Errorf("Slayer %s not found", cmd.SenderID)
+	}
+	slayer := gs.players[slayerIdx]
+	if !slayer.IsAlive {
+		return ApplyResult{}, fmt.Errorf("dead players cannot use the Slayer ability")
+	}
+	if slayer.Character == nil || slayer.Character.ID != "slayer" {
+		return ApplyResult{}, fmt.Errorf("only the Slayer can use this ability")
+	}
+	if gs.slayerUsed == nil {
+		gs.slayerUsed = make(map[string]bool)
+	}
+	if gs.slayerUsed[cmd.SenderID] {
+		return ApplyResult{}, fmt.Errorf("Slayer ability already used")
+	}
+
+	targetIdx := gs.findPlayerIndex(cmd.TargetPlayerID)
+	if targetIdx == -1 {
+		return ApplyResult{}, fmt.Errorf("target player %s not found", cmd.TargetPlayerID)
+	}
+	if !gs.players[targetIdx].IsAlive {
+		return ApplyResult{}, fmt.Errorf("cannot target a dead player")
+	}
+
+	gs.slayerUsed[cmd.SenderID] = true
+	events := []game.GameEvent{}
+	var targetDef *game.CharacterDefinition
+	if gs.players[targetIdx].Character != nil {
+		targetDef = game.GetCharacterByID(gs.players[targetIdx].Character.ID)
+	}
+	if targetDef != nil && targetDef.Type == game.CharacterTypeDemon {
+		gs.players[targetIdx].IsAlive = false
+		gs.deaths = append(gs.deaths, game.DeathRecord{
+			PlayerID:  cmd.TargetPlayerID,
+			Cause:     game.DeathCauseAbility,
+			DayNumber: gs.dayNumber,
+			KilledBy:  cmd.SenderID,
+		})
+		events = append(events, game.GameEvent{
+			PlayerDied: &game.PlayerDiedEvent{
+				PlayerID:  cmd.TargetPlayerID,
+				Cause:     game.DeathCauseAbility,
+				DayNumber: gs.dayNumber,
+			},
+		})
+		if won := gs.checkWinConditions(); won != nil {
+			gs.winner = won
+			events = append(events, game.GameEvent{GameEnded: won})
+			gs.phase = game.GamePhaseFinished
+		}
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil

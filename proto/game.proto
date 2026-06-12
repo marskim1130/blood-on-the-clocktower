@@ -38,6 +38,45 @@ enum GamePhase {
   GAME_PHASE_FINISHED = 5;
 }
 
+// DeathCause represents why a player died
+enum DeathCause {
+  DEATH_CAUSE_UNSPECIFIED = 0;
+  DEATH_CAUSE_EXECUTION = 1;
+  DEATH_CAUSE_NIGHT_KILL = 2;
+  DEATH_CAUSE_ABILITY = 3;
+}
+
+// NightActionType represents a storyteller-adjudicated night action
+enum NightActionType {
+  NIGHT_ACTION_TYPE_UNSPECIFIED = 0;
+  NIGHT_ACTION_TYPE_POISON = 1;
+  NIGHT_ACTION_TYPE_PROTECT = 2;
+  NIGHT_ACTION_TYPE_KILL = 3;
+  NIGHT_ACTION_TYPE_LEARN_TOWNSFOLK = 4;
+  NIGHT_ACTION_TYPE_LEARN_OUTSIDER = 5;
+  NIGHT_ACTION_TYPE_LEARN_MINION = 6;
+  NIGHT_ACTION_TYPE_LEARN_EVIL_PAIRS = 7;
+  NIGHT_ACTION_TYPE_LEARN_EVIL_NEIGHBORS = 8;
+  NIGHT_ACTION_TYPE_CHECK_DEMON = 9;
+  NIGHT_ACTION_TYPE_LEARN_EXECUTED = 10;
+  NIGHT_ACTION_TYPE_LEARN_DIED = 11;
+  NIGHT_ACTION_TYPE_LEARN_MASTER = 12;
+  NIGHT_ACTION_TYPE_LEARN_DEMON = 13;
+  NIGHT_ACTION_TYPE_CHOOSE_PLAYER = 14;
+  NIGHT_ACTION_TYPE_NONE = 15;
+}
+
+// WinReason represents why the game ended
+enum WinReason {
+  WIN_REASON_UNSPECIFIED = 0;
+  WIN_REASON_IMP_EXECUTED = 1;
+  WIN_REASON_MAYOR_ENDGAME = 2;
+  WIN_REASON_EVIL_MAJORITY = 3;
+  WIN_REASON_SAINT_EXECUTED = 4;
+  WIN_REASON_IMP_STARPASS = 5;
+  WIN_REASON_STORYTELLER_DECISION = 6;
+}
+
 // GameState represents the complete state of a game
 message GameState {
   string id = 1;
@@ -46,6 +85,10 @@ message GameState {
   int32 day_number = 4;
   optional string storyteller_id = 5;
   map<string, string> votes = 6;  // voter_id -> target_id
+  repeated DeathRecord deaths = 7;
+  optional Nomination nomination = 8;
+  repeated NightAction night_actions = 9;
+  optional Team winner = 10;
 }
 
 // Game events for WebSocket communication
@@ -56,7 +99,33 @@ message GameEvent {
     PhaseChanged phase_changed = 3;
     VoteCast vote_cast = 4;
     CharacterAssigned character_assigned = 5;
+    PlayerDied player_died = 6;
+    NominationStarted nomination_started = 7;
+    NominationResolved nomination_resolved = 8;
+    NightActionSubmitted night_action_submitted = 9;
+    GameEnded game_ended = 10;
   }
+}
+
+message DeathRecord {
+  string player_id = 1;
+  DeathCause cause = 2;
+  int32 day_number = 3;
+  optional string killed_by = 4;
+}
+
+message Nomination {
+  string nominator_id = 1;
+  string nominee_id = 2;
+  map<string, bool> votes = 3;  // voter_id -> decision
+  bool resolved = 4;
+}
+
+message NightAction {
+  string actor_id = 1;
+  NightActionType action_type = 2;
+  repeated string target_ids = 3;
+  optional string result = 4;
 }
 
 message PlayerJoined {
@@ -74,9 +143,42 @@ message PhaseChanged {
 message VoteCast {
   string voter_id = 1;
   optional string target_id = 2;
+  optional bool decision = 3;
 }
 
 message CharacterAssigned {
   string player_id = 1;
   Character character = 2;
+}
+
+message PlayerDied {
+  string player_id = 1;
+  DeathCause cause = 2;
+  int32 day_number = 3;
+}
+
+message NominationStarted {
+  string nominator_id = 1;
+  string nominee_id = 2;
+}
+
+message NominationResolved {
+  string nominee_id = 1;
+  bool executed = 2;
+  int32 yes_votes = 3;
+  int32 no_votes = 4;
+  int32 required_votes = 5;
+}
+
+message NightActionSubmitted {
+  string actor_id = 1;
+  NightActionType action_type = 2;
+  repeated string target_ids = 3;
+  optional string result = 4;
+}
+
+message GameEnded {
+  Team winner = 1;
+  WinReason reason = 2;
+  string description = 3;
 }

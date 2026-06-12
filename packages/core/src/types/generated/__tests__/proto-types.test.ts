@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   Team,
   GamePhase,
+  DeathCause,
+  NightActionType,
+  WinReason,
   type ProtoPlayer,
   type ProtoGameState,
   type ProtoGameEvent,
@@ -24,6 +27,14 @@ describe('ProtoBuf generated types', () => {
       expect(GamePhase.NIGHT).toBe(3);
       expect(GamePhase.VOTING).toBe(4);
       expect(GamePhase.FINISHED).toBe(5);
+    });
+  });
+
+  describe('MVP game flow enums', () => {
+    it('has death causes, night actions, and win reasons', () => {
+      expect(DeathCause.EXECUTION).toBe(1);
+      expect(NightActionType.KILL).toBe(3);
+      expect(WinReason.STORYTELLER_DECISION).toBe(6);
     });
   });
 
@@ -64,8 +75,38 @@ describe('ProtoBuf generated types', () => {
         players: [],
         dayNumber: 0,
         votes: {},
+        deaths: [],
+        nightActions: [],
       };
       expect(state.phase).toBe(GamePhase.SETUP);
+    });
+
+    it('supports nomination, deaths, night actions, and winner', () => {
+      const state: ProtoGameState = {
+        id: 'game-1',
+        phase: GamePhase.FINISHED,
+        players: [],
+        dayNumber: 2,
+        votes: {},
+        deaths: [{ playerId: 'p2', cause: DeathCause.EXECUTION, dayNumber: 2 }],
+        nomination: {
+          nominatorId: 'p1',
+          nomineeId: 'p2',
+          votes: { p1: true },
+          resolved: true,
+        },
+        nightActions: [
+          {
+            actorId: 'storyteller',
+            actionType: NightActionType.KILL,
+            targetIds: ['p3'],
+          },
+        ],
+        winner: Team.GOOD,
+      };
+      expect(state.deaths[0]?.cause).toBe(DeathCause.EXECUTION);
+      expect(state.nightActions[0]?.targetIds).toEqual(['p3']);
+      expect(state.winner).toBe(Team.GOOD);
     });
   });
 
@@ -91,6 +132,38 @@ describe('ProtoBuf generated types', () => {
         voteCast: { voterId: 'p1', targetId: 'p2' },
       };
       expect(event.voteCast?.voterId).toBe('p1');
+    });
+
+    it('supports MVP game flow events', () => {
+      const events: readonly ProtoGameEvent[] = [
+        { playerDied: { playerId: 'p2', cause: DeathCause.EXECUTION, dayNumber: 1 } },
+        { nominationStarted: { nominatorId: 'p1', nomineeId: 'p2' } },
+        {
+          nominationResolved: {
+            nomineeId: 'p2',
+            executed: true,
+            yesVotes: 3,
+            noVotes: 1,
+            requiredVotes: 3,
+          },
+        },
+        {
+          nightActionSubmitted: {
+            actorId: 'storyteller',
+            actionType: NightActionType.KILL,
+            targetIds: ['p3'],
+          },
+        },
+        {
+          gameEnded: {
+            winner: Team.GOOD,
+            reason: WinReason.IMP_EXECUTED,
+            description: 'The Demon is dead.',
+          },
+        },
+      ];
+
+      expect(events).toHaveLength(5);
     });
   });
 });

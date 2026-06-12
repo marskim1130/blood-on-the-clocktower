@@ -215,6 +215,17 @@ export default function IndexPage() {
   const currentScriptName = roomState?.scriptName ?? DEFAULT_SCRIPT_NAME;
   const currentExecutionThreshold = Math.ceil(alivePlayers.length / 2);
   const canUseSlayerAbility = gamePhase === 'day' && selfPlayer?.isAlive === true && visibleCharacter?.id === 'slayer';
+  const players = roomState?.players ?? [];
+  const storytellerName = roomState?.storytellerId
+    ? players.find((player) => player.id === roomState.storytellerId)?.name ?? roomState.storytellerId
+    : '未设置';
+  const roomCapacity = roomState?.maxPlayers ?? (Number.parseInt(maxPlayersInput, 10) || 5);
+  const roomOccupancy = roomState ? `${players.length}/${roomCapacity}` : '未加入';
+  const roomCodeLabel = currentRoomId || '未加入';
+  const roleLabel = isStoryteller ? 'Storyteller' : visibleCharacter?.name ?? '未分配';
+  const aliveSummary = roomState ? `${alivePlayers.length} 存活 / ${deadPlayers.length} 死亡` : '等待加入房间';
+  const latestLog = logs[0] ?? '暂无操作记录';
+  const statusIcon = status === 'connected' ? '●' : status === 'connecting' ? '◐' : status === 'error' ? '!' : '○';
 
   function toggleNightTarget(targetId: string): void {
     setNightTargetIds((current) =>
@@ -815,7 +826,11 @@ export default function IndexPage() {
     return (
       <ScrollView className='page' scrollY>
         <View className='hero'>
-          <Text className='title'>游戏结束 Game Over</Text>
+          <View>
+            <Text className='eyebrow'>Game Over</Text>
+            <Text className='title'>游戏结束</Text>
+            <Text className='subtitle'>{winnerLabel}</Text>
+          </View>
         </View>
 
         <View className='card'>
@@ -829,7 +844,7 @@ export default function IndexPage() {
         </View>
 
         <View className='card'>
-          <Text className='sectionTitle'>角色揭示 [Character Reveal]</Text>
+          <Text className='sectionTitle'>◆ 角色揭示 [Character Reveal]</Text>
           {(roomState?.players ?? []).map((player) => {
             const isDead = !player.isAlive;
             const team = player.character?.team === 2 ? 'evil' : 'good';
@@ -854,7 +869,7 @@ export default function IndexPage() {
         </View>
 
         {isStoryteller && (
-          <Button className='button primary' onClick={returnToLobby}>返回大厅</Button>
+          <Button className='button primary' onClick={returnToLobby}>← 返回大厅</Button>
         )}
       </ScrollView>
     );
@@ -863,67 +878,110 @@ export default function IndexPage() {
   return (
     <ScrollView className='page' scrollY>
       <View className='hero'>
-        <Text className='title'>血染钟楼线上房间</Text>
-        <Text className='subtitle'>当前剧本：{currentScriptName}</Text>
+        <View>
+          <Text className='eyebrow'>Blood on the Clocktower H5</Text>
+          <Text className='title'>血染钟楼线上房间</Text>
+          <Text className='subtitle'>剧本：{currentScriptName}</Text>
+        </View>
+        <View className={`statusPill status-${status}`}>
+          <Text className='statusIcon'>{statusIcon}</Text>
+          <Text>{status}</Text>
+        </View>
       </View>
 
-      {/* ─── Phase Display ─────────────────────────────────── */}
-      {gamePhase !== 'setup' && (
-        <View className='card phaseBar'>
+      <View className='summaryGrid'>
+        <View className='summaryItem'>
+          <Text className='summaryIcon'>#</Text>
+          <Text className='summaryLabel'>房间 [Room]</Text>
+          <Text className='summaryValue'>{roomCodeLabel}</Text>
+        </View>
+        <View className='summaryItem'>
+          <Text className='summaryIcon'>@</Text>
+          <Text className='summaryLabel'>身份 [Role]</Text>
+          <Text className='summaryValue'>{roleLabel}</Text>
+        </View>
+        <View className='summaryItem'>
+          <Text className='summaryIcon'>◆</Text>
+          <Text className='summaryLabel'>阶段 [Phase]</Text>
+          <Text className='summaryValue'>{PHASE_LABELS[gamePhase]}</Text>
+        </View>
+        <View className='summaryItem'>
+          <Text className='summaryIcon'>●</Text>
+          <Text className='summaryLabel'>玩家 [Players]</Text>
+          <Text className='summaryValue'>{roomOccupancy}</Text>
+        </View>
+      </View>
+
+      <View className='card phaseBar'>
+        <View>
           <Text className='phaseLabel'>{PHASE_LABELS[gamePhase]}</Text>
           {dayNumber > 0 && <Text className='dayNumber'>第 {dayNumber} 天</Text>}
-          {gamePhase === 'night' && (
-            <Text className='hint'>Storyteller 正在处理夜间行动...</Text>
-          )}
         </View>
-      )}
+        <Text className='phaseHint'>
+          {gamePhase === 'night'
+            ? 'Storyteller 正在处理夜间行动'
+            : gamePhase === 'day'
+              ? '白天阶段可提名、投票与执行公开行动'
+              : gamePhase === 'voting'
+                ? '当前提名正在投票'
+                : gamePhase === 'setup'
+                  ? '连接后创建或加入房间'
+                  : '游戏已结束'}
+        </Text>
+      </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>连接 [Connection]</Text>
+        <Text className='sectionTitle'>↔ 连接 [Connection]</Text>
         <Text className={`status status-${status}`}>状态：{status}</Text>
         <Input className='input' value={wsUrl} placeholder='WebSocket 地址' onInput={(event: InputEvent) => updateWsUrl(eventValue(event))} />
         <View className='row'>
-          <Button className='button primary' onClick={() => connect()}>连接</Button>
-          <Button className='button' onClick={disconnect}>断开</Button>
+          <Button className='button primary' onClick={() => connect()}>↔ 连接</Button>
+          <Button className='button' onClick={disconnect}>× 断开</Button>
         </View>
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>匿名身份 [Anonymous Identity]</Text>
+        <Text className='sectionTitle'>@ 匿名身份 [Anonymous Identity]</Text>
         <Text className='mono'>playerId: {playerId}</Text>
         <Input className='input' value={playerName} placeholder='昵称' onInput={(event: InputEvent) => updatePlayerName(eventValue(event))} />
-        <Button className='button warn' onClick={resetIdentity}>重置匿名身份</Button>
+        <Button className='button warn' onClick={resetIdentity}>↻ 重置匿名身份</Button>
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>房间 [Room]</Text>
+        <Text className='sectionTitle'># 房间 [Room]</Text>
         <Input className='input' value={maxPlayersInput} type='number' placeholder='实际玩家数，默认 5' onInput={(event: InputEvent) => updateMaxPlayersInput(eventValue(event))} />
         <View className='row'>
-          <Button className='button primary' onClick={createRoom}>创建房间</Button>
+          <Button className='button primary' onClick={createRoom}>+ 创建房间</Button>
           {isRoomCreator && gamePhase === 'setup' && (
-            <Button className='button' onClick={updateRoomSettings}>保存设置</Button>
+            <Button className='button' onClick={updateRoomSettings}>✓ 保存设置</Button>
           )}
         </View>
         <Input className='input' value={roomIdInput} placeholder='房间号' onInput={(event: InputEvent) => updateRoomIdInput(eventValue(event))} />
         <View className='row'>
-          <Button className='button primary' onClick={joinRoom}>加入房间</Button>
-          <Button className='button' onClick={resumeLastRoom}>恢复最近房间</Button>
-          <Button className='button' onClick={leaveRoom}>离开房间</Button>
+          <Button className='button primary' onClick={joinRoom}>→ 加入房间</Button>
+          <Button className='button' onClick={resumeLastRoom}>↻ 恢复最近</Button>
+          <Button className='button' onClick={leaveRoom}>← 离开房间</Button>
         </View>
         <View className='inviteBox'>
           <Text className='hint'>当前房间</Text>
           <Text className='inviteCode'>{currentRoomId || '未加入'}</Text>
           <Text className='hint'>剧本：{currentScriptName}</Text>
-          <Button className='button' onClick={copyInviteText}>复制邀请信息</Button>
+          <Button className='button' onClick={copyInviteText}>⧉ 复制邀请信息</Button>
         </View>
-        <Button className='button' onClick={openScriptPage}>查看剧本与夜晚顺序</Button>
+        <Button className='button' onClick={openScriptPage}>≡ 查看剧本与夜晚顺序</Button>
         <Text className='hint'>提示：5 人局需要 1 个 Storyteller + 5 个实际玩家身份。</Text>
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>玩家列表 [Players]</Text>
-        <Text className='hint'>Storyteller: {roomState?.storytellerId ?? '未设置'}</Text>
-        {(roomState?.players ?? []).map((player) => {
+        <Text className='sectionTitle'>● 玩家列表 [Players]</Text>
+        <View className='metaLine'>
+          <Text>Storyteller: {storytellerName}</Text>
+          <Text>{aliveSummary}</Text>
+        </View>
+        {players.length === 0 && (
+          <Text className='emptyState'>连接并创建或加入房间后，玩家会显示在这里。</Text>
+        )}
+        {players.map((player) => {
           const isDead = !player.isAlive;
           const hasGhostVote = ghostVotesRemaining.has(player.id);
           return (
@@ -941,24 +999,24 @@ export default function IndexPage() {
                 </Text>
               </View>
               {roomState && !roomState.storytellerId && (
-                <Button className='miniButton' onClick={() => setStoryteller(player.id)}>设为 ST</Button>
+                <Button className='miniButton' onClick={() => setStoryteller(player.id)}>☆ 设为 ST</Button>
               )}
               {isRoomCreator && gamePhase === 'setup' && player.id !== playerId && (
-                <Button className='miniButton danger' onClick={() => kickPlayer(player.id)}>踢出</Button>
+                <Button className='miniButton danger' onClick={() => kickPlayer(player.id)}>× 踢出</Button>
               )}
               {isStoryteller && gamePhase === 'day' && !isDead && (
-                <Button className='miniButton danger' onClick={() => executePlayer(player.id)}>处决</Button>
+                <Button className='miniButton danger' onClick={() => executePlayer(player.id)}>! 处决</Button>
               )}
             </View>
           );
         })}
-        {!roomState?.storytellerId && playerId && (
-          <Button className='button' onClick={() => setStoryteller(playerId)}>设自己为 Storyteller</Button>
+        {roomState && !roomState.storytellerId && playerId && (
+          <Button className='button' onClick={() => setStoryteller(playerId)}>☆ 设自己为 Storyteller</Button>
         )}
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>角色 [Character]</Text>
+        <Text className='sectionTitle'>◆ 角色 [Character]</Text>
         {visibleCharacter ? (
           <View className='character'>
             <Text className='characterName'>{visibleCharacter.name}</Text>
@@ -969,14 +1027,14 @@ export default function IndexPage() {
           <Text className='hint'>你还没有收到角色，或你是 Storyteller。</Text>
         )}
         {isStoryteller && (
-          <Button className='button primary' onClick={assignSampleCharacters}>一键示例分配角色</Button>
+          <Button className='button primary' onClick={assignSampleCharacters}>✓ 一键示例分配角色</Button>
         )}
         {!isStoryteller && <Text className='hint'>只有 Storyteller 可以分配角色。</Text>}
       </View>
 
       {canUseSlayerAbility && (
         <View className='card'>
-          <Text className='sectionTitle'>Slayer 能力 [Slayer Ability]</Text>
+          <Text className='sectionTitle'>! Slayer 能力 [Slayer Ability]</Text>
           <View className='targetSelector'>
             {alivePlayers.map((player) => (
               <Button
@@ -994,22 +1052,22 @@ export default function IndexPage() {
       {/* ─── Storyteller Controls ──────────────────────────── */}
       {isStoryteller && (
         <View className='card'>
-          <Text className='sectionTitle'>Storyteller 控制 [Storyteller Controls]</Text>
+          <Text className='sectionTitle'>☆ Storyteller 控制 [Storyteller Controls]</Text>
 
           {gamePhase === 'setup' && (
-            <Button className='button primary' onClick={startGame}>开始游戏</Button>
+            <Button className='button primary' onClick={startGame}>▶ 开始游戏</Button>
           )}
 
           {gamePhase !== 'setup' && gamePhase !== 'finished' && (
             <View className='row'>
-              <Button className='button' onClick={() => changePhase('day')}>进入白天</Button>
-              <Button className='button' onClick={() => changePhase('night')}>进入夜晚</Button>
+              <Button className='button' onClick={() => changePhase('day')}>D 进入白天</Button>
+              <Button className='button' onClick={() => changePhase('night')}>N 进入夜晚</Button>
             </View>
           )}
 
           {gamePhase !== 'setup' && gamePhase !== 'finished' && (
             <View className='endGameControls'>
-              <Text className='sectionTitle'>宣告死亡 [Death Declaration]</Text>
+              <Text className='sectionTitle'>! 宣告死亡 [Death Declaration]</Text>
               <View className='actionTypeList'>
                 {DEATH_CAUSE_OPTIONS.map((cause) => (
                   <Button
@@ -1032,7 +1090,7 @@ export default function IndexPage() {
                   </Button>
                 ))}
               </View>
-              <Button className='button danger' onClick={declarePlayerDeath}>宣告死亡</Button>
+              <Button className='button danger' onClick={declarePlayerDeath}>! 宣告死亡</Button>
             </View>
           )}
 
@@ -1045,8 +1103,8 @@ export default function IndexPage() {
                 onInput={(event: InputEvent) => setEndGameDescriptionInput(eventValue(event))}
               />
               <View className='row'>
-                <Button className='button primary' onClick={() => endGame('good')}>善良胜利</Button>
-                <Button className='button danger' onClick={() => endGame('evil')}>邪恶胜利</Button>
+                <Button className='button primary' onClick={() => endGame('good')}>✓ 善良胜利</Button>
+                <Button className='button danger' onClick={() => endGame('evil')}>! 邪恶胜利</Button>
               </View>
             </View>
           )}
@@ -1056,7 +1114,7 @@ export default function IndexPage() {
       {/* ─── Nomination UI (Day Phase) ─────────────────────── */}
       {gamePhase === 'day' && roomState && (
         <View className='card'>
-          <Text className='sectionTitle'>提名 [Nomination]</Text>
+          <Text className='sectionTitle'>→ 提名 [Nomination]</Text>
           <Text className='hint'>在白天阶段，任何活着的玩家可以提名其他玩家。</Text>
           <Input
             className='input'
@@ -1075,14 +1133,14 @@ export default function IndexPage() {
               </Button>
             ))}
           </View>
-          <Button className='button primary' onClick={nominatePlayer}>发起提名</Button>
+          <Button className='button primary' onClick={nominatePlayer}>→ 发起提名</Button>
         </View>
       )}
 
       {/* ─── Voting UI ─────────────────────────────────────── */}
       {gamePhase === 'voting' && currentNomination && (
         <View className='card'>
-          <Text className='sectionTitle'>投票 [Voting]</Text>
+          <Text className='sectionTitle'>✓ 投票 [Voting]</Text>
           <View className='nominationBanner'>
             <Text className='nominationText'>
               {roomState?.players.find((player) => player.id === currentNomination.nominatorId)?.name ?? currentNomination.nominatorId}
@@ -1093,8 +1151,8 @@ export default function IndexPage() {
           </View>
 
           <View className='voteButtons'>
-            <Button className='button voteYes' onClick={() => castVote(true)}>赞成处决</Button>
-            <Button className='button voteNo' onClick={() => castVote(false)}>反对处决</Button>
+            <Button className='button voteYes' onClick={() => castVote(true)}>✓ 赞成处决</Button>
+            <Button className='button voteNo' onClick={() => castVote(false)}>× 反对处决</Button>
           </View>
 
           {/* Ghost vote indicator for dead players */}
@@ -1113,7 +1171,7 @@ export default function IndexPage() {
 
           {/* Vote tally display */}
           <View className='voteTally'>
-            <Text className='sectionTitle'>投票记录</Text>
+            <Text className='sectionTitle'>≡ 投票记录</Text>
             {Object.entries(currentNomination.votes).map(([voterId, decision]) => {
               const voterName = roomState?.players.find((player) => player.id === voterId)?.name ?? voterId;
               return (
@@ -1125,7 +1183,7 @@ export default function IndexPage() {
           </View>
 
           {isStoryteller && (
-            <Button className='button primary' onClick={resolveNomination}>结算投票</Button>
+            <Button className='button primary' onClick={resolveNomination}>✓ 结算投票</Button>
           )}
         </View>
       )}
@@ -1133,7 +1191,7 @@ export default function IndexPage() {
       {/* ─── Last Nomination Result ────────────────────────── */}
       {lastNominationResult && (
         <View className='card'>
-          <Text className='sectionTitle'>投票结果 [Vote Result]</Text>
+          <Text className='sectionTitle'>= 投票结果 [Vote Result]</Text>
           <View className={lastNominationResult.executed ? 'resultExecuted' : 'resultSpared'}>
             <Text className='resultText'>
               {roomState?.players.find((player) => player.id === lastNominationResult.nomineeId)?.name ?? lastNominationResult.nomineeId}
@@ -1150,7 +1208,7 @@ export default function IndexPage() {
       {/* ─── Death Tracking ────────────────────────────────── */}
       {deadPlayers.length > 0 && (
         <View className='card'>
-          <Text className='sectionTitle'>死亡记录 [Death Records]</Text>
+          <Text className='sectionTitle'>! 死亡记录 [Death Records]</Text>
           {deadPlayers.map((player) => {
             const record = deathRecords[player.id];
             const hasGhost = ghostVotesRemaining.has(player.id);
@@ -1172,7 +1230,7 @@ export default function IndexPage() {
       {/* ─── Death Announcements ───────────────────────────── */}
       {deathAnnouncements.length > 0 && (
         <View className='card'>
-          <Text className='sectionTitle'>死亡公告 [Death Announcements]</Text>
+          <Text className='sectionTitle'>! 死亡公告 [Death Announcements]</Text>
           {deathAnnouncements.map((announcement, index) => (
             <Text className='deathAnnouncement' key={`${announcement}-${index}`}>{announcement}</Text>
           ))}
@@ -1182,10 +1240,10 @@ export default function IndexPage() {
       {/* ─── Night Phase UI (Storyteller only) ─────────────── */}
       {gamePhase === 'night' && isStoryteller && (
         <View className='card'>
-          <Text className='sectionTitle'>夜间行动 [Night Actions]</Text>
+          <Text className='sectionTitle'>N 夜间行动 [Night Actions]</Text>
 
           <View className='wakeOrderList'>
-            <Text className='sectionTitle'>唤醒顺序 [Wake Order]</Text>
+            <Text className='sectionTitle'>≡ 唤醒顺序 [Wake Order]</Text>
             {nightWakeSteps.map((step, index) => {
               const character = TROUBLE_BREWING_SCRIPT.characters.find((item) => item.id === step.characterId);
               const inPlay = assignedCharacterIds.has(step.characterId);
@@ -1252,14 +1310,14 @@ export default function IndexPage() {
           />
 
           <View className='row'>
-            <Button className='button primary' onClick={submitNightAction}>提交行动</Button>
-            <Button className='button warn' onClick={resolveNight}>结束夜晚</Button>
+            <Button className='button primary' onClick={submitNightAction}>✓ 提交行动</Button>
+            <Button className='button warn' onClick={resolveNight}>→ 结束夜晚</Button>
           </View>
 
           {/* Night actions recorded this night */}
           {nightActions.length > 0 && (
             <View className='nightActionLog'>
-              <Text className='sectionTitle'>今夜行动记录</Text>
+              <Text className='sectionTitle'>≡ 今夜行动记录</Text>
               {nightActions.map((action, index) => {
                 const actionLabel = NIGHT_ACTION_TYPES.find((a) => a.id === action.actionType)?.label ?? action.actionType;
                 const targetNames = action.targetIds.map(
@@ -1283,7 +1341,7 @@ export default function IndexPage() {
       {/* ─── Night Phase (non-storyteller) ─────────────────── */}
       {gamePhase === 'night' && !isStoryteller && (
         <View className='card'>
-          <Text className='sectionTitle'>夜晚 [Night]</Text>
+          <Text className='sectionTitle'>N 夜晚 [Night]</Text>
           <Text className='hint'>夜晚降临... 请闭上眼睛。</Text>
           <Text className='hint'>Storyteller 正在处理夜间行动，请耐心等待。</Text>
         </View>
@@ -1296,7 +1354,9 @@ export default function IndexPage() {
       )}
 
       <View className='card'>
-        <Text className='sectionTitle'>日志 [Logs]</Text>
+        <Text className='sectionTitle'>≡ 日志 [Logs]</Text>
+        <Text className='hint'>最近：{latestLog}</Text>
+        {logs.length === 0 && <Text className='emptyState'>操作和服务器消息会显示在这里。</Text>}
         {logs.map((log, index) => (
           <Text className='log' key={`${log}-${index}`}>{log}</Text>
         ))}

@@ -580,3 +580,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 17:47:01 +08:00 --- 发现 H5 dev server [H5 Development Server] 虽然能编译并提供 `/runtime.js`、`/app.js`，但根路径返回目录列表 [Directory Listing]，`/index.html` 为 404，导致浏览器看不到页面；进一步检查 `taro inspect --type h5 plugins` 发现项目缺少 `src/index.html` 时 Taro 4 不会注入 `HtmlWebpackPlugin`，同时 `@tarojs/plugin-platform-h5` 使用浮动版本范围可能把 H5 依赖漂移到 4.2.x --- 新增 Taro H5 HTML 模板 [HTML Template] `packages/frontend/src/index.html`，包含 `#app` 挂载点 [Mount Point] 和 `htmlWebpackPlugin.options.script`；将 `@tarojs/plugin-platform-h5` 精确锁定到 `4.0.0`，与 CLI、webpack runner、runtime 保持同版本线；重启 `dev:h5` 后确认根路径返回标题为“血染钟楼”的 HTML，并在应用内浏览器看到首页内容且无控制台错误 --- 修改了 packages/frontend/src/index.html、packages/frontend/package.json、pnpm-lock.yaml、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/package.json pnpm-lock.yaml work.md` 并删除 `packages/frontend/src/index.html`。
+
+---
+
+2026-06-12 18:02:09 +08:00 --- 发现 H5 首页 [H5 Home Page] 虽已接通完整 WebSocket 游戏功能，但信息和按钮按功能直铺，缺少首页摘要 [Summary]、清晰操作区 [Operation Panels]、空状态 [Empty State] 与基础图标 [Icons]，单设备多窗口联调时不易快速判断连接、房间、阶段、身份和玩家状态 --- 保留现有 WebSocket 行为与命令入口，重排首页为简单控制台 [Control Console]：增加顶部状态摘要、房间/身份/阶段/玩家统计，按连接、身份、房间、玩家、角色、Storyteller、提名、投票、死亡、夜晚和日志分区；给主要按钮增加文本图标 [Text Icons]；统一 CSS 为简洁工作台样式 [Workbench Style]，减少装饰并修复未加入房间时可误点“设自己为 Storyteller”的入口 --- 修改了 packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/index/index.css、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css work.md`。

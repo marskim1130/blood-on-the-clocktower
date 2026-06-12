@@ -400,3 +400,93 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-11 10:41:19 +08:00 --- 发现 WebSocket 游戏流程新增处理器存在 START_GAME 权限缺失、CHANGE_PHASE 字符串阶段无法反序列化、EXECUTE_PLAYER 字段名不兼容、SUBMIT_NIGHT_ACTION 泄露夜间行动目标，以及前端阶段枚举映射错误 --- 使用服务端消息兼容解析、会话层权限校验、夜间行动定向发送、客户端字段统一、前端阶段映射修正和回归测试解决 --- 修改了 packages/backend/internal/ws/message.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/core/src/websocket/index.ts、packages/frontend/src/pages/index/index.tsx
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/message.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/core/src/websocket/index.ts packages/frontend/src/pages/index/index.tsx work.md`，并删除 `packages/backend/internal/ws/hub_game_flow_test.go`。
+
+---
+
+2026-06-11 11:02:29 +08:00 --- 发现真实玩家 MVP 的断线重连 [Reconnect] 会被当成主动离开，导致玩家从 GameSession [游戏会话] 移除，重连后可能丢失角色、死亡状态、主持人身份、当前阶段快照 [Snapshot]、幽灵票状态，并且前端未兼容后端的 gameEnded/nightActionSubmitted/voteCast.decision 协议字段 --- 使用连接生命周期 [Connection Lifecycle] 与房间生命周期 [Room Lifecycle] 解耦、会话层 AddOrReconnectPlayer 保留身份状态、断线不广播 PlayerLeft、主动离开才按参与者数量销毁房间、RoomState 增加 ghostVotesRemaining 快照、前端从 ROOM_STATE 恢复阶段/天数/提名/死亡/胜负/幽灵票并兼容后端事件字段解决 --- 修改了 packages/backend/internal/ws/room_manager.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/message.go、packages/backend/internal/ws/room_manager_test.go、packages/backend/internal/ws/ws_test.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/core/src/websocket/index.ts、packages/frontend/src/pages/index/index.tsx
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/room_manager.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/message.go packages/backend/internal/ws/room_manager_test.go packages/backend/internal/ws/ws_test.go packages/backend/internal/ws/hub_game_flow_test.go packages/core/src/websocket/index.ts packages/frontend/src/pages/index/index.tsx work.md`。
+
+---
+
+2026-06-11 11:07:39 +08:00 --- 发现真实玩家关键路径 [Critical Path] 仍会在首夜卡住：前端只允许 Storyteller [主持人] 提交夜间行动，但后端要求 SUBMIT_NIGHT_ACTION 发送者必须是玩家列表中的活人，导致主持人夜晚裁决被拒绝；同时 RESOLVE_NIGHT 依赖前端未发送的 Result 字段才会造成夜杀；后端胜负条件 [Win Condition] 还把邪恶人数不少于善良人数误判为邪恶胜利，导致 5 人局首夜死 1 人后提前结束 --- 使用主持人裁决型夜间行动 [Adjudicated Night Action] 允许 Storyteller 提交 kill 并只让主持人的 kill 在夜晚结算时造成死亡，玩家提交的夜间行动仅作为私密选择通知主持人；将邪恶胜利修正为仅剩 2 名存活玩家；新增完整多人 happy path 测试覆盖创建房间、分配角色、开始首夜、主持人夜杀、白天提名、幽灵票投票、处决 Imp、善良胜利 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub_game_flow_test.go
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub_game_flow_test.go work.md`。
+
+---
+
+2026-06-11 11:11:52 +08:00 --- 发现完整局流程虽然已有 Hub 级内存测试，但缺少通过真实 WebSocket 连接 [WebSocket Connection] 驱动的多客户端联调证据，无法证明 1 个 Storyteller [主持人] + 5 个玩家在实际传输层 [Transport Layer] 能完成创建房间、加入、角色分配、夜晚、提名投票和胜负结算 --- 使用 httptest WebSocket 服务器新增 `TestWebSocketCompleteMVPGameFlow`，通过实际 `WriteJSON`/`ReadMessage` 建立 6 个连接并跑完整 MVP happy path；新增稳定读取目标快照 [Snapshot] 的测试辅助函数，避免广播顺序影响断言 --- 修改了 packages/backend/internal/ws/ws_test.go
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/ws_test.go work.md`。
+
+---
+
+2026-06-11 11:15:35 +08:00 --- 发现后端已经支持断线重连 [Reconnect]，但 core `GameWebSocketClient` 只会重开 WebSocket，不会在重连后重新加入房间，且前端页面把 `maxReconnectAttempts` 设为 0，导致真实玩家移动网络抖动后仍停留在未入房连接状态 --- 使用客户端会话恢复 [Session Resume] 记录最后一次房间身份：`JOIN_ROOM` 后保存 roomId/playerId/playerName，`CREATE_ROOM` 收到 `ROOM_STATE` 后用服务端返回房间号保存恢复会话；每次 socket 打开后自动发送 `JOIN_ROOM` 恢复房间；前端改为 2 秒间隔、最多 8 次有界自动重连；新增 core WebSocket 客户端测试验证创建房间后断线重连会自动回到原房间 --- 修改了 packages/core/src/websocket/index.ts、packages/core/src/websocket/__tests__/websocket-client.test.ts、packages/frontend/src/pages/index/index.tsx
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/core/src/websocket/index.ts packages/core/src/websocket/__tests__/websocket-client.test.ts packages/frontend/src/pages/index/index.tsx work.md`。
+
+---
+
+2026-06-11 11:19:59 +08:00 --- 发现小程序页面 [Mini Program Page] 只持久化 playerId，服务器地址、昵称、最近房间号和玩家数都只存在内存里，玩家重开页面后无法一键恢复最近房间，即使 core 客户端支持 Session Resume [会话恢复] 也缺少页面级入口 --- 使用 Taro 本地存储 [Local Storage] 持久化 wsUrl、playerName、lastRoomId、maxPlayers；在收到 ROOM_STATE、创建/加入/离开房间、重置身份时同步最近房间状态；新增“恢复最近房间”动作，未连接时先连接再 JOIN_ROOM，已连接时直接 JOIN_ROOM --- 修改了 packages/frontend/src/pages/index/index.tsx
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/pages/index/index.tsx work.md`。
+
+---
+
+2026-06-11 11:25:04 +08:00 --- 发现创建房间后邀请朋友仍需要手动读取/转述房间号，缺少真实玩家邀请入口 [Invite Flow]，容易阻塞首局开局 --- 使用 Taro 剪贴板 API [Clipboard API] 增加复制邀请信息动作，并在房间卡片中突出显示当前房间号 [Room Code]；复制内容包含房间号、昵称和加入提示，复制成功后显示 Toast 反馈 [User Feedback] --- 修改了 packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/index/index.css
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css work.md`。
+
+---
+
+2026-06-11 15:44:24 +08:00 --- 发现产品版角色/剧本支持 [Script Support] 仍散落在前端硬编码 [Hard-coded] 常量和后端 Trouble Brewing 校验中：核心包缺少统一角色目录 [Character Catalog]，夜晚顺序 [Wake Order] 使用了错误的 `fortune_teller` ID，后端角色分配 [Character Assignment] 没有拒绝重复角色，也没有处理男爵 [Baron] 带来的外来者数量修正，真实 WebSocket 测试 [Transport Test] 还会在投票快照未到达时提前结算 --- 使用核心脚本目录统一 Trouble Brewing 角色、角色分布、默认分配和夜晚唤醒步骤；夜晚阶段复用脚本目录并修正 `fortuneteller` ID；后端新增脚本定义、重复角色拒绝和男爵设置修正；前端改用核心默认分配并为 Storyteller [主持人] 展示夜晚唤醒清单；WebSocket 流程测试在结算前等待 3 张投票进入服务器快照 --- 修改了 packages/core/src/scripts/index.ts、packages/core/src/scripts/__tests__/scripts.test.ts、packages/core/src/night-phase/index.ts、packages/core/src/night-phase/__tests__/night-phase.test.ts、packages/core/src/index.ts、packages/core/package.json、packages/backend/internal/game/characters.go、packages/backend/internal/game/characters_test.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/ws_test.go、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/index/index.css、packages/core/tsconfig.tsbuildinfo、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/core/src/night-phase/index.ts packages/core/src/index.ts packages/core/package.json packages/backend/internal/game/characters.go packages/backend/internal/game/characters_test.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/ws_test.go packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css packages/core/tsconfig.tsbuildinfo work.md`，并删除 `packages/core/src/scripts/index.ts`、`packages/core/src/scripts/__tests__/scripts.test.ts`、`packages/core/src/night-phase/__tests__/night-phase.test.ts`。
+
+---
+
+2026-06-11 15:51:20 +08:00 --- 发现剧本支持 [Script Support] 只存在核心目录，尚未进入房间协议 [Room Protocol] 和前端路由 [Frontend Routing]：创建房间无法携带 `scriptId`，`ROOM_STATE` 缺少剧本元数据，未知剧本不会被协议层明确拒绝，前端仍只有单页，无法独立查看角色目录与夜晚顺序 --- 使用房间元数据 [Room Metadata] 贯穿后端 RoomManager、GameSession、Hub 与 RoomState；创建房间时校验未知剧本并返回 `unsupported script`；核心 WebSocket 客户端支持发送 `scriptId`；新增 Taro 剧本页面 [Script Page] 展示 Trouble Brewing 角色目录、合法玩家分布和首夜/后续夜唤醒顺序；首页创建房间传入默认剧本并显示服务器返回的剧本名 --- 修改了 packages/backend/internal/ws/message.go、packages/backend/internal/ws/room_manager.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/room_manager_test.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/core/src/websocket/index.ts、packages/core/src/websocket/__tests__/websocket-client.test.ts、packages/frontend/src/app.config.ts、packages/frontend/src/pages/index/index.config.ts、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/scripts/index.config.ts、packages/frontend/src/pages/scripts/index.tsx、packages/frontend/src/pages/scripts/index.css、packages/core/tsconfig.tsbuildinfo、packages/frontend/tsconfig.tsbuildinfo、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/message.go packages/backend/internal/ws/room_manager.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/room_manager_test.go packages/backend/internal/ws/hub_game_flow_test.go packages/core/src/websocket/index.ts packages/core/src/websocket/__tests__/websocket-client.test.ts packages/frontend/src/app.config.ts packages/frontend/src/pages/index/index.config.ts packages/frontend/src/pages/index/index.tsx packages/core/tsconfig.tsbuildinfo packages/frontend/tsconfig.tsbuildinfo work.md`，并删除 `packages/frontend/src/pages/scripts/index.config.ts`、`packages/frontend/src/pages/scripts/index.tsx`、`packages/frontend/src/pages/scripts/index.css`。
+
+---
+
+2026-06-11 16:00:09 +08:00 --- 发现夜晚信息流 [Night Information Flow] 仍由前端本地推测：后端 `ROOM_STATE` 不包含当前夜晚唤醒步骤 [Wake Step]，Storyteller [主持人] 可以任意提交 `kill` 并直接结算夜晚，缺少动作顺序、目标数量和未完成步骤的防误操 [Misclick Prevention] --- 使用后端领域层 [Domain Layer] 定义 Trouble Brewing 首夜/后续夜唤醒顺序与目标数规则；GameSession 进入夜晚时初始化 `nightNumber/nightWakeIndex`，`ROOM_STATE` 返回 `nightWakeSteps/currentNightWakeStep/currentNightWakeIndex`；主持人提交夜晚行动时必须匹配当前步骤并满足 `minTargets/maxTargets`，未完成所有在场步骤时拒绝 `RESOLVE_NIGHT`；玩家私密夜晚提交仍只通知本人和主持人；前端夜晚面板改为消费服务端当前步骤、自动选中当前动作、展示已完成/当前/待处理状态并按目标数做本地校验 --- 修改了 packages/backend/internal/game/game.go、packages/backend/internal/game/characters.go、packages/backend/internal/game/characters_test.go、packages/backend/internal/ws/message.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/backend/internal/ws/ws_test.go、packages/core/src/websocket/index.ts、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/index/index.css、packages/core/tsconfig.tsbuildinfo、packages/frontend/tsconfig.tsbuildinfo、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/game/game.go packages/backend/internal/game/characters.go packages/backend/internal/game/characters_test.go packages/backend/internal/ws/message.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub_game_flow_test.go packages/backend/internal/ws/ws_test.go packages/core/src/websocket/index.ts packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css packages/core/tsconfig.tsbuildinfo packages/frontend/tsconfig.tsbuildinfo work.md`。
+
+---
+
+2026-06-11 16:05:58 +08:00 --- 发现后端提名结算 [Nomination Resolution] 使用 `yes > no` 判定处决，和核心投票引擎 [Vote Engine] 的 Blood on the Clocktower 多数票阈值 [Majority Threshold] `ceil(alive/2)` 不一致，导致 5 人局首夜死 1 人后 1 张赞成票也能处决；同时成功处决后仍停留白天，允许同一天继续提名/处决的误操作 --- 使用后端存活玩家数计算处决阈值，`NominationResolvedEvent` 增加 `requiredVotes`，赞成票数达到阈值才处决；未达阈值返回白天，达阈值且未触发胜负时直接进入夜晚并初始化夜晚唤醒步骤；前端投票面板显示服务端处决阈值和结果阈值；新增回归测试覆盖低于阈值不处决、达到阈值处决后进入夜晚 --- 修改了 packages/backend/internal/game/game.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/core/src/websocket/index.ts、packages/frontend/src/pages/index/index.tsx、packages/core/tsconfig.tsbuildinfo、packages/frontend/tsconfig.tsbuildinfo、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/game/game.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub_game_flow_test.go packages/core/src/websocket/index.ts packages/frontend/src/pages/index/index.tsx packages/core/tsconfig.tsbuildinfo packages/frontend/tsconfig.tsbuildinfo work.md`。
+
+---
+
+2026-06-12 09:44:33 +08:00 --- 发现后端仍保留 `SUBMIT_EVENT` 原始事件直通口，已入房客户端可以伪造任意 `GameEvent` 并广播阶段切换、死亡或胜负事件，破坏服务器权威 [Server Authoritative] 与游戏边界 [Game Boundary] --- 使用显式命令 [Explicit Commands] 取代原始事件广播：`GameSession.applySubmitEvent` 统一拒绝原始事件提交并返回明确错误；将旧端到端广播测试改为拒绝与不广播的回归测试 [Regression Test]；更新会话层单元测试验证拒绝后不产生状态变更 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/ws_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/ws_test.go work.md`。
+
+---
+
+2026-06-12 09:52:57 +08:00 --- 发现 MVP 仍缺少服务器重启恢复 [Restart Recovery]：房间元数据 [Room Metadata] 与游戏会话 [Game Session] 只在内存中，后端进程重启后玩家即使保留房间号也无法恢复进行中游戏；同时 `go test -race ./internal/ws` 发现 `ROOM_STATE` 广播复用内部 `Nomination` 指针，JSON 编码 [JSON Encoding] 与提名结算 [Nomination Resolution] 并发时存在数据竞争 [Data Race] --- 使用可插拔快照存储 [Snapshot Store] 增加文件快照实现 [File Snapshot Store]，持久化房间、玩家、主持人、角色、阶段、夜晚进度、提名、死亡、幽灵票和胜负状态；后端入口支持通过 `CLOCKTOWER_SNAPSHOT_PATH` 启用快照恢复；所有有效状态变更后写入快照，断线清理不写入连接状态；`StateForRoom` 对可变字段做深拷贝 [Deep Copy]，并新增重启恢复、房间销毁后快照移除、不可变房间快照和 race 回归验证 --- 修改了 packages/backend/cmd/server/main.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/hub_game_flow_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/cmd/server/main.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/hub_game_flow_test.go work.md`，并删除 `packages/backend/internal/ws/persistence.go`。
+
+---
+
+2026-06-12 10:00:34 +08:00 --- 发现文件快照 [File Snapshot] 只能覆盖单机/本地恢复，生产部署 [Production Deployment] 或多实例 [Multi-instance] 场景缺少集中式快照后端；同时 `github.com/redis/go-redis/v9@latest` 会提升 `go` 指令 [Go Directive] 到 1.24，不符合当前后端 `go 1.22` 约束 --- 使用 Context7 查询 go-redis 官方用法，固定 `github.com/redis/go-redis/v9 v9.17.3`；新增 Redis 快照存储 [Redis Snapshot Store]，通过 `CLOCKTOWER_REDIS_URL` 与 `CLOCKTOWER_REDIS_KEY` 配置，缺失键返回空快照，读写使用超时上下文 [Timeout Context]，Redis 优先于文件快照；补充 fake Redis 单元测试 [Unit Tests] 覆盖缺失键、保存/读取、默认 key、关闭客户端和非法 URL；更新后端上下文文档 [Context Documentation]，并通过 `go test ./...`、`go test -race ./internal/ws`、`pnpm test`、`pnpm typecheck`、`pnpm build:frontend`、`pnpm build:core` --- 修改了 packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、packages/backend/cmd/server/main.go、packages/backend/go.mod、packages/backend/go.sum、packages/backend/CONTEXT.md、work.md
+
+撤回方式 [Rollback Strategy]：若只撤回 Redis 支持，执行 `git checkout -- packages/backend/CONTEXT.md packages/backend/cmd/server/main.go packages/backend/go.mod packages/backend/go.sum work.md`，删除 `packages/backend/internal/ws/persistence_test.go`，并从 `packages/backend/internal/ws/persistence.go` 移除 `RedisSnapshotStore`、`NewRedisSnapshotStore`、`NewHubWithRedisSnapshot`、`redisClientAdapter` 与 go-redis 相关导入；若要撤回整个快照持久化，则执行上一条 09:52:57 记录的完整回滚。
+
+---
+
+2026-06-12 10:06:37 +08:00 --- 发现人类主持模式 [Human Storyteller Mode] 仍缺少手动判定胜负 [Manual Winner Adjudication]：PRD 要求 Storyteller 能判定游戏胜负，但当前只能依赖自动胜利条件 [Automatic Win Conditions]，实局中遇到主持裁定、玩家认输或规则外结算时无法从前端正式结束游戏 --- 使用显式 `END_GAME` 命令 [Explicit Command] 贯通后端协议、GameSession、Hub、core WebSocket 客户端和 Taro 页面；后端新增 `storyteller_decision` 胜利原因 [Win Reason]，只允许 Storyteller 在已开始且未结束的游戏中结束，赢家 [Winner] 必须是善良或邪恶阵营；客户端发送 `winner/reason/description`，前端 Storyteller 控制区增加结局说明输入和善良/邪恶胜利按钮；补充会话层、Hub 消息路径、赢家解析和 core 发送测试，并通过 `go test ./internal/ws`、`pnpm --filter @clocktower/core test -- websocket-client.test.ts`、`go test ./...`、`pnpm test`、`pnpm typecheck`、`go test -race ./internal/ws`、`pnpm build:core`、`pnpm build:frontend` --- 修改了 packages/backend/internal/game/game.go、packages/backend/internal/ws/message.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/core/src/websocket/index.ts、packages/core/src/websocket/__tests__/websocket-client.test.ts、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/index/index.css、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/game/game.go packages/backend/internal/ws/message.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/hub_game_flow_test.go packages/core/src/websocket/index.ts packages/core/src/websocket/__tests__/websocket-client.test.ts packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css work.md`；若只撤回前端入口，可保留后端协议并仅回滚 `packages/frontend/src/pages/index/index.tsx` 与 `packages/frontend/src/pages/index/index.css`。
+
+---
+
+2026-06-12 10:14:31 +08:00 --- 发现 PRD 房间管理 [Room Management] 中“房主踢出玩家 [Kick Player]”仍未实现：房主只能等待玩家主动离开，无法在准备阶段移除错误身份、重复身份或不守规矩玩家；同时断线重连 [Session Resume] 会让被移除玩家自动回到房间，生产快照 [Production Snapshot] 也缺少踢出名单 --- 使用显式 `KICK_PLAYER` 命令 [Explicit Command] 贯通后端 RoomManager、GameSession、Hub、core WebSocket 客户端和 Taro 页面；只允许房主 [Room Creator] 在准备阶段 [Setup Phase] 踢出其他玩家，服务端从连接身份 [Connection Identity] 推导权限并拒绝伪造 `playerId`；RoomManager 记录被踢玩家并拒绝同一 `playerId` 重进，快照持久化 `kickedPlayerIds`；被踢客户端收到 `kicked from room` 后清空会话恢复 [Session Resume] 和页面房间状态；前端玩家列表在准备阶段向房主显示“踢出”按钮；补充 RoomManager、GameSession、Hub 权限/流程/持久化和 core 客户端测试，并通过 `go test ./internal/ws`、`pnpm --filter @clocktower/core test -- websocket-client.test.ts`、`pnpm typecheck`、`go test ./...`、`pnpm test`、`go test -race ./internal/ws`、`pnpm build:core`、`pnpm build:frontend`、`git diff --check` --- 修改了 packages/backend/internal/ws/message.go、packages/backend/internal/ws/room_manager.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/room_manager_test.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/hub_auth_test.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/backend/internal/ws/persistence_test.go、packages/core/src/websocket/index.ts、packages/core/src/websocket/__tests__/websocket-client.test.ts、packages/frontend/src/pages/index/index.tsx、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/message.go packages/backend/internal/ws/room_manager.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/room_manager_test.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/hub_auth_test.go packages/backend/internal/ws/hub_game_flow_test.go packages/core/src/websocket/index.ts packages/core/src/websocket/__tests__/websocket-client.test.ts packages/frontend/src/pages/index/index.tsx work.md`，并从 `packages/backend/internal/ws/persistence.go` 与 `packages/backend/internal/ws/persistence_test.go` 移除 `KickedPlayerIDs/kickedPlayerIds` 相关字段、快照读写和断言；若要撤回整个快照持久化，则按 09:52:57 与 10:00:34 记录执行完整回滚。

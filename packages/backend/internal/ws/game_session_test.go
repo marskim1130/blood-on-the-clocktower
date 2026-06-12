@@ -431,6 +431,59 @@ func TestGameSessionDemonDeathWinsWhenScarletWomanCannotStarpass(t *testing.T) {
 	}
 }
 
+func TestGameSessionResolveNightDoesNotKillMonkProtectedTarget(t *testing.T) {
+	gs := nightProtectionSession(t)
+	gs.nightActions = []game.NightAction{
+		{ActorID: "storyteller", ActionType: game.NightActionProtect, TargetIDs: []string{"p1"}},
+		{ActorID: "storyteller", ActionType: game.NightActionKill, TargetIDs: []string{"p1"}},
+	}
+
+	result, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"})
+	if err != nil {
+		t.Fatalf("unexpected resolve night error: %v", err)
+	}
+	for _, event := range result.Events {
+		if event.PlayerDied != nil {
+			t.Fatalf("expected protected target not to die, got %#v", event.PlayerDied)
+		}
+	}
+
+	state := gs.StateForRoom("room-1")
+	protected := findPlayerInState(t, state, "p1")
+	if !protected.IsAlive {
+		t.Fatal("expected Monk-protected target to remain alive")
+	}
+	if len(state.Deaths) != 0 {
+		t.Fatalf("expected no death records for protected target, got %#v", state.Deaths)
+	}
+}
+
+func TestGameSessionResolveNightDoesNotKillSoldier(t *testing.T) {
+	gs := nightProtectionSession(t)
+	gs.nightActions = []game.NightAction{
+		{ActorID: "storyteller", ActionType: game.NightActionKill, TargetIDs: []string{"soldier"}},
+	}
+
+	result, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"})
+	if err != nil {
+		t.Fatalf("unexpected resolve night error: %v", err)
+	}
+	for _, event := range result.Events {
+		if event.PlayerDied != nil {
+			t.Fatalf("expected Soldier not to die, got %#v", event.PlayerDied)
+		}
+	}
+
+	state := gs.StateForRoom("room-1")
+	soldier := findPlayerInState(t, state, "soldier")
+	if !soldier.IsAlive {
+		t.Fatal("expected Soldier to remain alive after night kill")
+	}
+	if len(state.Deaths) != 0 {
+		t.Fatalf("expected no death records for Soldier, got %#v", state.Deaths)
+	}
+}
+
 func TestGameSessionRemovePlayer(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
@@ -532,5 +585,26 @@ func testCharacter(t *testing.T, characterID string) *game.Character {
 		Name:    character.Name,
 		Team:    character.Team,
 		Ability: character.Ability,
+	}
+}
+
+func nightProtectionSession(t *testing.T) *GameSession {
+	t.Helper()
+	return &GameSession{
+		players: []game.Player{
+			{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+			{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
+			{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
+			{ID: "monk", Name: "Monk", IsAlive: true, Character: testCharacter(t, "monk")},
+			{ID: "soldier", Name: "Soldier", IsAlive: true, Character: testCharacter(t, "soldier")},
+			{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+		},
+		storytellerID:  "storyteller",
+		scriptID:       game.TroubleBrewingScriptID,
+		phase:          game.GamePhaseNight,
+		dayNumber:      1,
+		nightNumber:    2,
+		nightWakeIndex: 2,
+		ghostVotesUsed: map[string]bool{},
 	}
 }

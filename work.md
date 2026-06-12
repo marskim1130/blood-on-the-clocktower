@@ -532,3 +532,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 16:22:05 +08:00 --- 发现后端已定义 Scarlet Woman 接恶魔 [Imp Starpass] 的胜负原因 [Win Reason]，但恶魔死亡后 `checkWinConditions` 会直接判好人胜利，没有在 5 名及以上玩家存活且 Scarlet Woman 存活时把 Scarlet Woman 转换为 Imp --- 使用胜负判断前置接棒逻辑 [Starpass Resolution]：当没有存活恶魔 [Alive Demon]、存在死亡恶魔 [Dead Demon]、存活人数不少于 5 且 Scarlet Woman 存活时，将 Scarlet Woman 的角色替换为 Imp，并让游戏继续；不广播公开角色分配事件 [Public Assignment Event]，依赖现有按接收者裁剪的 `ROOM_STATE` 展示；补充 Scarlet Woman 成功接棒和人数不足无法接棒的回归测试，并通过 `go test ./...`、`git diff --check` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go work.md`。
+
+---
+
+2026-06-12 16:24:15 +08:00 --- 发现后端夜晚结算 [Night Resolution] 对 `protect` 行动和 Soldier 免疫只记录动作但不生效，Imp 夜杀 [Imp Night Kill] 仍会杀死 Monk 保护目标或 Soldier --- 使用夜晚防护结算 [Night Protection Resolution]：在 `ResolveNight` 中先收集 Storyteller 裁决的 Monk 保护目标 [Protected Targets]，再处理 kill 行动；若目标被保护或角色是 Soldier，则跳过死亡记录 [Death Record] 和 `PlayerDied` 事件；补充 Monk 保护目标不死亡、Soldier 被夜杀不死亡的回归测试，并通过 `go test ./...`、`git diff --check` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go work.md`。

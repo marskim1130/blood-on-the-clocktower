@@ -921,11 +921,15 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 	// Process adjudicated night actions. Player-submitted actions are treated as
 	// private choices for the storyteller; only the storyteller can resolve deaths.
 	var events []game.GameEvent
+	protectedTargets := gs.nightProtectedTargetsLocked()
 	for _, action := range gs.nightActions {
 		if action.ActorID == gs.storytellerID && action.ActionType == game.NightActionKill {
 			for _, targetID := range action.TargetIDs {
 				tIdx := gs.findPlayerIndex(targetID)
 				if tIdx != -1 && gs.players[tIdx].IsAlive {
+					if gs.nightKillPreventedLocked(tIdx, protectedTargets) {
+						continue
+					}
 					gs.players[tIdx].IsAlive = false
 					gs.deaths = append(gs.deaths, game.DeathRecord{
 						PlayerID:  targetID,
@@ -960,6 +964,27 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+func (gs *GameSession) nightProtectedTargetsLocked() map[string]bool {
+	protected := map[string]bool{}
+	for _, action := range gs.nightActions {
+		if action.ActorID != gs.storytellerID || action.ActionType != game.NightActionProtect {
+			continue
+		}
+		for _, targetID := range action.TargetIDs {
+			protected[targetID] = true
+		}
+	}
+	return protected
+}
+
+func (gs *GameSession) nightKillPreventedLocked(targetIndex int, protectedTargets map[string]bool) bool {
+	target := gs.players[targetIndex]
+	if protectedTargets[target.ID] {
+		return true
+	}
+	return target.Character != nil && target.Character.ID == "soldier"
 }
 
 // ────────────────────────────────────────────────

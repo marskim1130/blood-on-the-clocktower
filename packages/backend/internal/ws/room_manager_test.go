@@ -162,6 +162,33 @@ func TestRoomManagerKickPlayerPreventsRejoin(t *testing.T) {
 	}
 }
 
+func TestRoomManagerUpdateRoomSettings(t *testing.T) {
+	rm := NewRoomManager()
+	room := rm.CreateRoom("creator", 5)
+
+	if err := rm.UpdateRoomSettings(room.id, 6, game.TroubleBrewingScriptID); err != nil {
+		t.Fatalf("unexpected update settings error: %v", err)
+	}
+	if got := rm.MaxPlayers(room.id); got != 6 {
+		t.Fatalf("expected maxPlayers=6, got %d", got)
+	}
+	if got := rm.ScriptID(room.id); got != game.TroubleBrewingScriptID {
+		t.Fatalf("expected scriptID=%s, got %s", game.TroubleBrewingScriptID, got)
+	}
+}
+
+func TestRoomManagerUpdateRoomSettingsRejectsMissingRoom(t *testing.T) {
+	rm := NewRoomManager()
+
+	err := rm.UpdateRoomSettings("999999", 6, game.TroubleBrewingScriptID)
+	if err == nil {
+		t.Fatal("expected missing room update to be rejected")
+	}
+	if err.Error() != "room not found" {
+		t.Fatalf("expected room not found error, got %q", err.Error())
+	}
+}
+
 func TestRoomManagerDestroyRoom(t *testing.T) {
 	rm := NewRoomManager()
 	room := rm.CreateRoom("p1", 10)

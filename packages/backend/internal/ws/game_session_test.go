@@ -224,6 +224,74 @@ func TestGameSessionKickPlayerRejectsAfterSetup(t *testing.T) {
 	}
 }
 
+func TestGameSessionUpdateRoomSettingsDuringSetup(t *testing.T) {
+	gs := NewGameSession()
+	gs.AddPlayer(game.Player{ID: "creator", Name: "Creator", IsAlive: true})
+	for _, playerID := range []string{"p1", "p2", "p3", "p4", "p5"} {
+		gs.AddPlayer(game.Player{ID: playerID, Name: playerID, IsAlive: true})
+	}
+	gs.Apply(SetStorytellerCmd{SenderID: "creator", TargetPlayerID: "creator"})
+
+	result, err := gs.Apply(UpdateRoomSettingsCmd{
+		SenderID:   "creator",
+		MaxPlayers: 6,
+		ScriptID:   game.TroubleBrewingScriptID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected room settings error: %v", err)
+	}
+	if !result.Updated {
+		t.Fatal("expected room settings update to mark session updated")
+	}
+
+	state := gs.StateForRoom("room-1")
+	if state.ScriptID != game.TroubleBrewingScriptID {
+		t.Fatalf("expected script %s, got %s", game.TroubleBrewingScriptID, state.ScriptID)
+	}
+}
+
+func TestGameSessionUpdateRoomSettingsRejectsAfterSetup(t *testing.T) {
+	gs := NewGameSession()
+	gs.phase = game.GamePhaseDay
+
+	result, err := gs.Apply(UpdateRoomSettingsCmd{
+		SenderID:   "creator",
+		MaxPlayers: 6,
+	})
+	if err == nil {
+		t.Fatal("expected settings update after setup to be rejected")
+	}
+	if err.Error() != "room settings can only be updated during setup phase" {
+		t.Fatalf("expected setup-only settings error, got %q", err.Error())
+	}
+	if result.Updated || len(result.Events) != 0 {
+		t.Fatalf("expected rejected settings update to make no changes, got %#v", result)
+	}
+}
+
+func TestGameSessionUpdateRoomSettingsRejectsTooFewMaxPlayers(t *testing.T) {
+	gs := NewGameSession()
+	gs.AddPlayer(game.Player{ID: "creator", Name: "Creator", IsAlive: true})
+	for _, playerID := range []string{"p1", "p2", "p3", "p4", "p5", "p6"} {
+		gs.AddPlayer(game.Player{ID: playerID, Name: playerID, IsAlive: true})
+	}
+	gs.Apply(SetStorytellerCmd{SenderID: "creator", TargetPlayerID: "creator"})
+
+	result, err := gs.Apply(UpdateRoomSettingsCmd{
+		SenderID:   "creator",
+		MaxPlayers: 5,
+	})
+	if err == nil {
+		t.Fatal("expected maxPlayers below current player count to be rejected")
+	}
+	if err.Error() != "maxPlayers cannot be less than current player count" {
+		t.Fatalf("expected current player count error, got %q", err.Error())
+	}
+	if result.Updated || len(result.Events) != 0 {
+		t.Fatalf("expected rejected settings update to make no changes, got %#v", result)
+	}
+}
+
 func TestGameSessionEndGameByStoryteller(t *testing.T) {
 	gs := NewGameSession()
 	gs.storytellerID = "storyteller"

@@ -157,6 +157,92 @@ func TestRoomStateIncludesScriptMetadata(t *testing.T) {
 	}
 }
 
+func TestRoomCreatorCanUpdateRoomSettingsDuringSetup(t *testing.T) {
+	h := NewHub()
+	creatorConn := NewFakeConnection()
+	h.handleMessage(creatorConn, ClientMessage{
+		Type:       MsgCreateRoom,
+		PlayerID:   "creator",
+		PlayerName: "Creator",
+		MaxPlayers: 5,
+	})
+	roomID := creatorConn.Messages()[0].(ServerMessage).RoomID
+
+	playerConn := NewFakeConnection()
+	h.handleMessage(playerConn, ClientMessage{
+		Type:       MsgJoinRoom,
+		RoomID:     roomID,
+		PlayerID:   "p1",
+		PlayerName: "P1",
+	})
+	creatorConn.ClearMessages()
+	playerConn.ClearMessages()
+
+	h.handleMessage(creatorConn, ClientMessage{
+		Type:       MsgUpdateRoomSettings,
+		MaxPlayers: 6,
+		ScriptID:   game.TroubleBrewingScriptID,
+	})
+	assertNoErrorMessages(t, creatorConn.Messages())
+
+	if got := h.rm.MaxPlayers(roomID); got != 6 {
+		t.Fatalf("expected room maxPlayers=6, got %d", got)
+	}
+	creatorState := lastRoomState(t, creatorConn.Messages())
+	if creatorState.MaxPlayers != 6 {
+		t.Fatalf("expected creator room state maxPlayers=6, got %d", creatorState.MaxPlayers)
+	}
+	if creatorState.ScriptID != game.TroubleBrewingScriptID {
+		t.Fatalf("expected scriptID=%s, got %s", game.TroubleBrewingScriptID, creatorState.ScriptID)
+	}
+
+	playerState := lastRoomState(t, playerConn.Messages())
+	if playerState.MaxPlayers != 6 {
+		t.Fatalf("expected player room state maxPlayers=6, got %d", playerState.MaxPlayers)
+	}
+}
+
+func TestUpdateRoomSettingsRejectsNonCreator(t *testing.T) {
+	h := NewHub()
+	creatorConn := NewFakeConnection()
+	h.handleMessage(creatorConn, ClientMessage{
+		Type:       MsgCreateRoom,
+		PlayerID:   "creator",
+		PlayerName: "Creator",
+		MaxPlayers: 5,
+	})
+	roomID := creatorConn.Messages()[0].(ServerMessage).RoomID
+
+	playerConn := NewFakeConnection()
+	h.handleMessage(playerConn, ClientMessage{
+		Type:       MsgJoinRoom,
+		RoomID:     roomID,
+		PlayerID:   "p1",
+		PlayerName: "P1",
+	})
+	playerConn.ClearMessages()
+
+	h.handleMessage(playerConn, ClientMessage{
+		Type:       MsgUpdateRoomSettings,
+		MaxPlayers: 6,
+	})
+
+	msgs := playerConn.Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected non-creator settings update error")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "only room creator can update room settings" {
+		t.Fatalf("expected creator-only settings error, got %q", errMsg.Error)
+	}
+	if got := h.rm.MaxPlayers(roomID); got != 5 {
+		t.Fatalf("expected maxPlayers to remain 5, got %d", got)
+	}
+}
+
 func TestRoomCreatorCanKickPlayerDuringSetup(t *testing.T) {
 	h := NewHub()
 	creatorConn := NewFakeConnection()
@@ -262,6 +348,35 @@ func TestKickPlayerRejectsAfterGameStart(t *testing.T) {
 	}
 	if len(playerConns["p1"].Messages()) != 0 {
 		t.Fatalf("expected kicked target to receive no message after rejected kick, got %#v", playerConns["p1"].Messages())
+	}
+}
+
+func TestUpdateRoomSettingsRejectsAfterGameStart(t *testing.T) {
+	h, storytellerConn, playerConns, roomID := setupStartedRoom(t)
+
+	h.handleMessage(storytellerConn, ClientMessage{
+		Type:       MsgUpdateRoomSettings,
+		MaxPlayers: 6,
+	})
+
+	msgs := storytellerConn.Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected setup-only settings error")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "room settings can only be updated during setup phase" {
+		t.Fatalf("expected setup-only settings error, got %q", errMsg.Error)
+	}
+	if got := h.rm.MaxPlayers(roomID); got != 5 {
+		t.Fatalf("expected maxPlayers to remain 5, got %d", got)
+	}
+	for playerID, conn := range playerConns {
+		if len(conn.Messages()) != 0 {
+			t.Fatalf("expected %s to receive no settings update broadcast, got %#v", playerID, conn.Messages())
+		}
 	}
 }
 

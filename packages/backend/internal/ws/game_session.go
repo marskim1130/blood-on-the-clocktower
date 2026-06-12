@@ -67,6 +67,12 @@ type KickPlayerCmd struct {
 	TargetPlayerID string
 }
 
+type UpdateRoomSettingsCmd struct {
+	SenderID   string
+	MaxPlayers int
+	ScriptID   string
+}
+
 type EndGameCmd struct {
 	SenderID    string
 	Winner      game.Team
@@ -85,20 +91,21 @@ type Command interface {
 	commandTag()
 }
 
-func (SetStorytellerCmd) commandTag()    {}
-func (AssignCharactersCmd) commandTag()  {}
-func (SubmitEventCmd) commandTag()       {}
-func (StartGameCmd) commandTag()         {}
-func (ChangePhaseCmd) commandTag()       {}
-func (NominateCmd) commandTag()          {}
-func (CastVoteCmd) commandTag()          {}
-func (ResolveNominationCmd) commandTag() {}
-func (ExecutePlayerCmd) commandTag()     {}
-func (SubmitNightActionCmd) commandTag() {}
-func (ResolveNightCmd) commandTag()      {}
-func (KickPlayerCmd) commandTag()        {}
-func (EndGameCmd) commandTag()           {}
-func (KillPlayerCmd) commandTag()        {}
+func (SetStorytellerCmd) commandTag()     {}
+func (AssignCharactersCmd) commandTag()   {}
+func (SubmitEventCmd) commandTag()        {}
+func (StartGameCmd) commandTag()          {}
+func (ChangePhaseCmd) commandTag()        {}
+func (NominateCmd) commandTag()           {}
+func (CastVoteCmd) commandTag()           {}
+func (ResolveNominationCmd) commandTag()  {}
+func (ExecutePlayerCmd) commandTag()      {}
+func (SubmitNightActionCmd) commandTag()  {}
+func (ResolveNightCmd) commandTag()       {}
+func (KickPlayerCmd) commandTag()         {}
+func (UpdateRoomSettingsCmd) commandTag() {}
+func (EndGameCmd) commandTag()            {}
+func (KillPlayerCmd) commandTag()         {}
 
 // Result of applying a command.
 type ApplyResult struct {
@@ -296,6 +303,8 @@ func (gs *GameSession) Apply(cmd Command) (ApplyResult, error) {
 		return gs.applyResolveNight(c)
 	case KickPlayerCmd:
 		return gs.applyKickPlayer(c)
+	case UpdateRoomSettingsCmd:
+		return gs.applyUpdateRoomSettings(c)
 	case EndGameCmd:
 		return gs.applyEndGame(c)
 	case KillPlayerCmd:
@@ -440,6 +449,36 @@ func (gs *GameSession) applyKickPlayer(cmd KickPlayerCmd) (ApplyResult, error) {
 	}, nil
 }
 
+func (gs *GameSession) applyUpdateRoomSettings(cmd UpdateRoomSettingsCmd) (ApplyResult, error) {
+	if gs.phase != game.GamePhaseSetup {
+		return ApplyResult{}, fmt.Errorf("room settings can only be updated during setup phase")
+	}
+
+	scriptID := strings.TrimSpace(cmd.ScriptID)
+	if cmd.MaxPlayers == 0 && scriptID == "" {
+		return ApplyResult{}, fmt.Errorf("at least one room setting is required")
+	}
+	if cmd.MaxPlayers != 0 {
+		if cmd.MaxPlayers < 5 || cmd.MaxPlayers > 15 {
+			return ApplyResult{}, fmt.Errorf("maxPlayers must be between 5 and 15")
+		}
+		if currentPlayers := gs.effectivePlayerCountLocked(); currentPlayers > cmd.MaxPlayers {
+			return ApplyResult{}, fmt.Errorf("maxPlayers cannot be less than current player count")
+		}
+	}
+	if scriptID != "" {
+		if game.GetScriptByID(scriptID) == nil {
+			return ApplyResult{}, fmt.Errorf("unsupported script")
+		}
+		if scriptID != gs.scriptID && gs.hasAssignedCharactersLocked() {
+			return ApplyResult{}, fmt.Errorf("script cannot be changed after characters are assigned")
+		}
+		gs.scriptID = scriptID
+	}
+
+	return ApplyResult{Updated: true}, nil
+}
+
 // ────────────────────────────────────────────────
 // Helper: find player by ID in gs.players
 // ────────────────────────────────────────────────
@@ -451,6 +490,23 @@ func (gs *GameSession) findPlayerIndex(playerID string) int {
 		}
 	}
 	return -1
+}
+
+func (gs *GameSession) effectivePlayerCountLocked() int {
+	count := len(gs.players)
+	if gs.storytellerID == "" && count > 0 {
+		count--
+	}
+	return count
+}
+
+func (gs *GameSession) hasAssignedCharactersLocked() bool {
+	for _, player := range gs.players {
+		if player.Character != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (gs *GameSession) startNightLocked() {

@@ -162,6 +162,26 @@ func (rm *RoomManager) KickPlayer(roomID, playerID string) (*Client, error) {
 	return client, nil
 }
 
+func (rm *RoomManager) UpdateRoomSettings(roomID string, maxPlayers int, scriptID string) error {
+	rm.mu.RLock()
+	room, exists := rm.rooms[roomID]
+	rm.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("room not found")
+	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+	if maxPlayers != 0 {
+		room.maxPlayers = maxPlayers
+	}
+	if scriptID != "" {
+		room.scriptID = scriptID
+	}
+	return nil
+}
+
 func (rm *RoomManager) DestroyRoom(roomID string) {
 	rm.mu.Lock()
 	defer rm.mu.Unlock()

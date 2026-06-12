@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -73,6 +74,8 @@ func (h *Hub) handleMessage(conn Connection, msg ClientMessage) {
 		h.handleLeaveRoom(conn, msg)
 	case MsgKickPlayer:
 		h.handleKickPlayer(conn, msg)
+	case MsgUpdateRoomSettings:
+		h.handleUpdateRoomSettings(conn, msg)
 	case MsgSetStoryteller:
 		h.handleSetStoryteller(conn, msg)
 	case MsgAssignCharacters:
@@ -279,6 +282,52 @@ func (h *Hub) handleKickPlayer(conn Connection, msg ClientMessage) {
 	for _, event := range result.Events {
 		eventCopy := event
 		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.commitRoomUpdate(roomID, result)
+	}
+}
+
+func (h *Hub) handleUpdateRoomSettings(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if senderID != h.rm.CreatorID(roomID) {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only room creator can update room settings"})
+		return
+	}
+
+	result, err := gs.Apply(UpdateRoomSettingsCmd{
+		SenderID:   senderID,
+		MaxPlayers: msg.MaxPlayers,
+		ScriptID:   msg.ScriptID,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	scriptID := strings.TrimSpace(msg.ScriptID)
+	if err := h.rm.UpdateRoomSettings(roomID, msg.MaxPlayers, scriptID); err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
 	}
 
 	if result.Updated {

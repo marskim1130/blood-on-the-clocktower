@@ -349,6 +349,88 @@ func TestGameSessionEndGameRejectsInvalidWinner(t *testing.T) {
 	}
 }
 
+func TestGameSessionScarletWomanBecomesImpWhenDemonDiesWithFiveAlive(t *testing.T) {
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.phase = game.GamePhaseDay
+	gs.dayNumber = 1
+	gs.players = []game.Player{
+		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
+		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
+		{ID: "p4", Name: "P4", IsAlive: true, Character: testCharacter(t, "chef")},
+		{ID: "p5", Name: "P5", IsAlive: true, Character: testCharacter(t, "empath")},
+		{ID: "scarlet", Name: "Scarlet", IsAlive: true, Character: testCharacter(t, "scarletwoman")},
+		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+	}
+
+	result, err := gs.Apply(ExecutePlayerCmd{
+		SenderID: "storyteller",
+		PlayerID: "imp",
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+	for _, event := range result.Events {
+		if event.GameEnded != nil {
+			t.Fatalf("expected game to continue after starpass, got gameEnded %#v", event.GameEnded)
+		}
+		if event.CharacterAssigned != nil {
+			t.Fatalf("expected starpass not to broadcast public assignment, got %#v", event.CharacterAssigned)
+		}
+	}
+
+	state := gs.StateForRoom("room-1")
+	if state.Phase == game.GamePhaseFinished {
+		t.Fatalf("expected game to continue after Scarlet Woman starpass, got phase %d", state.Phase)
+	}
+	scarlet := findPlayerInState(t, state, "scarlet")
+	if scarlet.Character == nil || scarlet.Character.ID != "imp" {
+		t.Fatalf("expected Scarlet Woman to become Imp, got %#v", scarlet.Character)
+	}
+	deadImp := findPlayerInState(t, state, "imp")
+	if deadImp.IsAlive {
+		t.Fatal("expected original Imp to be dead")
+	}
+}
+
+func TestGameSessionDemonDeathWinsWhenScarletWomanCannotStarpass(t *testing.T) {
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.phase = game.GamePhaseDay
+	gs.dayNumber = 1
+	gs.players = []game.Player{
+		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
+		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
+		{ID: "scarlet", Name: "Scarlet", IsAlive: true, Character: testCharacter(t, "scarletwoman")},
+		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+	}
+
+	result, err := gs.Apply(ExecutePlayerCmd{
+		SenderID: "storyteller",
+		PlayerID: "imp",
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+	if len(result.Events) == 0 || result.Events[len(result.Events)-1].GameEnded == nil {
+		t.Fatalf("expected gameEnded after demon death without starpass, got %#v", result.Events)
+	}
+
+	state := gs.StateForRoom("room-1")
+	if state.Phase != game.GamePhaseFinished {
+		t.Fatalf("expected finished phase, got %d", state.Phase)
+	}
+	if state.Winner == nil || state.Winner.Winner != game.TeamGood || state.Winner.Reason != game.WinReasonImpExecuted {
+		t.Fatalf("expected good win by demon death, got %#v", state.Winner)
+	}
+	scarlet := findPlayerInState(t, state, "scarlet")
+	if scarlet.Character == nil || scarlet.Character.ID != "scarletwoman" {
+		t.Fatalf("expected Scarlet Woman to remain unchanged, got %#v", scarlet.Character)
+	}
+}
+
 func TestGameSessionRemovePlayer(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
@@ -436,5 +518,19 @@ func TestGameSessionUnknownCommand(t *testing.T) {
 	_, err := gs.Apply(unknownCmd{})
 	if err == nil {
 		t.Error("expected error for unknown command")
+	}
+}
+
+func testCharacter(t *testing.T, characterID string) *game.Character {
+	t.Helper()
+	character := game.GetCharacterByID(characterID)
+	if character == nil {
+		t.Fatalf("expected test character %s to exist", characterID)
+	}
+	return &game.Character{
+		ID:      character.ID,
+		Name:    character.Name,
+		Team:    character.Team,
+		Ability: character.Ability,
 	}
 }

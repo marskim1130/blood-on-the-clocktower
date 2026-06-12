@@ -1091,16 +1091,19 @@ func (gs *GameSession) checkWinConditions() *game.GameEndedEvent {
 		}
 	}
 
+	totalAlive := aliveGood + aliveEvil
+
 	// Demon dead => good wins (by execution)
 	if !hasAliveDemon {
+		if gs.applyScarletWomanStarpassLocked(totalAlive) {
+			return nil
+		}
 		return &game.GameEndedEvent{
 			Winner:      game.TeamGood,
 			Reason:      game.WinReasonImpExecuted,
 			Description: "The Demon is dead — good wins!",
 		}
 	}
-
-	totalAlive := aliveGood + aliveEvil
 
 	// Evil wins when the game reaches the final two living players.
 	if totalAlive <= 2 && totalAlive > 0 {
@@ -1131,6 +1134,45 @@ func (gs *GameSession) checkWinConditions() *game.GameEndedEvent {
 	}
 
 	return nil
+}
+
+func (gs *GameSession) applyScarletWomanStarpassLocked(totalAlive int) bool {
+	if totalAlive < 5 || !gs.hasDeadDemonLocked() {
+		return false
+	}
+
+	imp := game.GetCharacterByID("imp")
+	if imp == nil {
+		return false
+	}
+
+	for i := range gs.players {
+		player := &gs.players[i]
+		if !player.IsAlive || player.Character == nil || player.Character.ID != "scarletwoman" {
+			continue
+		}
+		player.Character = &game.Character{
+			ID:      imp.ID,
+			Name:    imp.Name,
+			Team:    imp.Team,
+			Ability: imp.Ability,
+		}
+		return true
+	}
+	return false
+}
+
+func (gs *GameSession) hasDeadDemonLocked() bool {
+	for _, player := range gs.players {
+		if player.IsAlive || player.Character == nil {
+			continue
+		}
+		charDef := game.GetCharacterByID(player.Character.ID)
+		if charDef != nil && charDef.Type == game.CharacterTypeDemon {
+			return true
+		}
+	}
+	return false
 }
 
 // StateForRoom builds a complete RoomState snapshot.

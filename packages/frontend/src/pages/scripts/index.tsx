@@ -27,15 +27,15 @@ export default function ScriptsPage() {
       </View>
 
       <View className='scriptSection'>
-        <Text className='sectionTitle'>玩家人数 [Player Count]</Text>
+        <Text className='sectionTitle'>玩家人数</Text>
         {[5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((playerCount) => (
           <Text className='roleCountLine' key={playerCount}>{roleCountText(playerCount)}</Text>
         ))}
-        <Text className='scriptHint'>男爵 [Baron] 在场时，减少 2 个镇民并增加 2 个外来者。</Text>
+        <Text className='scriptHint'>男爵在场时，减少 2 个镇民并增加 2 个外来者。</Text>
       </View>
 
       <View className='scriptSection'>
-        <Text className='sectionTitle'>角色 [Characters]</Text>
+        <Text className='sectionTitle'>角色</Text>
         {CHARACTER_TYPE_ORDER.map((type) => (
           <View className='characterGroup' key={type}>
             <Text className='groupTitle'>{CHARACTER_TYPE_LABELS[type]}</Text>
@@ -50,7 +50,7 @@ export default function ScriptsPage() {
       </View>
 
       <View className='scriptSection'>
-        <Text className='sectionTitle'>首夜顺序 [First Night]</Text>
+        <Text className='sectionTitle'>首夜顺序</Text>
         {firstNight.map((step) => (
           <View className='wakeRow' key={`first-${step.order}-${step.characterId}`}>
             <Text className='wakeOrder'>{step.order}</Text>
@@ -65,7 +65,7 @@ export default function ScriptsPage() {
       </View>
 
       <View className='scriptSection'>
-        <Text className='sectionTitle'>后续夜晚 [Later Nights]</Text>
+        <Text className='sectionTitle'>后续夜晚</Text>
         {laterNight.map((step) => (
           <View className='wakeRow' key={`later-${step.order}-${step.characterId}`}>
             <Text className='wakeOrder'>{step.order}</Text>

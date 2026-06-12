@@ -586,3 +586,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 18:02:09 +08:00 --- 发现 H5 首页 [H5 Home Page] 虽已接通完整 WebSocket 游戏功能，但信息和按钮按功能直铺，缺少首页摘要 [Summary]、清晰操作区 [Operation Panels]、空状态 [Empty State] 与基础图标 [Icons]，单设备多窗口联调时不易快速判断连接、房间、阶段、身份和玩家状态 --- 保留现有 WebSocket 行为与命令入口，重排首页为简单控制台 [Control Console]：增加顶部状态摘要、房间/身份/阶段/玩家统计，按连接、身份、房间、玩家、角色、Storyteller、提名、投票、死亡、夜晚和日志分区；给主要按钮增加文本图标 [Text Icons]；统一 CSS 为简洁工作台样式 [Workbench Style]，减少装饰并修复未加入房间时可误点“设自己为 Storyteller”的入口 --- 修改了 packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/index/index.css、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css work.md`。
+
+---
+
+2026-06-12 18:20:57 +08:00 --- 发现 H5 页面和剧本页仍有英文/中英混排的可见文案 [UI Copy]，并且共享脚本数据 [Shared Script Data] 中的暗流涌动角色名、角色能力 [Ability Text] 与夜晚提示 [Night Prompt] 仍是英文，导致玩家看到的提示和角色描述不一致 --- 将 `TROUBLE_BREWING_SCRIPT` 的剧本名、22 个角色名、能力描述和首夜/后续夜晚唤醒提示全部改为中文；将 H5 首页阶段、连接状态、说书人、阵营、夜间行动、错误提示、操作日志和各区块标题中文化；将剧本页区块标题与角色分类标签改为中文，并增加常见服务端错误的中文显示映射 [Error Message Mapping]；运行类型检查 [Typecheck] 后同步已跟踪的增量编译文件 [Incremental Build File] --- 修改了 packages/core/src/scripts/index.ts、packages/core/tsconfig.tsbuildinfo、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/scripts/index.tsx、packages/frontend/src/pages/scripts/utils.ts、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/core/src/scripts/index.ts packages/core/tsconfig.tsbuildinfo packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/scripts/index.tsx packages/frontend/src/pages/scripts/utils.ts work.md`。

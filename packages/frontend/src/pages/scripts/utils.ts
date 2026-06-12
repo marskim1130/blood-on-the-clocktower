@@ -8,10 +8,10 @@ import type { CharacterType, ScriptCharacterDefinition } from '@clocktower/core'
 export const DEFAULT_SCRIPT_ID = TROUBLE_BREWING_SCRIPT.id;
 
 export const CHARACTER_TYPE_LABELS: Record<CharacterType, string> = {
-  townsfolk: '镇民 Townsfolk',
-  outsider: '外来者 Outsider',
-  minion: '爪牙 Minion',
-  demon: '恶魔 Demon',
+  townsfolk: '镇民',
+  outsider: '外来者',
+  minion: '爪牙',
+  demon: '恶魔',
 };
 
 export const CHARACTER_TYPE_ORDER: readonly CharacterType[] = ['townsfolk', 'outsider', 'minion', 'demon'];

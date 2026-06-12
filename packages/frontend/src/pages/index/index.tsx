@@ -34,11 +34,18 @@ const DEFAULT_SCRIPT_NAME = TROUBLE_BREWING_SCRIPT.name;
 // ─── Phase & Role Constants ──────────────────────────────────────
 
 const PHASE_LABELS: Record<GamePhase, string> = {
-  setup: '准备 Setup',
-  day: '白天 Day',
-  voting: '投票 Voting',
-  night: '夜晚 Night',
-  finished: '游戏结束 Finished',
+  setup: '准备',
+  day: '白天',
+  voting: '投票',
+  night: '夜晚',
+  finished: '游戏结束',
+};
+
+const STATUS_LABELS: Record<ConnectionStatus, string> = {
+  disconnected: '未连接',
+  connecting: '连接中',
+  connected: '已连接',
+  error: '连接异常',
 };
 
 const DEATH_CAUSE_LABELS: Record<DeathCause, string> = {
@@ -56,18 +63,18 @@ const DEATH_CAUSE_OPTIONS: ReadonlyArray<{ readonly id: DeathCause; readonly lab
 // ─── Night Action Options ────────────────────────────────────────
 
 const NIGHT_ACTION_TYPES = [
-  { id: 'kill', label: '击杀 (Imp)', needsTarget: true },
-  { id: 'poison', label: '下毒 (Poisoner)', needsTarget: true },
-  { id: 'protect', label: '保护 (Monk)', needsTarget: true },
-  { id: 'learn_townsfolk', label: '鉴镇民 (Washerwoman)', needsTarget: false },
-  { id: 'learn_outsider', label: '鉴外来者 (Librarian)', needsTarget: false },
-  { id: 'learn_minion', label: '鉴爪牙 (Investigator)', needsTarget: false },
-  { id: 'learn_evil_pairs', label: '邪恶相邻 (Chef)', needsTarget: false },
-  { id: 'learn_evil_neighbors', label: '邪恶邻居 (Empath)', needsTarget: false },
-  { id: 'check_demon', label: '查验恶魔 (Fortune Teller)', needsTarget: true },
-  { id: 'learn_executed', label: '鉴处决 (Undertaker)', needsTarget: false },
-  { id: 'learn_died', label: '鉴死者 (Ravenkeeper)', needsTarget: true },
-  { id: 'learn_master', label: '鉴主人 (Butler)', needsTarget: false },
+  { id: 'kill', label: '击杀', needsTarget: true },
+  { id: 'poison', label: '下毒', needsTarget: true },
+  { id: 'protect', label: '保护', needsTarget: true },
+  { id: 'learn_townsfolk', label: '确认镇民信息', needsTarget: false },
+  { id: 'learn_outsider', label: '确认外来者信息', needsTarget: false },
+  { id: 'learn_minion', label: '确认爪牙信息', needsTarget: false },
+  { id: 'learn_evil_pairs', label: '邪恶相邻数量', needsTarget: false },
+  { id: 'learn_evil_neighbors', label: '邪恶邻居数量', needsTarget: false },
+  { id: 'check_demon', label: '查验恶魔', needsTarget: true },
+  { id: 'learn_executed', label: '确认处决角色', needsTarget: false },
+  { id: 'learn_died', label: '确认死亡触发', needsTarget: true },
+  { id: 'learn_master', label: '选择主人', needsTarget: false },
 ] as const;
 
 // ─── Local Game State Types ──────────────────────────────────────
@@ -94,6 +101,108 @@ interface GameOverInfo {
   readonly winner: string;
   readonly reason: string;
   readonly description: string;
+}
+
+const SERVER_MESSAGE_LABELS: Readonly<Record<string, string>> = {
+  ERROR: '错误',
+  ROOM_STATE: '房间状态',
+  EVENT: '游戏事件',
+};
+
+const SERVER_ERROR_LABELS: Readonly<Record<string, string>> = {
+  'room not found': '房间不存在',
+  'player was kicked from room': '你已被房主移出房间',
+  'kicked from room': '已被房主移出房间',
+  'room is full': '房间人数已满',
+  'unknown command type': '未知操作类型',
+  'storyteller already set': '说书人已设置',
+  'target player not found': '目标玩家不存在',
+  'only storyteller can assign characters': '只有说书人可以分配角色',
+  'invalid character assignment for player count': '角色分配与当前玩家人数不匹配',
+  'raw event submission is disabled; use explicit game commands': '不能直接提交原始事件，请使用明确的游戏操作',
+  'players can only be kicked during setup phase': '只能在准备阶段踢出玩家',
+  'target player is required': '请选择目标玩家',
+  'room creator cannot kick themselves': '房主不能踢出自己',
+  'room settings can only be updated during setup phase': '只能在准备阶段修改房间设置',
+  'at least one room setting is required': '至少需要提供一项房间设置',
+  'maxPlayers must be between 5 and 15': '实际玩家数必须在 5 到 15 之间',
+  'maxPlayers cannot be less than current player count': '实际玩家数不能小于当前房间人数',
+  'unsupported script': '暂不支持该剧本',
+  'script cannot be changed after characters are assigned': '角色分配后不能更换剧本',
+  'storyteller must be set before starting the game': '开始游戏前必须设置说书人',
+  'only the storyteller can start the game': '只有说书人可以开始游戏',
+  'only the storyteller can change phase': '只有说书人可以切换阶段',
+  'nominations can only happen during the day phase': '只能在白天阶段发起提名',
+  'cannot nominate yourself': '不能提名自己',
+  'dead players cannot nominate': '死亡玩家不能提名',
+  'cannot nominate a dead player': '不能提名死亡玩家',
+  'no active nomination to vote on': '当前没有可投票的提名',
+  'ghost vote already used': '幽灵票已经使用',
+  'only the storyteller can resolve a nomination': '只有说书人可以结算提名',
+  'no active nomination to resolve': '当前没有可结算的提名',
+  'only the storyteller can execute a player': '只有说书人可以处决玩家',
+  'Slayer ability can only be used during the day phase': '杀手能力只能在白天阶段使用',
+  'dead players cannot use the Slayer ability': '死亡玩家不能使用杀手能力',
+  'only the Slayer can use this ability': '只有杀手可以使用该能力',
+  'Slayer ability already used': '杀手能力已经使用过',
+  'cannot target a dead player': '不能选择死亡玩家作为目标',
+  'night actions can only be submitted during the night phase': '只能在夜晚阶段提交夜间行动',
+  'dead players cannot submit night actions': '死亡玩家不能提交夜间行动',
+  'no remaining night wake steps': '今夜没有剩余唤醒步骤',
+  'only the storyteller can resolve the night': '只有说书人可以结束夜晚',
+  'night can only be resolved during the night phase': '只能在夜晚阶段结束夜晚',
+  'only the storyteller can end the game': '只有说书人可以结束游戏',
+  'game cannot be ended before it starts': '游戏开始前不能结束游戏',
+  'game is already finished': '游戏已经结束',
+  'winner must be good or evil': '胜利阵营必须是善良或邪恶',
+  'only the storyteller can kill players': '只有说书人可以宣告玩家死亡',
+  'game cannot kill players before it starts': '游戏开始前不能宣告死亡',
+  'death cause is required': '请选择死因',
+};
+
+function serverMessageLabel(type: string): string {
+  return SERVER_MESSAGE_LABELS[type] ?? '服务器消息';
+}
+
+function serverErrorMessage(error: string | undefined): string {
+  if (!error) return '未知错误';
+  const exact = SERVER_ERROR_LABELS[error];
+  if (exact) return exact;
+  const playerNotFound = error.match(/^player (.+) not found(?: in game)?$/);
+  if (playerNotFound) return `玩家不存在：${playerNotFound[1]}`;
+  const playerAlreadyVoted = error.match(/^player (.+) has already voted$/);
+  if (playerAlreadyVoted) return `玩家已投票：${playerAlreadyVoted[1]}`;
+  const playerAlreadyDead = error.match(/^player (.+) is already dead$/);
+  if (playerAlreadyDead) return `玩家已死亡：${playerAlreadyDead[1]}`;
+  const characterMissing = error.match(/^player (.+) has no character assigned$/);
+  if (characterMissing) return `玩家尚未分配角色：${characterMissing[1]}`;
+  const nightTargetMissing = error.match(/^night action target (.+) not found$/);
+  if (nightTargetMissing) return `夜间行动目标不存在：${nightTargetMissing[1]}`;
+  const duplicateNightTarget = error.match(/^duplicate night action target (.+)$/);
+  if (duplicateNightTarget) return `夜间行动目标重复：${duplicateNightTarget[1]}`;
+  const nightActionMinimum = error.match(/^night action (.+) requires at least (.+) target\(s\)$/);
+  if (nightActionMinimum) return `夜间行动${nightActionLabel(nightActionMinimum[1] ?? '')}至少需要 ${nightActionMinimum[2]} 个目标`;
+  const nightActionMaximum = error.match(/^night action (.+) allows at most (.+) target\(s\)$/);
+  if (nightActionMaximum) return `夜间行动${nightActionLabel(nightActionMaximum[1] ?? '')}最多允许 ${nightActionMaximum[2]} 个目标`;
+  const expectedNightAction = error.match(/^expected night action (.+), got (.+)$/);
+  if (expectedNightAction) {
+    return `当前步骤需要${nightActionLabel(expectedNightAction[1] ?? '')}，收到的是${nightActionLabel(expectedNightAction[2] ?? '')}`;
+  }
+  const remainingWakeSteps = error.match(/^cannot resolve night with (.+) wake step\(s\) remaining$/);
+  if (remainingWakeSteps) return `还有 ${remainingWakeSteps[1]} 个唤醒步骤未处理，不能结束夜晚`;
+  const unsupportedDeathCause = error.match(/^unsupported death cause (.+)$/);
+  if (unsupportedDeathCause) return `不支持的死因：${unsupportedDeathCause[1]}`;
+  const invalidPhaseTransition = error.match(/^invalid phase transition from (.+) to (.+)$/);
+  if (invalidPhaseTransition) return '当前阶段不能这样切换';
+  const cannotChangePhase = error.match(/^cannot change phase from (.+)$/);
+  if (cannotChangePhase) return '当前阶段不能切换';
+  const cannotExecute = error.match(/^cannot execute player in phase (.+)$/);
+  if (cannotExecute) return '当前阶段不能处决玩家';
+  return error;
+}
+
+function nightActionLabel(actionType: string): string {
+  return NIGHT_ACTION_TYPES.find((action) => action.id === actionType)?.label ?? actionType;
 }
 
 function buildSampleAssignments(players: RoomState['players']): Record<string, string> {
@@ -222,7 +331,7 @@ export default function IndexPage() {
   const roomCapacity = roomState?.maxPlayers ?? (Number.parseInt(maxPlayersInput, 10) || 5);
   const roomOccupancy = roomState ? `${players.length}/${roomCapacity}` : '未加入';
   const roomCodeLabel = currentRoomId || '未加入';
-  const roleLabel = isStoryteller ? 'Storyteller' : visibleCharacter?.name ?? '未分配';
+  const roleLabel = isStoryteller ? '说书人' : visibleCharacter?.name ?? '未分配';
   const aliveSummary = roomState ? `${alivePlayers.length} 存活 / ${deadPlayers.length} 死亡` : '等待加入房间';
   const latestLog = logs[0] ?? '暂无操作记录';
   const statusIcon = status === 'connected' ? '●' : status === 'connecting' ? '◐' : status === 'error' ? '!' : '○';
@@ -314,10 +423,10 @@ export default function IndexPage() {
   }
 
   function applyMessage(message: ServerMessage): void {
-    appendLog(`收到 ${message.type}`);
+    appendLog(`收到${serverMessageLabel(message.type)}`);
 
     if (message.type === 'ERROR') {
-      setErrorMessage(message.error ?? '未知错误');
+      setErrorMessage(serverErrorMessage(message.error));
       if (message.error === 'kicked from room') {
         setRoomState(null);
         setMyCharacter(null);
@@ -395,7 +504,7 @@ export default function IndexPage() {
           setCurrentNomination(null);
         }
       }
-      appendLog(`阶段切换 -> ${mapped ?? phaseValue}`);
+      appendLog(`阶段切换为${mapped ? PHASE_LABELS[mapped] : phaseValue}`);
       return;
     }
 
@@ -430,7 +539,7 @@ export default function IndexPage() {
           ),
         };
       });
-      appendLog(`玩家死亡: ${deadPlayerId} (${cause})`);
+      appendLog(`玩家死亡：${deadPlayerId}（${DEATH_CAUSE_LABELS[cause as DeathCause] ?? cause}）`);
       return;
     }
 
@@ -440,7 +549,7 @@ export default function IndexPage() {
       setCurrentNomination({ nominatorId: nomination.nominatorId, nomineeId: nomination.nomineeId, votes: {} });
       setLastNominationResult(null);
       setGamePhase('voting');
-      appendLog(`提名: ${nomination.nominatorId} -> ${nomination.nomineeId}`);
+      appendLog(`提名：${nomination.nominatorId} 提名 ${nomination.nomineeId}`);
       return;
     }
 
@@ -520,7 +629,7 @@ export default function IndexPage() {
     client.onMessage(applyMessage);
     client.connect();
     clientRef.current = client;
-    appendLog(`连接 ${wsUrl.trim()}`);
+    appendLog(`正在连接服务：${wsUrl.trim()}`);
   }
 
   function disconnect(): void {
@@ -533,7 +642,7 @@ export default function IndexPage() {
   function requireClient(): GameWebSocketClient | null {
     const client = clientRef.current;
     if (!client || client.status !== 'connected') {
-      setErrorMessage('请先连接 WebSocket');
+      setErrorMessage('请先连接服务');
       return null;
     }
     return client;
@@ -549,7 +658,7 @@ export default function IndexPage() {
     persistString(MAX_PLAYERS_STORAGE_KEY, maxPlayersInput);
     client.createRoom(playerId, displayName, Number.isNaN(maxPlayers) ? 5 : maxPlayers, DEFAULT_SCRIPT_ID);
     setMyCharacter(null);
-    appendLog('已发送 CREATE_ROOM');
+    appendLog('已发送创建房间请求');
   }
 
   function joinRoom(): void {
@@ -567,7 +676,7 @@ export default function IndexPage() {
     updateRoomIdInput(roomId);
     client.joinRoom(roomId, playerId, displayName);
     setMyCharacter(null);
-    appendLog(`已发送 JOIN_ROOM ${roomId}`);
+    appendLog(`已发送加入房间请求：${roomId}`);
   }
 
   function resumeLastRoom(): void {
@@ -584,7 +693,7 @@ export default function IndexPage() {
     const join = (client: GameWebSocketClient): void => {
       client.joinRoom(roomId, playerId, displayName);
       setMyCharacter(null);
-      appendLog(`已恢复 JOIN_ROOM ${roomId}`);
+      appendLog(`已恢复并加入房间：${roomId}`);
     };
 
     const client = clientRef.current;
@@ -627,14 +736,14 @@ export default function IndexPage() {
     setRoomState(null);
     setMyCharacter(null);
     updateRoomIdInput('');
-    appendLog('已发送 LEAVE_ROOM');
+    appendLog('已发送离开房间请求');
   }
 
   function kickPlayer(targetPlayerId: string): void {
     const client = requireClient();
     if (!client) return;
     client.kickPlayer(targetPlayerId);
-    appendLog(`已发送 KICK_PLAYER -> ${targetPlayerId}`);
+    appendLog(`已发送踢出玩家请求：${targetPlayerId}`);
   }
 
   function updateRoomSettings(): void {
@@ -648,7 +757,7 @@ export default function IndexPage() {
     }
 
     client.updateRoomSettings(maxPlayers);
-    appendLog(`已发送 UPDATE_ROOM_SETTINGS -> ${maxPlayers}`);
+    appendLog(`已发送保存设置请求：${maxPlayers} 人`);
   }
 
   function setStoryteller(targetPlayerId: string): void {
@@ -656,21 +765,21 @@ export default function IndexPage() {
     if (!client) return;
 
     client.setStoryteller(targetPlayerId);
-    appendLog(`已发送 SET_STORYTELLER ${targetPlayerId}`);
+    appendLog(`已发送设置说书人请求：${targetPlayerId}`);
   }
 
   function assignSampleCharacters(): void {
     const client = requireClient();
     if (!client) return;
     if (!roomState?.storytellerId) {
-      setErrorMessage('请先设置 Storyteller');
+      setErrorMessage('请先设置说书人');
       return;
     }
 
     try {
       const assignments = buildSampleAssignments(roomState.players);
       client.assignCharacters(assignments);
-      appendLog(`已发送 ASSIGN_CHARACTERS，共 ${Object.keys(assignments).length} 人`);
+      appendLog(`已发送角色分配请求，共 ${Object.keys(assignments).length} 人`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '生成示例分配失败');
     }
@@ -695,14 +804,14 @@ export default function IndexPage() {
     if (!client) return;
     client.startGame();
     setGameOver(null);
-    appendLog('已发送 START_GAME');
+    appendLog('已发送开始游戏请求');
   }
 
   function changePhase(phase: string): void {
     const client = requireClient();
     if (!client) return;
     client.changePhase(phase);
-    appendLog(`已发送 CHANGE_PHASE -> ${phase}`);
+    appendLog(`已发送阶段切换请求：${PHASE_LABELS[phase as GamePhase] ?? phase}`);
   }
 
   function nominatePlayer(): void {
@@ -715,7 +824,7 @@ export default function IndexPage() {
     }
     client.nominate(nomineeId);
     setNomineeIdInput('');
-    appendLog(`已发送 NOMINATE -> ${nomineeId}`);
+    appendLog(`已发送提名请求：${nomineeId}`);
   }
 
   function castVote(decision: boolean): void {
@@ -738,21 +847,21 @@ export default function IndexPage() {
     const client = requireClient();
     if (!client) return;
     client.resolveNomination();
-    appendLog('已发送 RESOLVE_NOMINATION');
+    appendLog('已发送结算提名请求');
   }
 
   function executePlayer(targetPlayerId: string): void {
     const client = requireClient();
     if (!client) return;
     client.executePlayer(targetPlayerId);
-    appendLog(`已发送 EXECUTE_PLAYER -> ${targetPlayerId}`);
+    appendLog(`已发送处决请求：${targetPlayerId}`);
   }
 
   function useSlayerAbility(targetPlayerId: string): void {
     const client = requireClient();
     if (!client) return;
     client.useSlayerAbility(targetPlayerId);
-    appendLog(`已发送 USE_SLAYER_ABILITY -> ${targetPlayerId}`);
+    appendLog(`已发送杀手能力请求：${targetPlayerId}`);
   }
 
   function declarePlayerDeath(): void {
@@ -764,7 +873,7 @@ export default function IndexPage() {
     }
 
     client.killPlayer(manualDeathTargetId, manualDeathCause);
-    appendLog(`已发送 KILL_PLAYER -> ${manualDeathTargetId} (${manualDeathCause})`);
+    appendLog(`已发送死亡宣告请求：${manualDeathTargetId}（${DEATH_CAUSE_LABELS[manualDeathCause]}）`);
     setManualDeathTargetId('');
   }
 
@@ -774,7 +883,8 @@ export default function IndexPage() {
     const action = NIGHT_ACTION_TYPES.find((a) => a.id === nightActionType);
     if (!action) return;
     if (currentNightWakeStep && nightActionType !== currentNightWakeStep.actionType) {
-      setErrorMessage(`当前步骤需要 ${currentNightWakeStep.actionType}`);
+      const expectedActionLabel = NIGHT_ACTION_TYPES.find((item) => item.id === currentNightWakeStep.actionType)?.label ?? '指定行动';
+      setErrorMessage(`当前步骤需要${expectedActionLabel}`);
       return;
     }
     if (nightTargetIds.length < selectedNightMinTargets) {
@@ -796,14 +906,14 @@ export default function IndexPage() {
     const client = requireClient();
     if (!client) return;
     client.resolveNight();
-    appendLog('已发送 RESOLVE_NIGHT');
+    appendLog('已发送结束夜晚请求');
   }
 
   function endGame(winner: 'good' | 'evil'): void {
     const client = requireClient();
     if (!client) return;
     client.endGame(winner, endGameDescriptionInput);
-    appendLog(`已发送 END_GAME -> ${winner}`);
+    appendLog(`已发送结束游戏请求：${winner === 'good' ? '善良阵营' : '邪恶阵营'}`);
   }
 
   function returnToLobby(): void {
@@ -822,12 +932,12 @@ export default function IndexPage() {
 
   // ─── Game Over Screen ───────────────────────────────────────
   if (gameOver) {
-    const winnerLabel = gameOver.winner === 'good' ? '善良阵营 Good' : '邪恶阵营 Evil';
+    const winnerLabel = gameOver.winner === 'good' ? '善良阵营' : '邪恶阵营';
     return (
       <ScrollView className='page' scrollY>
         <View className='hero'>
           <View>
-            <Text className='eyebrow'>Game Over</Text>
+            <Text className='eyebrow'>游戏结束</Text>
             <Text className='title'>游戏结束</Text>
             <Text className='subtitle'>{winnerLabel}</Text>
           </View>
@@ -844,7 +954,7 @@ export default function IndexPage() {
         </View>
 
         <View className='card'>
-          <Text className='sectionTitle'>◆ 角色揭示 [Character Reveal]</Text>
+          <Text className='sectionTitle'>◆ 角色揭示</Text>
           {(roomState?.players ?? []).map((player) => {
             const isDead = !player.isAlive;
             const team = player.character?.team === 2 ? 'evil' : 'good';
@@ -853,7 +963,7 @@ export default function IndexPage() {
                 <View className='playerInfo'>
                   <Text className='playerName'>
                     {player.name || player.id}
-                    {isDead ? ' [死亡]' : ''}
+                    {isDead ? '（死亡）' : ''}
                   </Text>
                   <Text className='hint'>
                     角色：{player.character?.name ?? '未知'}
@@ -879,35 +989,35 @@ export default function IndexPage() {
     <ScrollView className='page' scrollY>
       <View className='hero'>
         <View>
-          <Text className='eyebrow'>Blood on the Clocktower H5</Text>
+          <Text className='eyebrow'>血染钟楼 H5</Text>
           <Text className='title'>血染钟楼线上房间</Text>
           <Text className='subtitle'>剧本：{currentScriptName}</Text>
         </View>
         <View className={`statusPill status-${status}`}>
           <Text className='statusIcon'>{statusIcon}</Text>
-          <Text>{status}</Text>
+          <Text>{STATUS_LABELS[status]}</Text>
         </View>
       </View>
 
       <View className='summaryGrid'>
         <View className='summaryItem'>
           <Text className='summaryIcon'>#</Text>
-          <Text className='summaryLabel'>房间 [Room]</Text>
+          <Text className='summaryLabel'>房间</Text>
           <Text className='summaryValue'>{roomCodeLabel}</Text>
         </View>
         <View className='summaryItem'>
           <Text className='summaryIcon'>@</Text>
-          <Text className='summaryLabel'>身份 [Role]</Text>
+          <Text className='summaryLabel'>身份</Text>
           <Text className='summaryValue'>{roleLabel}</Text>
         </View>
         <View className='summaryItem'>
           <Text className='summaryIcon'>◆</Text>
-          <Text className='summaryLabel'>阶段 [Phase]</Text>
+          <Text className='summaryLabel'>阶段</Text>
           <Text className='summaryValue'>{PHASE_LABELS[gamePhase]}</Text>
         </View>
         <View className='summaryItem'>
           <Text className='summaryIcon'>●</Text>
-          <Text className='summaryLabel'>玩家 [Players]</Text>
+          <Text className='summaryLabel'>玩家</Text>
           <Text className='summaryValue'>{roomOccupancy}</Text>
         </View>
       </View>
@@ -919,7 +1029,7 @@ export default function IndexPage() {
         </View>
         <Text className='phaseHint'>
           {gamePhase === 'night'
-            ? 'Storyteller 正在处理夜间行动'
+            ? '说书人正在处理夜间行动'
             : gamePhase === 'day'
               ? '白天阶段可提名、投票与执行公开行动'
               : gamePhase === 'voting'
@@ -931,9 +1041,9 @@ export default function IndexPage() {
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>↔ 连接 [Connection]</Text>
-        <Text className={`status status-${status}`}>状态：{status}</Text>
-        <Input className='input' value={wsUrl} placeholder='WebSocket 地址' onInput={(event: InputEvent) => updateWsUrl(eventValue(event))} />
+        <Text className='sectionTitle'>↔ 连接</Text>
+        <Text className={`status status-${status}`}>状态：{STATUS_LABELS[status]}</Text>
+        <Input className='input' value={wsUrl} placeholder='服务地址' onInput={(event: InputEvent) => updateWsUrl(eventValue(event))} />
         <View className='row'>
           <Button className='button primary' onClick={() => connect()}>↔ 连接</Button>
           <Button className='button' onClick={disconnect}>× 断开</Button>
@@ -941,14 +1051,14 @@ export default function IndexPage() {
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>@ 匿名身份 [Anonymous Identity]</Text>
-        <Text className='mono'>playerId: {playerId}</Text>
+        <Text className='sectionTitle'>@ 匿名身份</Text>
+        <Text className='mono'>玩家编号：{playerId}</Text>
         <Input className='input' value={playerName} placeholder='昵称' onInput={(event: InputEvent) => updatePlayerName(eventValue(event))} />
         <Button className='button warn' onClick={resetIdentity}>↻ 重置匿名身份</Button>
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'># 房间 [Room]</Text>
+        <Text className='sectionTitle'># 房间</Text>
         <Input className='input' value={maxPlayersInput} type='number' placeholder='实际玩家数，默认 5' onInput={(event: InputEvent) => updateMaxPlayersInput(eventValue(event))} />
         <View className='row'>
           <Button className='button primary' onClick={createRoom}>+ 创建房间</Button>
@@ -969,13 +1079,13 @@ export default function IndexPage() {
           <Button className='button' onClick={copyInviteText}>⧉ 复制邀请信息</Button>
         </View>
         <Button className='button' onClick={openScriptPage}>≡ 查看剧本与夜晚顺序</Button>
-        <Text className='hint'>提示：5 人局需要 1 个 Storyteller + 5 个实际玩家身份。</Text>
+        <Text className='hint'>提示：5 人局需要 1 名说书人和 5 名实际玩家身份。</Text>
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>● 玩家列表 [Players]</Text>
+        <Text className='sectionTitle'>● 玩家列表</Text>
         <View className='metaLine'>
-          <Text>Storyteller: {storytellerName}</Text>
+          <Text>说书人：{storytellerName}</Text>
           <Text>{aliveSummary}</Text>
         </View>
         {players.length === 0 && (
@@ -989,7 +1099,7 @@ export default function IndexPage() {
               <View className='playerInfo'>
                 <Text className='playerName'>
                   {player.name || player.id}
-                  {isDead ? ' [死亡]' : ''}
+                  {isDead ? '（死亡）' : ''}
                 </Text>
                 <Text className='mono'>{player.id}</Text>
                 <Text className='hint'>
@@ -999,7 +1109,7 @@ export default function IndexPage() {
                 </Text>
               </View>
               {roomState && !roomState.storytellerId && (
-                <Button className='miniButton' onClick={() => setStoryteller(player.id)}>☆ 设为 ST</Button>
+                <Button className='miniButton' onClick={() => setStoryteller(player.id)}>☆ 设为说书人</Button>
               )}
               {isRoomCreator && gamePhase === 'setup' && player.id !== playerId && (
                 <Button className='miniButton danger' onClick={() => kickPlayer(player.id)}>× 踢出</Button>
@@ -1011,30 +1121,30 @@ export default function IndexPage() {
           );
         })}
         {roomState && !roomState.storytellerId && playerId && (
-          <Button className='button' onClick={() => setStoryteller(playerId)}>☆ 设自己为 Storyteller</Button>
+          <Button className='button' onClick={() => setStoryteller(playerId)}>☆ 设自己为说书人</Button>
         )}
       </View>
 
       <View className='card'>
-        <Text className='sectionTitle'>◆ 角色 [Character]</Text>
+        <Text className='sectionTitle'>◆ 角色</Text>
         {visibleCharacter ? (
           <View className='character'>
             <Text className='characterName'>{visibleCharacter.name}</Text>
-            <Text className='hint'>阵营：{visibleCharacter.team === 2 ? '邪恶 Evil' : '善良 Good'}</Text>
+            <Text className='hint'>阵营：{visibleCharacter.team === 2 ? '邪恶阵营' : '善良阵营'}</Text>
             <Text className='ability'>{visibleCharacter.ability}</Text>
           </View>
         ) : (
-          <Text className='hint'>你还没有收到角色，或你是 Storyteller。</Text>
+          <Text className='hint'>你还没有收到角色，或你是说书人。</Text>
         )}
         {isStoryteller && (
           <Button className='button primary' onClick={assignSampleCharacters}>✓ 一键示例分配角色</Button>
         )}
-        {!isStoryteller && <Text className='hint'>只有 Storyteller 可以分配角色。</Text>}
+        {!isStoryteller && <Text className='hint'>只有说书人可以分配角色。</Text>}
       </View>
 
       {canUseSlayerAbility && (
         <View className='card'>
-          <Text className='sectionTitle'>! Slayer 能力 [Slayer Ability]</Text>
+          <Text className='sectionTitle'>! 杀手能力</Text>
           <View className='targetSelector'>
             {alivePlayers.map((player) => (
               <Button
@@ -1052,7 +1162,7 @@ export default function IndexPage() {
       {/* ─── Storyteller Controls ──────────────────────────── */}
       {isStoryteller && (
         <View className='card'>
-          <Text className='sectionTitle'>☆ Storyteller 控制 [Storyteller Controls]</Text>
+          <Text className='sectionTitle'>☆ 说书人控制</Text>
 
           {gamePhase === 'setup' && (
             <Button className='button primary' onClick={startGame}>▶ 开始游戏</Button>
@@ -1060,14 +1170,14 @@ export default function IndexPage() {
 
           {gamePhase !== 'setup' && gamePhase !== 'finished' && (
             <View className='row'>
-              <Button className='button' onClick={() => changePhase('day')}>D 进入白天</Button>
-              <Button className='button' onClick={() => changePhase('night')}>N 进入夜晚</Button>
+              <Button className='button' onClick={() => changePhase('day')}>日 进入白天</Button>
+              <Button className='button' onClick={() => changePhase('night')}>夜 进入夜晚</Button>
             </View>
           )}
 
           {gamePhase !== 'setup' && gamePhase !== 'finished' && (
             <View className='endGameControls'>
-              <Text className='sectionTitle'>! 宣告死亡 [Death Declaration]</Text>
+              <Text className='sectionTitle'>! 宣告死亡</Text>
               <View className='actionTypeList'>
                 {DEATH_CAUSE_OPTIONS.map((cause) => (
                   <Button
@@ -1114,12 +1224,12 @@ export default function IndexPage() {
       {/* ─── Nomination UI (Day Phase) ─────────────────────── */}
       {gamePhase === 'day' && roomState && (
         <View className='card'>
-          <Text className='sectionTitle'>→ 提名 [Nomination]</Text>
+          <Text className='sectionTitle'>→ 提名</Text>
           <Text className='hint'>在白天阶段，任何活着的玩家可以提名其他玩家。</Text>
           <Input
             className='input'
             value={nomineeIdInput}
-            placeholder='被提名玩家 ID'
+            placeholder='被提名玩家编号'
             onInput={(event: InputEvent) => setNomineeIdInput(eventValue(event))}
           />
           <View className='row'>
@@ -1140,14 +1250,14 @@ export default function IndexPage() {
       {/* ─── Voting UI ─────────────────────────────────────── */}
       {gamePhase === 'voting' && currentNomination && (
         <View className='card'>
-          <Text className='sectionTitle'>✓ 投票 [Voting]</Text>
+          <Text className='sectionTitle'>✓ 投票</Text>
           <View className='nominationBanner'>
             <Text className='nominationText'>
               {roomState?.players.find((player) => player.id === currentNomination.nominatorId)?.name ?? currentNomination.nominatorId}
-              {' -> '}
+              {' 提名 '}
               {roomState?.players.find((player) => player.id === currentNomination.nomineeId)?.name ?? currentNomination.nomineeId}
             </Text>
-            <Text className='hint'>处决阈值 [Execution Threshold]：{currentExecutionThreshold} 张赞成票</Text>
+            <Text className='hint'>处决阈值：{currentExecutionThreshold} 张赞成票</Text>
           </View>
 
           <View className='voteButtons'>
@@ -1191,7 +1301,7 @@ export default function IndexPage() {
       {/* ─── Last Nomination Result ────────────────────────── */}
       {lastNominationResult && (
         <View className='card'>
-          <Text className='sectionTitle'>= 投票结果 [Vote Result]</Text>
+          <Text className='sectionTitle'>= 投票结果</Text>
           <View className={lastNominationResult.executed ? 'resultExecuted' : 'resultSpared'}>
             <Text className='resultText'>
               {roomState?.players.find((player) => player.id === lastNominationResult.nomineeId)?.name ?? lastNominationResult.nomineeId}
@@ -1208,14 +1318,14 @@ export default function IndexPage() {
       {/* ─── Death Tracking ────────────────────────────────── */}
       {deadPlayers.length > 0 && (
         <View className='card'>
-          <Text className='sectionTitle'>! 死亡记录 [Death Records]</Text>
+          <Text className='sectionTitle'>! 死亡记录</Text>
           {deadPlayers.map((player) => {
             const record = deathRecords[player.id];
             const hasGhost = ghostVotesRemaining.has(player.id);
             return (
               <View className='player playerDead' key={player.id}>
                 <View className='playerInfo'>
-                  <Text className='playerName'>{player.name || player.id} [死亡]</Text>
+                  <Text className='playerName'>{player.name || player.id}（死亡）</Text>
                   <Text className='hint'>
                     {record ? `死因: ${DEATH_CAUSE_LABELS[record.cause] ?? record.cause} | 第 ${record.dayNumber} 天` : '已死亡'}
                     {hasGhost ? ' | 幽灵票可用' : ' | 幽灵票已用'}
@@ -1230,7 +1340,7 @@ export default function IndexPage() {
       {/* ─── Death Announcements ───────────────────────────── */}
       {deathAnnouncements.length > 0 && (
         <View className='card'>
-          <Text className='sectionTitle'>! 死亡公告 [Death Announcements]</Text>
+          <Text className='sectionTitle'>! 死亡公告</Text>
           {deathAnnouncements.map((announcement, index) => (
             <Text className='deathAnnouncement' key={`${announcement}-${index}`}>{announcement}</Text>
           ))}
@@ -1240,10 +1350,10 @@ export default function IndexPage() {
       {/* ─── Night Phase UI (Storyteller only) ─────────────── */}
       {gamePhase === 'night' && isStoryteller && (
         <View className='card'>
-          <Text className='sectionTitle'>N 夜间行动 [Night Actions]</Text>
+          <Text className='sectionTitle'>N 夜间行动</Text>
 
           <View className='wakeOrderList'>
-            <Text className='sectionTitle'>≡ 唤醒顺序 [Wake Order]</Text>
+            <Text className='sectionTitle'>≡ 唤醒顺序</Text>
             {nightWakeSteps.map((step, index) => {
               const character = TROUBLE_BREWING_SCRIPT.characters.find((item) => item.id === step.characterId);
               const inPlay = assignedCharacterIds.has(step.characterId);
@@ -1327,7 +1437,7 @@ export default function IndexPage() {
                   <View className='nightActionEntry' key={index}>
                     <Text className='hint'>
                       {actionLabel}
-                      {targetNames.length > 0 ? ` -> ${targetNames.join(', ')}` : ''}
+                      {targetNames.length > 0 ? `：${targetNames.join('、')}` : ''}
                     </Text>
                     {action.result && <Text className='nightActionResult'>结果: {action.result}</Text>}
                   </View>
@@ -1341,9 +1451,9 @@ export default function IndexPage() {
       {/* ─── Night Phase (non-storyteller) ─────────────────── */}
       {gamePhase === 'night' && !isStoryteller && (
         <View className='card'>
-          <Text className='sectionTitle'>N 夜晚 [Night]</Text>
+          <Text className='sectionTitle'>N 夜晚</Text>
           <Text className='hint'>夜晚降临... 请闭上眼睛。</Text>
-          <Text className='hint'>Storyteller 正在处理夜间行动，请耐心等待。</Text>
+          <Text className='hint'>说书人正在处理夜间行动，请耐心等待。</Text>
         </View>
       )}
 
@@ -1354,7 +1464,7 @@ export default function IndexPage() {
       )}
 
       <View className='card'>
-        <Text className='sectionTitle'>≡ 日志 [Logs]</Text>
+        <Text className='sectionTitle'>≡ 日志</Text>
         <Text className='hint'>最近：{latestLog}</Text>
         {logs.length === 0 && <Text className='emptyState'>操作和服务器消息会显示在这里。</Text>}
         {logs.map((log, index) => (

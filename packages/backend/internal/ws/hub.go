@@ -282,8 +282,7 @@ func (h *Hub) handleKickPlayer(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -326,8 +325,7 @@ func (h *Hub) handleSetStoryteller(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -376,8 +374,7 @@ func (h *Hub) handleAssignCharacters(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -458,8 +455,7 @@ func (h *Hub) handleStartGame(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -505,8 +501,7 @@ func (h *Hub) handleChangePhase(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -546,8 +541,7 @@ func (h *Hub) handleNominate(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -592,8 +586,7 @@ func (h *Hub) handleCastVote(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -636,8 +629,7 @@ func (h *Hub) handleResolveNomination(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -683,8 +675,7 @@ func (h *Hub) handleExecutePlayer(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -729,8 +720,7 @@ func (h *Hub) handleSubmitNightAction(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -773,8 +763,7 @@ func (h *Hub) handleResolveNight(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -816,8 +805,7 @@ func (h *Hub) handleEndGame(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
-		h.persistSnapshot()
-		h.BroadcastRoomState(roomID)
+		h.commitRoomUpdate(roomID, result)
 	}
 }
 
@@ -876,6 +864,43 @@ func (h *Hub) BroadcastRoomState(roomID string) {
 			log.Printf("room state to %s in room %s failed: %v", pid, roomID, err)
 		}
 	}
+}
+
+func (h *Hub) commitRoomUpdate(roomID string, result ApplyResult) {
+	if !result.Updated {
+		return
+	}
+	if h.roomPhase(roomID) == game.GamePhaseFinished {
+		h.BroadcastRoomState(roomID)
+		h.destroyFinishedRoom(roomID)
+		h.persistSnapshot()
+		return
+	}
+
+	h.persistSnapshot()
+	h.BroadcastRoomState(roomID)
+}
+
+func (h *Hub) roomPhase(roomID string) game.GamePhase {
+	h.mu.RLock()
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+	if gs == nil {
+		return game.GamePhaseUnspecified
+	}
+	return gs.Phase()
+}
+
+func (h *Hub) destroyFinishedRoom(roomID string) {
+	clients := h.rm.GetClientsByRoom(roomID)
+
+	h.rm.DestroyRoom(roomID)
+	h.mu.Lock()
+	delete(h.sessions, roomID)
+	for _, client := range clients {
+		delete(h.connToRoom, client.Conn)
+	}
+	h.mu.Unlock()
 }
 
 func (h *Hub) sendCharacterAssignment(roomID, storytellerID string, assignment *game.CharacterAssigned) {

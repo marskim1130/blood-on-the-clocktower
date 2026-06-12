@@ -490,3 +490,33 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 10:14:31 +08:00 --- 发现 PRD 房间管理 [Room Management] 中“房主踢出玩家 [Kick Player]”仍未实现：房主只能等待玩家主动离开，无法在准备阶段移除错误身份、重复身份或不守规矩玩家；同时断线重连 [Session Resume] 会让被移除玩家自动回到房间，生产快照 [Production Snapshot] 也缺少踢出名单 --- 使用显式 `KICK_PLAYER` 命令 [Explicit Command] 贯通后端 RoomManager、GameSession、Hub、core WebSocket 客户端和 Taro 页面；只允许房主 [Room Creator] 在准备阶段 [Setup Phase] 踢出其他玩家，服务端从连接身份 [Connection Identity] 推导权限并拒绝伪造 `playerId`；RoomManager 记录被踢玩家并拒绝同一 `playerId` 重进，快照持久化 `kickedPlayerIds`；被踢客户端收到 `kicked from room` 后清空会话恢复 [Session Resume] 和页面房间状态；前端玩家列表在准备阶段向房主显示“踢出”按钮；补充 RoomManager、GameSession、Hub 权限/流程/持久化和 core 客户端测试，并通过 `go test ./internal/ws`、`pnpm --filter @clocktower/core test -- websocket-client.test.ts`、`pnpm typecheck`、`go test ./...`、`pnpm test`、`go test -race ./internal/ws`、`pnpm build:core`、`pnpm build:frontend`、`git diff --check` --- 修改了 packages/backend/internal/ws/message.go、packages/backend/internal/ws/room_manager.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/room_manager_test.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/hub_auth_test.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/backend/internal/ws/persistence_test.go、packages/core/src/websocket/index.ts、packages/core/src/websocket/__tests__/websocket-client.test.ts、packages/frontend/src/pages/index/index.tsx、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/message.go packages/backend/internal/ws/room_manager.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/room_manager_test.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/hub_auth_test.go packages/backend/internal/ws/hub_game_flow_test.go packages/core/src/websocket/index.ts packages/core/src/websocket/__tests__/websocket-client.test.ts packages/frontend/src/pages/index/index.tsx work.md`，并从 `packages/backend/internal/ws/persistence.go` 与 `packages/backend/internal/ws/persistence_test.go` 移除 `KickedPlayerIDs/kickedPlayerIds` 相关字段、快照读写和断言；若要撤回整个快照持久化，则按 09:52:57 与 10:00:34 记录执行完整回滚。
+
+---
+
+2026-06-12 11:57 +08:00 --- 发现以上所有未提交改动累积为 3151 行新增、296 行删除，横跨 28 个文件和 8+ 个功能模块，一次性提交难以追溯和回滚 --- 使用按功能层级拆分提交 [Split Commit] 将改动分为 5 个 commit：(1) `4537e7e` core 脚本目录 + 夜晚阶段模块、(2) `55afa91` 后端快照持久化（文件 + Redis）、(3) `fc72b98` 后端游戏功能（脚本协议/夜晚顺序/提名阈值/踢人/手动结算）+ core WebSocket 客户端、(4) `949eb55` 前端全部功能（断线重连/本地存储/剧本页面/夜晚 UI/邀请/踢人/结算）、(5) `5244acf` 文档与审计日志；并通过 `go test ./...`、`pnpm test`、`pnpm typecheck` 验证每个 commit 后代码均可用 --- 未修改代码内容，仅重新组织提交结构
+
+撤回方式 [Rollback Strategy]：执行 `git reset --soft 5acc32a` 将以上 5 个 commit 合并回工作区。
+
+---
+
+2026-06-12 14:44:27 +08:00 --- 发现前端页面 [Frontend Pages] 中仍有一批页面内工具函数 [Inline Utilities] 难以单独测试，剧本页 [Script Page] 的角色分组和夜晚顺序展示也缺少独立回归测试；同时根仓库缺少一键同时启动后端和 Taro 小程序构建监听的开发入口 [Dev Entrypoint] --- 使用前端工具模块 [Utility Module] 提取协议阶段映射、赢家归一化、本地存储和输入事件读取逻辑，并为首页与剧本页工具函数补充 Vitest 单元测试 [Unit Tests]；根 `package.json` 增加 `dev/dev:backend/dev:frontend` 脚本并引入 `concurrently`，前端包显式提供 `test/test:watch`；通过 `pnpm test`、`pnpm typecheck`、`go test ./...`、`pnpm build:core`、`pnpm build:frontend`、`pnpm lint` 和真实 WebSocket MVP 冒烟测试 [Smoke Test] --- 修改了 package.json、packages/frontend/package.json、pnpm-lock.yaml、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/scripts/index.tsx、packages/frontend/src/lib/utils.ts、packages/frontend/src/lib/utils.test.ts、packages/frontend/src/pages/scripts/utils.ts、packages/frontend/src/pages/scripts/utils.test.ts、packages/frontend/tsconfig.tsbuildinfo、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- package.json packages/frontend/package.json pnpm-lock.yaml packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/scripts/index.tsx packages/frontend/tsconfig.tsbuildinfo work.md`，并删除 `packages/frontend/src/lib/utils.ts`、`packages/frontend/src/lib/utils.test.ts`、`packages/frontend/src/pages/scripts/utils.ts`、`packages/frontend/src/pages/scripts/utils.test.ts`。
+
+---
+
+2026-06-12 15:20:12 +08:00 --- 发现小程序端 WebSocket 适配器 [WebSocket Adapter] 只在 `SocketTask.onOpen` 回调里推进连接状态；当 Taro/微信运行时 [Runtime] 在 Promise 解析前已经把 `SocketTask.readyState` 置为 OPEN 时，前端会错过打开事件并一直停在 connecting，表现为小程序端连接不上 WebSocket --- 使用回归测试 [Regression Test] 复现已打开 SocketTask 的时序边界，并在注册事件处理器后检查 `readyState === OPEN`，通过 `markOpen` 做幂等 [Idempotent] 状态推进，避免重复触发 --- 修改了 packages/frontend/src/lib/taro-websocket-transport.ts、packages/frontend/src/lib/taro-websocket-transport.test.ts、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/lib/taro-websocket-transport.ts packages/frontend/src/lib/taro-websocket-transport.test.ts work.md`。
+
+---
+
+2026-06-12 15:38:38 +08:00 --- 发现后端 Go 领域模型 [Domain Model] 已支持死亡 [Death]、提名 [Nomination]、夜晚行动 [Night Action]、胜负 [Game End] 等 MVP 事件，但 `proto/game.proto` 和生成的 TypeScript 协议类型 [Generated TypeScript Protocol Types] 仍停留在早期基础事件，破坏 ProtoBuf 单一事实源 [Single Source of Truth] 和端到端类型同步 [End-to-End Type Sync] --- 使用协议扩展 [Protocol Extension] 补齐 DeathCause、NightActionType、WinReason 枚举，补齐 GameState 的 deaths、nomination、nightActions、winner 字段，补齐 GameEvent 的 playerDied、nominationStarted、nominationResolved、nightActionSubmitted、gameEnded 事件，并更新生成脚本 [Codegen Script] 与类型测试；运行 `pnpm proto:generate` 重新生成类型，并通过 `go test ./...`、`pnpm --filter @clocktower/core test -- proto-types.test.ts`、`pnpm typecheck` --- 修改了 proto/game.proto、scripts/generate-types.mjs、packages/core/src/types/generated/index.ts、packages/core/src/types/generated/__tests__/proto-types.test.ts、packages/core/tsconfig.tsbuildinfo、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- proto/game.proto scripts/generate-types.mjs packages/core/src/types/generated/index.ts packages/core/src/types/generated/__tests__/proto-types.test.ts packages/core/tsconfig.tsbuildinfo work.md`。
+
+---
+
+2026-06-12 15:41:06 +08:00 --- 发现 PRD 要求游戏结束后自动销毁房间 [Auto Destroy Room]，但后端在自动胜利或主持人手动结束 [Manual End Game] 后只把会话置为 Finished，仍保留 RoomManager 房间、GameSession 和连接映射 [Connection Mapping]，服务器资源不会自动释放 --- 使用统一提交函数 [Commit Function] 收敛 Hub 中所有状态更新后的持久化 [Persistence] 与房间状态广播 [Room State Broadcast]；当房间阶段变为 Finished 时，先向当前客户端广播最终 `ROOM_STATE`，再删除房间、会话和连接映射，最后持久化清理后的快照；补充自动胜利和手动结束两条回归测试 [Regression Tests]，确认客户端能收到最终状态且后端资源被释放；通过 `go test ./...` 和 `git diff --check` --- 修改了 packages/backend/internal/ws/hub.go、packages/backend/internal/ws/hub_game_flow_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/hub.go packages/backend/internal/ws/hub_game_flow_test.go work.md`。

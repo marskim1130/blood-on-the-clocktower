@@ -439,7 +439,7 @@ func TestCompleteMVPGameFlowFromFirstNightToGoodWin(t *testing.T) {
 	h.handleMessage(storytellerConn, ClientMessage{Type: MsgResolveNomination})
 	assertNoErrorMessages(t, storytellerConn.Messages())
 
-	finalState := h.buildRoomStateForRecipient(roomID, "storyteller")
+	finalState := lastRoomState(t, storytellerConn.Messages())
 	if finalState.Phase != game.GamePhaseFinished {
 		t.Fatalf("expected finished phase after executing the Imp, got %d", finalState.Phase)
 	}
@@ -456,6 +456,7 @@ func TestCompleteMVPGameFlowFromFirstNightToGoodWin(t *testing.T) {
 	if containsString(finalState.GhostVotesRemaining, "p1") {
 		t.Fatalf("expected p1 ghost vote to be spent, got %#v", finalState.GhostVotesRemaining)
 	}
+	assertRoomDestroyed(t, h, roomID, append([]*FakeConnection{storytellerConn}, mapValues(playerConns)...)...)
 }
 
 func TestStorytellerNightActionMustMatchCurrentWakeStep(t *testing.T) {
@@ -632,7 +633,7 @@ func TestStorytellerCanEndGameManually(t *testing.T) {
 	})
 	assertNoErrorMessages(t, storytellerConn.Messages())
 
-	state := h.buildRoomStateForRecipient(roomID, "storyteller")
+	state := lastRoomState(t, storytellerConn.Messages())
 	if state.Phase != game.GamePhaseFinished {
 		t.Fatalf("expected finished phase, got %d", state.Phase)
 	}
@@ -652,6 +653,7 @@ func TestStorytellerCanEndGameManually(t *testing.T) {
 			t.Fatalf("expected %s to receive evil gameEnded, got %#v", playerID, conn.Messages())
 		}
 	}
+	assertRoomDestroyed(t, h, roomID, append([]*FakeConnection{storytellerConn}, mapValues(playerConns)...)...)
 }
 
 func TestPersistentHubRestoresGameAfterRestart(t *testing.T) {
@@ -1031,4 +1033,36 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func mapValues(values map[string]*FakeConnection) []*FakeConnection {
+	result := make([]*FakeConnection, 0, len(values))
+	for _, value := range values {
+		result = append(result, value)
+	}
+	return result
+}
+
+func assertRoomDestroyed(t *testing.T, h *Hub, roomID string, conns ...*FakeConnection) {
+	t.Helper()
+	if h.rm.GetRoom(roomID) != nil {
+		t.Fatalf("expected room %s to be destroyed", roomID)
+	}
+
+	h.mu.RLock()
+	_, hasSession := h.sessions[roomID]
+	mapped := make([]*FakeConnection, 0)
+	for _, conn := range conns {
+		if _, ok := h.connToRoom[conn]; ok {
+			mapped = append(mapped, conn)
+		}
+	}
+	h.mu.RUnlock()
+
+	if hasSession {
+		t.Fatalf("expected session %s to be removed", roomID)
+	}
+	if len(mapped) != 0 {
+		t.Fatalf("expected %d connection mapping(s) to be removed", len(mapped))
+	}
 }

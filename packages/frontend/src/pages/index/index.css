@@ -122,6 +122,26 @@
   word-break: break-all;
 }
 
+.inviteBox {
+  padding: 18px;
+  margin: 4px 0 16px 0;
+  border: 1px solid #eadbc7;
+  border-radius: 14px;
+  background: #f3eadb;
+}
+
+.inviteCode {
+  display: block;
+  margin: 8px 0 16px 0;
+  color: #4b1113;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-align: center;
+  word-break: break-all;
+}
+
 .hint {
   display: block;
   margin-top: 8px;
@@ -229,6 +249,12 @@
   color: #fffaf0;
 }
 
+.endGameControls {
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid #eadbc7;
+}
+
 /* ─── Nomination Banner ─────────────────────────────────────── */
 
 .nominationBanner {
@@ -334,6 +360,61 @@
 }
 
 /* ─── Night Actions ─────────────────────────────────────────── */
+
+.wakeOrderList {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #eadbc7;
+}
+
+.wakeStep {
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  border: 1px solid #eadbc7;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.wakeStepActive {
+  border-color: #4b1113;
+  background: #f8efe5;
+}
+
+.wakeStepCurrent {
+  border-width: 2px;
+  background: #fff3d9;
+}
+
+.wakeStepDone {
+  border-color: #9ebca7;
+  background: #eef7ee;
+}
+
+.wakeStepInactive {
+  opacity: 0.58;
+}
+
+.wakeStepHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wakeStepOrder {
+  display: block;
+  min-width: 42px;
+  color: #4b1113;
+  font-size: 26px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.wakeStepName {
+  display: block;
+  color: #2f201b;
+  font-size: 24px;
+  font-weight: 700;
+}
 
 .actionTypeList {
   display: flex;

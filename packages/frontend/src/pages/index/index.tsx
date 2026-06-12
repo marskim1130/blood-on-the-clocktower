@@ -1,13 +1,24 @@
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { GameWebSocketClient } from '@clocktower/core';
+import {
+  buildDefaultScriptAssignments,
+  GameWebSocketClient,
+  getScriptWakeOrder,
+  TROUBLE_BREWING_SCRIPT,
+} from '@clocktower/core';
 import type { ConnectionStatus, GameCharacter, RoomState, ServerMessage } from '@clocktower/core';
 import { createTaroWebSocketTransport } from '../../lib/taro-websocket-transport';
 import './index.css';
 
 const PLAYER_ID_STORAGE_KEY = 'clocktower.playerId';
+const PLAYER_NAME_STORAGE_KEY = 'clocktower.playerName';
+const WS_URL_STORAGE_KEY = 'clocktower.wsUrl';
+const LAST_ROOM_ID_STORAGE_KEY = 'clocktower.lastRoomId';
+const MAX_PLAYERS_STORAGE_KEY = 'clocktower.maxPlayers';
 const DEFAULT_WS_URL = 'ws://localhost:8080/ws';
+const DEFAULT_SCRIPT_ID = TROUBLE_BREWING_SCRIPT.id;
+const DEFAULT_SCRIPT_NAME = TROUBLE_BREWING_SCRIPT.name;
 
 // ─── Phase & Role Constants ──────────────────────────────────────
 
@@ -72,38 +83,6 @@ interface GameOverInfo {
   readonly description: string;
 }
 
-const ROLE_COUNTS: Record<number, { readonly townsfolk: number; readonly outsiders: number; readonly minions: number; readonly demons: number }> = {
-  4: { townsfolk: 3, outsiders: 0, minions: 0, demons: 1 },
-  5: { townsfolk: 3, outsiders: 0, minions: 1, demons: 1 },
-  6: { townsfolk: 3, outsiders: 1, minions: 1, demons: 1 },
-  7: { townsfolk: 5, outsiders: 0, minions: 1, demons: 1 },
-  8: { townsfolk: 5, outsiders: 1, minions: 1, demons: 1 },
-  9: { townsfolk: 5, outsiders: 2, minions: 1, demons: 1 },
-  10: { townsfolk: 7, outsiders: 0, minions: 2, demons: 1 },
-  11: { townsfolk: 7, outsiders: 1, minions: 2, demons: 1 },
-  12: { townsfolk: 7, outsiders: 2, minions: 2, demons: 1 },
-  13: { townsfolk: 9, outsiders: 0, minions: 3, demons: 1 },
-  14: { townsfolk: 9, outsiders: 1, minions: 3, demons: 1 },
-  15: { townsfolk: 9, outsiders: 2, minions: 3, demons: 1 },
-};
-
-const SAMPLE_CHARACTERS = {
-  townsfolk: [
-    'washerwoman',
-    'librarian',
-    'investigator',
-    'chef',
-    'empath',
-    'fortuneteller',
-    'undertaker',
-    'monk',
-    'ravenkeeper',
-  ],
-  outsiders: ['butler', 'drunk'],
-  minions: ['poisoner', 'spy', 'baron'],
-  demons: ['imp'],
-} as const;
-
 type InputEvent = {
   readonly detail: {
     readonly value: string;
@@ -119,33 +98,40 @@ function getOrCreatePlayerId(): string {
   return generated;
 }
 
+function getStoredString(key: string, fallback = ''): string {
+  const stored = Taro.getStorageSync<string>(key);
+  return typeof stored === 'string' && stored.trim() ? stored : fallback;
+}
+
+function persistString(key: string, value: string): void {
+  Taro.setStorageSync(key, value);
+}
+
 function buildSampleAssignments(players: RoomState['players']): Record<string, string> {
-  const counts = ROLE_COUNTS[players.length];
-  if (!counts) {
-    throw new Error(`当前玩家数 ${players.length} 没有合法角色分布`);
-  }
-
-  const characterIds = [
-    ...SAMPLE_CHARACTERS.townsfolk.slice(0, counts.townsfolk),
-    ...SAMPLE_CHARACTERS.outsiders.slice(0, counts.outsiders),
-    ...SAMPLE_CHARACTERS.minions.slice(0, counts.minions),
-    ...SAMPLE_CHARACTERS.demons.slice(0, counts.demons),
-  ];
-
-  if (characterIds.length !== players.length) {
-    throw new Error(`角色数量 ${characterIds.length} 与玩家数量 ${players.length} 不一致`);
-  }
-
-  return players.reduce<Record<string, string>>((assignments, player, index) => {
-    const characterId = characterIds[index];
-    if (!characterId) return assignments;
-    assignments[player.id] = characterId;
-    return assignments;
-  }, {});
+  return buildDefaultScriptAssignments(players, DEFAULT_SCRIPT_ID);
 }
 
 function eventValue(event: InputEvent): string {
   return event.detail.value;
+}
+
+function mapProtocolPhase(phase: number | undefined): GamePhase | null {
+  if (phase === undefined) return null;
+  const phaseMap: Record<number, GamePhase> = {
+    0: 'setup',
+    1: 'setup',
+    2: 'day',
+    3: 'night',
+    4: 'voting',
+    5: 'finished',
+  };
+  return phaseMap[phase] ?? null;
+}
+
+function normalizeWinner(winner: number | string): string {
+  if (winner === 1 || winner === 'good') return 'good';
+  if (winner === 2 || winner === 'evil') return 'evil';
+  return String(winner);
 }
 
 export default function IndexPage() {
@@ -173,6 +159,7 @@ export default function IndexPage() {
     readonly executed: boolean;
     readonly yesVotes: number;
     readonly noVotes: number;
+    readonly requiredVotes: number | null;
   } | null>(null);
 
   // ─── Death State ─────────────────────────────────────────────
@@ -188,11 +175,16 @@ export default function IndexPage() {
 
   // ─── Win Condition State ─────────────────────────────────────
   const [gameOver, setGameOver] = useState<GameOverInfo | null>(null);
+  const [endGameDescriptionInput, setEndGameDescriptionInput] = useState('');
 
   useEffect(() => {
     const id = getOrCreatePlayerId();
+    const defaultName = `玩家${id.slice(-4)}`;
     setPlayerId(id);
-    setPlayerName(`玩家${id.slice(-4)}`);
+    setPlayerName(getStoredString(PLAYER_NAME_STORAGE_KEY, defaultName));
+    setWsUrl(getStoredString(WS_URL_STORAGE_KEY, DEFAULT_WS_URL));
+    setRoomIdInput(getStoredString(LAST_ROOM_ID_STORAGE_KEY));
+    setMaxPlayersInput(getStoredString(MAX_PLAYERS_STORAGE_KEY, '5'));
 
     return () => {
       clientRef.current?.disconnect();
@@ -201,6 +193,7 @@ export default function IndexPage() {
   }, []);
 
   const isStoryteller = roomState?.storytellerId === playerId;
+  const isRoomCreator = roomState?.creatorId === playerId;
   const visibleCharacter = useMemo(() => {
     if (myCharacter) return myCharacter;
     const self = roomState?.players.find((player) => player.id === playerId);
@@ -221,6 +214,35 @@ export default function IndexPage() {
     () => NIGHT_ACTION_TYPES.find((a) => a.id === nightActionType) ?? NIGHT_ACTION_TYPES[0],
     [nightActionType],
   );
+  const localScriptWakeSteps = useMemo(
+    () => getScriptWakeOrder(DEFAULT_SCRIPT_ID, Math.max(1, dayNumber)),
+    [dayNumber],
+  );
+  const nightWakeSteps = useMemo(
+    () => (roomState?.nightWakeSteps && roomState.nightWakeSteps.length > 0 ? roomState.nightWakeSteps : localScriptWakeSteps),
+    [localScriptWakeSteps, roomState],
+  );
+  const currentNightWakeStep = roomState?.currentNightWakeStep ?? null;
+  const currentNightWakeIndex = roomState?.currentNightWakeIndex ?? 0;
+  const selectedNightMinTargets = currentNightWakeStep?.actionType === nightActionType ? currentNightWakeStep.minTargets : 0;
+  const selectedNightMaxTargets = currentNightWakeStep?.actionType === nightActionType
+    ? currentNightWakeStep.maxTargets
+    : selectedNightAction.needsTarget
+      ? 1
+      : 0;
+  const selectedNightNeedsTarget = selectedNightMaxTargets > 0;
+  const assignedCharacterIds = useMemo(
+    () =>
+      new Set(
+        (roomState?.players ?? [])
+          .map((player) => player.character?.id)
+          .filter((characterId): characterId is string => Boolean(characterId)),
+      ),
+    [roomState],
+  );
+  const currentRoomId = roomState?.roomId ?? roomIdInput.trim();
+  const currentScriptName = roomState?.scriptName ?? DEFAULT_SCRIPT_NAME;
+  const currentExecutionThreshold = Math.ceil(alivePlayers.length / 2);
 
   function toggleNightTarget(targetId: string): void {
     setNightTargetIds((current) =>
@@ -234,17 +256,93 @@ export default function IndexPage() {
     setLogs((previous) => [message, ...previous].slice(0, 30));
   }
 
+  function updateWsUrl(value: string): void {
+    setWsUrl(value);
+    persistString(WS_URL_STORAGE_KEY, value);
+  }
+
+  function updatePlayerName(value: string): void {
+    setPlayerName(value);
+    persistString(PLAYER_NAME_STORAGE_KEY, value);
+  }
+
+  function updateRoomIdInput(value: string): void {
+    setRoomIdInput(value);
+    persistString(LAST_ROOM_ID_STORAGE_KEY, value.trim());
+  }
+
+  function updateMaxPlayersInput(value: string): void {
+    setMaxPlayersInput(value);
+    persistString(MAX_PLAYERS_STORAGE_KEY, value);
+  }
+
+  function syncRoomSnapshot(state: RoomState): void {
+    setRoomState(state);
+
+    const snapshotPhase = mapProtocolPhase(state.phase);
+    if (snapshotPhase) {
+      setGamePhase(snapshotPhase);
+    }
+    if (typeof state.dayNumber === 'number') {
+      setDayNumber(state.dayNumber);
+    }
+
+    if (state.nomination) {
+      setCurrentNomination({
+        nominatorId: state.nomination.nominatorId,
+        nomineeId: state.nomination.nomineeId,
+        votes: state.nomination.votes ?? {},
+      });
+    } else if (snapshotPhase !== 'voting') {
+      setCurrentNomination(null);
+    }
+
+    const nextDeathRecords = (state.deaths ?? []).reduce<Record<string, DeathRecord>>((records, death) => {
+      records[death.playerId] = {
+        cause: death.cause as DeathCause,
+        dayNumber: death.dayNumber,
+      };
+      return records;
+    }, {});
+    setDeathRecords(nextDeathRecords);
+    setGhostVotesRemaining(new Set(state.ghostVotesRemaining ?? []));
+    if (state.currentNightWakeStep) {
+      setNightActionType(state.currentNightWakeStep.actionType);
+      setNightTargetIds([]);
+    }
+
+    const self = state.players.find((player) => player.id === playerId);
+    setMyCharacter(self?.character ?? null);
+
+    if (state.winner) {
+      setGameOver({
+        winner: normalizeWinner(state.winner.winner),
+        reason: state.winner.reason,
+        description: state.winner.description,
+      });
+      setGamePhase('finished');
+    } else if (snapshotPhase !== 'finished') {
+      setGameOver(null);
+    }
+  }
+
   function applyMessage(message: ServerMessage): void {
     appendLog(`收到 ${message.type}`);
 
     if (message.type === 'ERROR') {
       setErrorMessage(message.error ?? '未知错误');
+      if (message.error === 'kicked from room') {
+        setRoomState(null);
+        setMyCharacter(null);
+        updateRoomIdInput('');
+        appendLog('已被房主移出房间');
+      }
       return;
     }
 
     if (message.type === 'ROOM_STATE') {
-      if (message.roomId) setRoomIdInput(message.roomId);
-      if (message.state) setRoomState(message.state);
+      if (message.roomId) updateRoomIdInput(message.roomId);
+      if (message.state) syncRoomSnapshot(message.state);
       return;
     }
 
@@ -295,16 +393,8 @@ export default function IndexPage() {
 
     // ─── Phase Changed ───────────────────────────────────────
     if ('phaseChanged' in event) {
-      const phaseMap: Record<number, GamePhase> = {
-        0: 'setup',
-        1: 'setup',
-        2: 'day',
-        3: 'night',
-        4: 'voting',
-        5: 'finished',
-      };
       const phaseValue = (event as { readonly phaseChanged: { readonly phase: number } }).phaseChanged.phase;
-      const mapped = phaseMap[phaseValue];
+      const mapped = mapProtocolPhase(phaseValue);
       if (mapped) {
         setGamePhase(mapped);
         if (mapped === 'day') {
@@ -369,12 +459,15 @@ export default function IndexPage() {
 
     // ─── Vote Cast ───────────────────────────────────────────
     if ('voteCast' in event) {
-      const voteData = (event as { readonly voteCast: { readonly voterId: string; readonly targetId?: string } }).voteCast;
+      const voteData = (event as { readonly voteCast: { readonly voterId: string; readonly targetId?: string; readonly decision?: boolean } }).voteCast;
+      const decision = typeof voteData.decision === 'boolean'
+        ? voteData.decision
+        : voteData.targetId !== undefined && voteData.targetId !== '';
       setCurrentNomination((current) => {
         if (!current) return current;
         return {
           ...current,
-          votes: { ...current.votes, [voteData.voterId]: voteData.targetId !== undefined && voteData.targetId !== '' },
+          votes: { ...current.votes, [voteData.voterId]: decision },
         };
       });
       return;
@@ -382,8 +475,14 @@ export default function IndexPage() {
 
     // ─── Nomination Resolved ─────────────────────────────────
     if ('nominationResolved' in event) {
-      const resolved = (event as { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number } }).nominationResolved;
-      setLastNominationResult({ nomineeId: resolved.nomineeId, executed: resolved.executed, yesVotes: resolved.yesVotes, noVotes: resolved.noVotes });
+      const resolved = (event as { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number; readonly requiredVotes?: number } }).nominationResolved;
+      setLastNominationResult({
+        nomineeId: resolved.nomineeId,
+        executed: resolved.executed,
+        yesVotes: resolved.yesVotes,
+        noVotes: resolved.noVotes,
+        requiredVotes: resolved.requiredVotes ?? null,
+      });
       setCurrentNomination(null);
       const name = roomState?.players.find((player) => player.id === resolved.nomineeId)?.name ?? resolved.nomineeId;
       appendLog(`投票结果: ${name} ${resolved.executed ? '被处决' : '幸存'} (${resolved.yesVotes}/${resolved.noVotes})`);
@@ -391,33 +490,46 @@ export default function IndexPage() {
     }
 
     // ─── Night Action ────────────────────────────────────────
-    if ('nightAction' in event) {
-      const action = (event as { readonly nightAction: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result: string | null } }).nightAction;
-      setNightActions((current) => [...current, { actorId: action.actorId, actionType: action.actionType, targetIds: action.targetIds, result: action.result }]);
+    if ('nightAction' in event || 'nightActionSubmitted' in event) {
+      const action = 'nightAction' in event
+        ? (event as { readonly nightAction: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result: string | null } }).nightAction
+        : (event as { readonly nightActionSubmitted: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result?: string | null } }).nightActionSubmitted;
+      setNightActions((current) => [...current, { actorId: action.actorId, actionType: action.actionType, targetIds: action.targetIds, result: action.result ?? null }]);
       appendLog(`夜间行动: ${action.actionType} (${action.actorId})`);
       return;
     }
 
     // ─── Game Over ───────────────────────────────────────────
-    if ('gameOver' in event) {
-      const gameOverEvent = (event as { readonly gameOver: { readonly winner: string; readonly reason: string; readonly description: string } }).gameOver;
-      setGameOver({ winner: gameOverEvent.winner, reason: gameOverEvent.reason, description: gameOverEvent.description });
+    if ('gameOver' in event || 'gameEnded' in event) {
+      const gameOverEvent = 'gameOver' in event
+        ? (event as { readonly gameOver: { readonly winner: number | string; readonly reason: string; readonly description: string } }).gameOver
+        : (event as { readonly gameEnded: { readonly winner: number | string; readonly reason: string; readonly description: string } }).gameEnded;
+      setGameOver({ winner: normalizeWinner(gameOverEvent.winner), reason: gameOverEvent.reason, description: gameOverEvent.description });
       setGamePhase('finished');
       appendLog(`游戏结束: ${gameOverEvent.winner} 胜利 - ${gameOverEvent.description}`);
       return;
     }
   }
 
-  function connect(): void {
+  function connect(onConnected?: (client: GameWebSocketClient) => void): void {
     setErrorMessage('');
     clientRef.current?.disconnect();
+    persistString(WS_URL_STORAGE_KEY, wsUrl.trim());
 
     const client = new GameWebSocketClient({
       url: wsUrl.trim(),
-      maxReconnectAttempts: 0,
+      reconnectInterval: 2000,
+      maxReconnectAttempts: 8,
       transportFactory: createTaroWebSocketTransport,
     });
-    client.onStatusChange(setStatus);
+    let handledConnected = false;
+    client.onStatusChange((nextStatus) => {
+      setStatus(nextStatus);
+      if (nextStatus === 'connected' && onConnected && !handledConnected) {
+        handledConnected = true;
+        onConnected(client);
+      }
+    });
     client.onMessage(applyMessage);
     client.connect();
     clientRef.current = client;
@@ -445,7 +557,10 @@ export default function IndexPage() {
     if (!client) return;
 
     const maxPlayers = Number.parseInt(maxPlayersInput, 10);
-    client.createRoom(playerId, playerName.trim() || playerId, Number.isNaN(maxPlayers) ? 5 : maxPlayers);
+    const displayName = playerName.trim() || playerId;
+    persistString(PLAYER_NAME_STORAGE_KEY, displayName);
+    persistString(MAX_PLAYERS_STORAGE_KEY, maxPlayersInput);
+    client.createRoom(playerId, displayName, Number.isNaN(maxPlayers) ? 5 : maxPlayers, DEFAULT_SCRIPT_ID);
     setMyCharacter(null);
     appendLog('已发送 CREATE_ROOM');
   }
@@ -460,9 +575,61 @@ export default function IndexPage() {
       return;
     }
 
-    client.joinRoom(roomId, playerId, playerName.trim() || playerId);
+    const displayName = playerName.trim() || playerId;
+    persistString(PLAYER_NAME_STORAGE_KEY, displayName);
+    updateRoomIdInput(roomId);
+    client.joinRoom(roomId, playerId, displayName);
     setMyCharacter(null);
     appendLog(`已发送 JOIN_ROOM ${roomId}`);
+  }
+
+  function resumeLastRoom(): void {
+    const roomId = roomIdInput.trim() || getStoredString(LAST_ROOM_ID_STORAGE_KEY);
+    if (!roomId) {
+      setErrorMessage('没有可恢复的房间号');
+      return;
+    }
+
+    const displayName = playerName.trim() || playerId;
+    updateRoomIdInput(roomId);
+    persistString(PLAYER_NAME_STORAGE_KEY, displayName);
+
+    const join = (client: GameWebSocketClient): void => {
+      client.joinRoom(roomId, playerId, displayName);
+      setMyCharacter(null);
+      appendLog(`已恢复 JOIN_ROOM ${roomId}`);
+    };
+
+    const client = clientRef.current;
+    if (client?.status === 'connected') {
+      join(client);
+      return;
+    }
+
+    connect(join);
+  }
+
+  function copyInviteText(): void {
+    const roomId = currentRoomId.trim();
+    if (!roomId) {
+      setErrorMessage('没有可复制的房间号');
+      return;
+    }
+
+    const inviteText = `血染钟楼房间号：${roomId}\n昵称：${playerName.trim() || playerId}\n打开小程序后输入房间号加入。`;
+    void Taro.setClipboardData({ data: inviteText })
+      .then(() => {
+        setErrorMessage('');
+        void Taro.showToast({ title: '邀请信息已复制', icon: 'success' });
+        appendLog(`已复制邀请信息 ${roomId}`);
+      })
+      .catch(() => {
+        setErrorMessage('复制邀请信息失败');
+      });
+  }
+
+  function openScriptPage(): void {
+    void Taro.navigateTo({ url: '/pages/scripts/index' });
   }
 
   function leaveRoom(): void {
@@ -472,7 +639,15 @@ export default function IndexPage() {
     client.leaveRoom();
     setRoomState(null);
     setMyCharacter(null);
+    updateRoomIdInput('');
     appendLog('已发送 LEAVE_ROOM');
+  }
+
+  function kickPlayer(targetPlayerId: string): void {
+    const client = requireClient();
+    if (!client) return;
+    client.kickPlayer(targetPlayerId);
+    appendLog(`已发送 KICK_PLAYER -> ${targetPlayerId}`);
   }
 
   function setStoryteller(targetPlayerId: string): void {
@@ -505,6 +680,8 @@ export default function IndexPage() {
     Taro.setStorageSync(PLAYER_ID_STORAGE_KEY, nextId);
     setPlayerId(nextId);
     setPlayerName(`玩家${nextId.slice(-4)}`);
+    persistString(PLAYER_NAME_STORAGE_KEY, `玩家${nextId.slice(-4)}`);
+    updateRoomIdInput('');
     setRoomState(null);
     setMyCharacter(null);
     appendLog(`已重置身份 ${nextId}`);
@@ -516,8 +693,6 @@ export default function IndexPage() {
     const client = requireClient();
     if (!client) return;
     client.startGame();
-    setGamePhase('day');
-    setDayNumber(1);
     setGameOver(null);
     appendLog('已发送 START_GAME');
   }
@@ -577,8 +752,16 @@ export default function IndexPage() {
     if (!client) return;
     const action = NIGHT_ACTION_TYPES.find((a) => a.id === nightActionType);
     if (!action) return;
-    if (action.needsTarget && nightTargetIds.length === 0) {
-      setErrorMessage('此行动需要选择目标');
+    if (currentNightWakeStep && nightActionType !== currentNightWakeStep.actionType) {
+      setErrorMessage(`当前步骤需要 ${currentNightWakeStep.actionType}`);
+      return;
+    }
+    if (nightTargetIds.length < selectedNightMinTargets) {
+      setErrorMessage(`此行动至少需要选择 ${selectedNightMinTargets} 个目标`);
+      return;
+    }
+    if (nightTargetIds.length > selectedNightMaxTargets) {
+      setErrorMessage(`此行动最多选择 ${selectedNightMaxTargets} 个目标`);
       return;
     }
     const result = nightResultInput.trim() || null;
@@ -607,6 +790,13 @@ export default function IndexPage() {
     appendLog('已发送 RESOLVE_NIGHT');
   }
 
+  function endGame(winner: 'good' | 'evil'): void {
+    const client = requireClient();
+    if (!client) return;
+    client.endGame(winner, endGameDescriptionInput);
+    appendLog(`已发送 END_GAME -> ${winner}`);
+  }
+
   function returnToLobby(): void {
     setGamePhase('setup');
     setDayNumber(0);
@@ -617,6 +807,7 @@ export default function IndexPage() {
     setDeathAnnouncements([]);
     setNightActions([]);
     setGameOver(null);
+    setEndGameDescriptionInput('');
     appendLog('已返回大厅');
   }
 
@@ -674,8 +865,8 @@ export default function IndexPage() {
   return (
     <ScrollView className='page' scrollY>
       <View className='hero'>
-        <Text className='title'>血染钟楼 MVP 调试台</Text>
-        <Text className='subtitle'>创建房间、加入房间、指定 Storyteller、一键分配角色</Text>
+        <Text className='title'>血染钟楼线上房间</Text>
+        <Text className='subtitle'>当前剧本：{currentScriptName}</Text>
       </View>
 
       {/* ─── Phase Display ─────────────────────────────────── */}
@@ -692,9 +883,9 @@ export default function IndexPage() {
       <View className='card'>
         <Text className='sectionTitle'>连接 [Connection]</Text>
         <Text className={`status status-${status}`}>状态：{status}</Text>
-        <Input className='input' value={wsUrl} placeholder='WebSocket 地址' onInput={(event: InputEvent) => setWsUrl(eventValue(event))} />
+        <Input className='input' value={wsUrl} placeholder='WebSocket 地址' onInput={(event: InputEvent) => updateWsUrl(eventValue(event))} />
         <View className='row'>
-          <Button className='button primary' onClick={connect}>连接</Button>
+          <Button className='button primary' onClick={() => connect()}>连接</Button>
           <Button className='button' onClick={disconnect}>断开</Button>
         </View>
       </View>
@@ -702,20 +893,27 @@ export default function IndexPage() {
       <View className='card'>
         <Text className='sectionTitle'>匿名身份 [Anonymous Identity]</Text>
         <Text className='mono'>playerId: {playerId}</Text>
-        <Input className='input' value={playerName} placeholder='昵称' onInput={(event: InputEvent) => setPlayerName(eventValue(event))} />
+        <Input className='input' value={playerName} placeholder='昵称' onInput={(event: InputEvent) => updatePlayerName(eventValue(event))} />
         <Button className='button warn' onClick={resetIdentity}>重置匿名身份</Button>
       </View>
 
       <View className='card'>
         <Text className='sectionTitle'>房间 [Room]</Text>
-        <Input className='input' value={maxPlayersInput} type='number' placeholder='实际玩家数，默认 5' onInput={(event: InputEvent) => setMaxPlayersInput(eventValue(event))} />
+        <Input className='input' value={maxPlayersInput} type='number' placeholder='实际玩家数，默认 5' onInput={(event: InputEvent) => updateMaxPlayersInput(eventValue(event))} />
         <Button className='button primary' onClick={createRoom}>创建房间</Button>
-        <Input className='input' value={roomIdInput} placeholder='房间号' onInput={(event: InputEvent) => setRoomIdInput(eventValue(event))} />
+        <Input className='input' value={roomIdInput} placeholder='房间号' onInput={(event: InputEvent) => updateRoomIdInput(eventValue(event))} />
         <View className='row'>
           <Button className='button primary' onClick={joinRoom}>加入房间</Button>
+          <Button className='button' onClick={resumeLastRoom}>恢复最近房间</Button>
           <Button className='button' onClick={leaveRoom}>离开房间</Button>
         </View>
-        <Text className='mono'>当前房间：{roomState?.roomId ?? (roomIdInput || '未加入')}</Text>
+        <View className='inviteBox'>
+          <Text className='hint'>当前房间</Text>
+          <Text className='inviteCode'>{currentRoomId || '未加入'}</Text>
+          <Text className='hint'>剧本：{currentScriptName}</Text>
+          <Button className='button' onClick={copyInviteText}>复制邀请信息</Button>
+        </View>
+        <Button className='button' onClick={openScriptPage}>查看剧本与夜晚顺序</Button>
         <Text className='hint'>提示：5 人局需要 1 个 Storyteller + 5 个实际玩家身份。</Text>
       </View>
 
@@ -741,6 +939,9 @@ export default function IndexPage() {
               </View>
               {roomState && !roomState.storytellerId && (
                 <Button className='miniButton' onClick={() => setStoryteller(player.id)}>设为 ST</Button>
+              )}
+              {isRoomCreator && gamePhase === 'setup' && player.id !== playerId && (
+                <Button className='miniButton danger' onClick={() => kickPlayer(player.id)}>踢出</Button>
               )}
               {isStoryteller && gamePhase === 'day' && !isDead && (
                 <Button className='miniButton danger' onClick={() => executePlayer(player.id)}>处决</Button>
@@ -785,6 +986,21 @@ export default function IndexPage() {
               <Button className='button' onClick={() => changePhase('night')}>进入夜晚</Button>
             </View>
           )}
+
+          {gamePhase !== 'setup' && gamePhase !== 'finished' && (
+            <View className='endGameControls'>
+              <Input
+                className='input'
+                value={endGameDescriptionInput}
+                placeholder='结局说明（可选）'
+                onInput={(event: InputEvent) => setEndGameDescriptionInput(eventValue(event))}
+              />
+              <View className='row'>
+                <Button className='button primary' onClick={() => endGame('good')}>善良胜利</Button>
+                <Button className='button danger' onClick={() => endGame('evil')}>邪恶胜利</Button>
+              </View>
+            </View>
+          )}
         </View>
       )}
 
@@ -824,6 +1040,7 @@ export default function IndexPage() {
               {' -> '}
               {roomState?.players.find((player) => player.id === currentNomination.nomineeId)?.name ?? currentNomination.nomineeId}
             </Text>
+            <Text className='hint'>处决阈值 [Execution Threshold]：{currentExecutionThreshold} 张赞成票</Text>
           </View>
 
           <View className='voteButtons'>
@@ -875,6 +1092,7 @@ export default function IndexPage() {
             </Text>
             <Text className='hint'>
               赞成: {lastNominationResult.yesVotes} | 反对: {lastNominationResult.noVotes}
+              {lastNominationResult.requiredVotes !== null ? ` | 处决阈值: ${lastNominationResult.requiredVotes}` : ''}
             </Text>
           </View>
         </View>
@@ -917,6 +1135,32 @@ export default function IndexPage() {
         <View className='card'>
           <Text className='sectionTitle'>夜间行动 [Night Actions]</Text>
 
+          <View className='wakeOrderList'>
+            <Text className='sectionTitle'>唤醒顺序 [Wake Order]</Text>
+            {nightWakeSteps.map((step, index) => {
+              const character = TROUBLE_BREWING_SCRIPT.characters.find((item) => item.id === step.characterId);
+              const inPlay = assignedCharacterIds.has(step.characterId);
+              const isCurrent = currentNightWakeStep?.characterId === step.characterId && currentNightWakeStep.order === step.order;
+              const isCompleted = index < currentNightWakeIndex;
+              return (
+                <View
+                  className={`wakeStep ${inPlay ? 'wakeStepActive' : 'wakeStepInactive'} ${isCurrent ? 'wakeStepCurrent' : ''} ${isCompleted ? 'wakeStepDone' : ''}`}
+                  key={`${step.order}-${step.characterId}`}
+                >
+                  <View className='wakeStepHeader'>
+                    <Text className='wakeStepOrder'>{step.order}</Text>
+                    <Text className='wakeStepName'>
+                      {character?.name ?? step.characterId}
+                      {isCurrent ? ' · 当前' : isCompleted ? ' · 已完成' : inPlay ? ' · 待处理' : ' · 未在场'}
+                    </Text>
+                  </View>
+                  <Text className='hint'>{step.prompt}</Text>
+                  <Text className='hint'>目标数：{step.minTargets} - {step.maxTargets}</Text>
+                </View>
+              );
+            })}
+          </View>
+
           {/* Action type selector */}
           <Text className='hint'>选择行动类型:</Text>
           <View className='actionTypeList'>
@@ -935,9 +1179,9 @@ export default function IndexPage() {
           </View>
 
           {/* Target selector */}
-          {selectedNightAction.needsTarget && (
+          {selectedNightNeedsTarget && (
             <View className='targetSelector'>
-              <Text className='hint'>选择目标:</Text>
+              <Text className='hint'>选择目标：{selectedNightMinTargets} - {selectedNightMaxTargets} 个</Text>
               {alivePlayers.map((player) => (
                 <Button
                   key={player.id}

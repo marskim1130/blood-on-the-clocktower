@@ -568,3 +568,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 17:07:42 +08:00 --- 审查未提交代码 [Uncommitted Code Review] 时发现前端保存房间设置 [Room Settings Save] 会总是发送 `DEFAULT_SCRIPT_ID`，而后端在角色已分配 [Characters Assigned] 后会拒绝任何 `scriptId` 字段，导致房主只是保存玩家人数也可能被误判为脚本变更 [Script Change] --- 将 Taro 首页的保存设置动作改为只发送 `maxPlayers`，保留脚本切换给未来明确 UI；重新通过 `pnpm test`、`pnpm typecheck`、`go test ./...`、`pnpm build:frontend`、`pnpm --filter @clocktower/frontend exec taro build --type h5`、`pnpm build:core` --- 修改了 packages/frontend/src/pages/index/index.tsx、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/pages/index/index.tsx`，并从 `work.md` 删除本条 2026-06-12 17:07:42 记录。
+
+---
+
+2026-06-12 17:26:33 +08:00 --- 发现 Taro H5 监听构建 [H5 Watch Build] 在 Node.js 24 下启动后崩溃：`@tarojs/webpack5-prebundle` 调用 `webpack-virtual-modules` 的 `_writeVirtualFile`，但当前 webpack 输入文件系统 [Input File System] 不再暴露该方法，导致 `dev:h5` 无法进入联调 --- 使用 Taro webpack5 编译器对象配置 [Compiler Object Config] 显式禁用预构建 [Prebundle]：将 `compiler: 'webpack5'` 改为 `compiler.type = 'webpack5'` 且 `compiler.prebundle.enable = false`，避开该虚拟模块写入路径，保留 webpack5 构建链路 --- 修改了 packages/frontend/config/index.ts、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/config/index.ts`，并从 `work.md` 删除本条 2026-06-12 17:26:33 记录。

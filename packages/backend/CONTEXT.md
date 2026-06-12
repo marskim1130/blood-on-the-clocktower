@@ -34,6 +34,12 @@ Go structs are generated from the same ProtoBuf definitions as TypeScript types.
 3. Invalid events are rejected with descriptive error messages
 4. Game state is persisted after each valid event
 
+## Persistence
+
+Production deployments should set `CLOCKTOWER_REDIS_URL` to enable Redis-backed snapshot persistence. The optional `CLOCKTOWER_REDIS_KEY` overrides the default snapshot key.
+
+Local or single-node deployments can set `CLOCKTOWER_SNAPSHOT_PATH` to persist the same snapshot data to a JSON file. Redis takes precedence when both are set.
+
 ## Dependencies
 
 - `google.golang.org/grpc` — gRPC framework

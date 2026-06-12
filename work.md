@@ -574,3 +574,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 17:26:33 +08:00 --- 发现 Taro H5 监听构建 [H5 Watch Build] 在 Node.js 24 下启动后崩溃：`@tarojs/webpack5-prebundle` 调用 `webpack-virtual-modules` 的 `_writeVirtualFile`，但当前 webpack 输入文件系统 [Input File System] 不再暴露该方法，导致 `dev:h5` 无法进入联调 --- 使用 Taro webpack5 编译器对象配置 [Compiler Object Config] 显式禁用预构建 [Prebundle]：将 `compiler: 'webpack5'` 改为 `compiler.type = 'webpack5'` 且 `compiler.prebundle.enable = false`，避开该虚拟模块写入路径，保留 webpack5 构建链路 --- 修改了 packages/frontend/config/index.ts、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/config/index.ts`，并从 `work.md` 删除本条 2026-06-12 17:26:33 记录。
+
+---
+
+2026-06-12 17:47:01 +08:00 --- 发现 H5 dev server [H5 Development Server] 虽然能编译并提供 `/runtime.js`、`/app.js`，但根路径返回目录列表 [Directory Listing]，`/index.html` 为 404，导致浏览器看不到页面；进一步检查 `taro inspect --type h5 plugins` 发现项目缺少 `src/index.html` 时 Taro 4 不会注入 `HtmlWebpackPlugin`，同时 `@tarojs/plugin-platform-h5` 使用浮动版本范围可能把 H5 依赖漂移到 4.2.x --- 新增 Taro H5 HTML 模板 [HTML Template] `packages/frontend/src/index.html`，包含 `#app` 挂载点 [Mount Point] 和 `htmlWebpackPlugin.options.script`；将 `@tarojs/plugin-platform-h5` 精确锁定到 `4.0.0`，与 CLI、webpack runner、runtime 保持同版本线；重启 `dev:h5` 后确认根路径返回标题为“血染钟楼”的 HTML，并在应用内浏览器看到首页内容且无控制台错误 --- 修改了 packages/frontend/src/index.html、packages/frontend/package.json、pnpm-lock.yaml、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/package.json pnpm-lock.yaml work.md` 并删除 `packages/frontend/src/index.html`。

@@ -1112,6 +1112,25 @@ func (gs *GameSession) applyEndGame(cmd EndGameCmd) (ApplyResult, error) {
 // ────────────────────────────────────────────────
 
 func (gs *GameSession) applyKillPlayer(cmd KillPlayerCmd) (ApplyResult, error) {
+	if cmd.SenderID != gs.storytellerID {
+		return ApplyResult{}, fmt.Errorf("only the storyteller can kill players")
+	}
+	if gs.phase == game.GamePhaseSetup {
+		return ApplyResult{}, fmt.Errorf("game cannot kill players before it starts")
+	}
+	if gs.phase == game.GamePhaseFinished {
+		return ApplyResult{}, fmt.Errorf("game is already finished")
+	}
+	if cmd.PlayerID == "" {
+		return ApplyResult{}, fmt.Errorf("target player is required")
+	}
+	if cmd.Cause == "" {
+		return ApplyResult{}, fmt.Errorf("death cause is required")
+	}
+	if !isSupportedDeathCause(cmd.Cause) {
+		return ApplyResult{}, fmt.Errorf("unsupported death cause %s", cmd.Cause)
+	}
+
 	pIdx := gs.findPlayerIndex(cmd.PlayerID)
 	if pIdx == -1 {
 		return ApplyResult{}, fmt.Errorf("player %s not found", cmd.PlayerID)
@@ -1143,6 +1162,15 @@ func (gs *GameSession) applyKillPlayer(cmd KillPlayerCmd) (ApplyResult, error) {
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+func isSupportedDeathCause(cause game.DeathCause) bool {
+	switch cause {
+	case game.DeathCauseExecution, game.DeathCauseNightKill, game.DeathCauseAbility:
+		return true
+	default:
+		return false
+	}
 }
 
 // ────────────────────────────────────────────────

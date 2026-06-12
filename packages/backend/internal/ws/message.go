@@ -25,6 +25,7 @@ const (
 	MsgResolveNomination  = "RESOLVE_NOMINATION"
 	MsgExecutePlayer      = "EXECUTE_PLAYER"
 	MsgUseSlayerAbility   = "USE_SLAYER_ABILITY"
+	MsgKillPlayer         = "KILL_PLAYER"
 	MsgSubmitNightAction  = "SUBMIT_NIGHT_ACTION"
 	MsgResolveNight       = "RESOLVE_NIGHT"
 	MsgEndGame            = "END_GAME"
@@ -48,6 +49,7 @@ type ClientMessage struct {
 	Winner          ClientTeam        `json:"winner,omitempty"`      // END_GAME winning team
 	Reason          string            `json:"reason,omitempty"`      // END_GAME reason
 	Description     string            `json:"description,omitempty"` // END_GAME description
+	Cause           ClientDeathCause  `json:"cause,omitempty"`       // KILL_PLAYER death cause
 	ActionType      string            `json:"actionType,omitempty"`  // SUBMIT_NIGHT_ACTION type
 	TargetIDs       []string          `json:"targetIds,omitempty"`   // SUBMIT_NIGHT_ACTION targets
 }
@@ -146,6 +148,58 @@ func parseClientTeam(value string) (game.Team, bool) {
 		return game.TeamUnspecified, true
 	default:
 		return game.TeamUnspecified, false
+	}
+}
+
+// ClientDeathCause accepts both the numeric protocol enum and compact death
+// cause names used by JSON clients.
+type ClientDeathCause game.DeathCause
+
+func (c ClientDeathCause) DeathCause() game.DeathCause {
+	return game.DeathCause(c)
+}
+
+func (c *ClientDeathCause) UnmarshalJSON(raw []byte) error {
+	if string(raw) == "null" {
+		*c = ClientDeathCause("")
+		return nil
+	}
+
+	var numeric int
+	if err := json.Unmarshal(raw, &numeric); err == nil {
+		cause, ok := parseClientDeathCause(fmt.Sprintf("%d", numeric))
+		if !ok {
+			return fmt.Errorf("unknown death cause %d", numeric)
+		}
+		*c = ClientDeathCause(cause)
+		return nil
+	}
+
+	var named string
+	if err := json.Unmarshal(raw, &named); err != nil {
+		return err
+	}
+
+	cause, ok := parseClientDeathCause(named)
+	if !ok {
+		return fmt.Errorf("unknown death cause %q", named)
+	}
+	*c = ClientDeathCause(cause)
+	return nil
+}
+
+func parseClientDeathCause(value string) (game.DeathCause, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "unspecified", "0":
+		return "", true
+	case "execution", "1":
+		return game.DeathCauseExecution, true
+	case "night_kill", "night-kill", "night kill", "2":
+		return game.DeathCauseNightKill, true
+	case "ability", "3":
+		return game.DeathCauseAbility, true
+	default:
+		return "", false
 	}
 }
 

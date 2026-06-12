@@ -547,6 +547,77 @@ func TestGameSessionSlayerAbilityMissConsumesUse(t *testing.T) {
 	}
 }
 
+func TestGameSessionStorytellerCanKillPlayer(t *testing.T) {
+	gs := slayerSession(t)
+
+	result, err := gs.Apply(KillPlayerCmd{
+		SenderID: "storyteller",
+		PlayerID: "p1",
+		Cause:    game.DeathCauseAbility,
+	})
+	if err != nil {
+		t.Fatalf("unexpected manual kill error: %v", err)
+	}
+	if len(result.Events) != 1 ||
+		result.Events[0].PlayerDied == nil ||
+		result.Events[0].PlayerDied.PlayerID != "p1" ||
+		result.Events[0].PlayerDied.Cause != game.DeathCauseAbility {
+		t.Fatalf("expected p1 ability death event, got %#v", result.Events)
+	}
+
+	state := gs.StateForRoom("room-1")
+	p1 := findPlayerInState(t, state, "p1")
+	if p1.IsAlive {
+		t.Fatal("expected p1 to be dead after storyteller kill")
+	}
+	if len(state.Deaths) != 1 ||
+		state.Deaths[0].PlayerID != "p1" ||
+		state.Deaths[0].Cause != game.DeathCauseAbility ||
+		state.Deaths[0].KilledBy != "storyteller" {
+		t.Fatalf("expected manual death record, got %#v", state.Deaths)
+	}
+}
+
+func TestGameSessionKillPlayerRejectsNonStoryteller(t *testing.T) {
+	gs := slayerSession(t)
+
+	result, err := gs.Apply(KillPlayerCmd{
+		SenderID: "p1",
+		PlayerID: "p2",
+		Cause:    game.DeathCauseAbility,
+	})
+	if err == nil {
+		t.Fatal("expected non-storyteller manual kill to be rejected")
+	}
+	if err.Error() != "only the storyteller can kill players" {
+		t.Fatalf("expected storyteller-only error, got %q", err.Error())
+	}
+	if result.Updated || len(result.Events) != 0 {
+		t.Fatalf("expected rejected kill to make no changes, got %#v", result)
+	}
+
+	state := gs.StateForRoom("room-1")
+	p2 := findPlayerInState(t, state, "p2")
+	if !p2.IsAlive {
+		t.Fatal("expected p2 to remain alive after rejected manual kill")
+	}
+}
+
+func TestGameSessionKillPlayerRequiresDeathCause(t *testing.T) {
+	gs := slayerSession(t)
+
+	_, err := gs.Apply(KillPlayerCmd{
+		SenderID: "storyteller",
+		PlayerID: "p1",
+	})
+	if err == nil {
+		t.Fatal("expected manual kill without death cause to be rejected")
+	}
+	if err.Error() != "death cause is required" {
+		t.Fatalf("expected death cause error, got %q", err.Error())
+	}
+}
+
 func TestGameSessionRemovePlayer(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})

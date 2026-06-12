@@ -104,6 +104,24 @@ func TestClientMessageWinnerAcceptsStringAndNumericValues(t *testing.T) {
 	}
 }
 
+func TestClientMessageDeathCauseAcceptsStringAndNumericValues(t *testing.T) {
+	var stringMsg ClientMessage
+	if err := json.Unmarshal([]byte(`{"type":"KILL_PLAYER","cause":"night_kill"}`), &stringMsg); err != nil {
+		t.Fatalf("unexpected string death cause unmarshal error: %v", err)
+	}
+	if cause := stringMsg.Cause.DeathCause(); cause != game.DeathCauseNightKill {
+		t.Fatalf("expected night kill cause from string, got %q", cause)
+	}
+
+	var numericMsg ClientMessage
+	if err := json.Unmarshal([]byte(`{"type":"KILL_PLAYER","cause":3}`), &numericMsg); err != nil {
+		t.Fatalf("unexpected numeric death cause unmarshal error: %v", err)
+	}
+	if cause := numericMsg.Cause.DeathCause(); cause != game.DeathCauseAbility {
+		t.Fatalf("expected ability cause from number, got %q", cause)
+	}
+}
+
 func TestCreateRoomRejectsUnsupportedScript(t *testing.T) {
 	h := NewHub()
 	conn := NewFakeConnection()
@@ -774,6 +792,71 @@ func TestEndGameRejectsNonStoryteller(t *testing.T) {
 	}
 	if len(storytellerConn.Messages()) != 0 {
 		t.Fatalf("expected no broadcast to storyteller, got %#v", storytellerConn.Messages())
+	}
+}
+
+func TestStorytellerCanKillPlayerManually(t *testing.T) {
+	h, storytellerConn, playerConns, _ := setupStartedRoom(t)
+
+	h.handleMessage(storytellerConn, ClientMessage{
+		Type:           MsgKillPlayer,
+		TargetPlayerID: "p1",
+		Cause:          ClientDeathCause(game.DeathCauseAbility),
+	})
+	assertNoErrorMessages(t, storytellerConn.Messages())
+
+	death := lastPlayerDied(t, storytellerConn.Messages())
+	if death.PlayerID != "p1" || death.Cause != game.DeathCauseAbility {
+		t.Fatalf("expected p1 ability death, got %#v", death)
+	}
+	if playerDeath := lastPlayerDied(t, playerConns["p2"].Messages()); playerDeath.PlayerID != "p1" {
+		t.Fatalf("expected other players to receive p1 death, got %#v", playerDeath)
+	}
+
+	state := lastRoomState(t, storytellerConn.Messages())
+	if state.Phase != game.GamePhaseNight {
+		t.Fatalf("expected manual death to preserve phase, got %d", state.Phase)
+	}
+	p1 := findPlayerInState(t, state, "p1")
+	if p1.IsAlive {
+		t.Fatal("expected p1 to be dead after manual storyteller kill")
+	}
+	if len(state.Deaths) != 1 ||
+		state.Deaths[0].PlayerID != "p1" ||
+		state.Deaths[0].Cause != game.DeathCauseAbility ||
+		state.Deaths[0].KilledBy != "storyteller" {
+		t.Fatalf("expected manual death record, got %#v", state.Deaths)
+	}
+}
+
+func TestKillPlayerRejectsNonStorytellerIdentitySpoof(t *testing.T) {
+	h, storytellerConn, playerConns, roomID := setupStartedRoom(t)
+
+	h.handleMessage(playerConns["p1"], ClientMessage{
+		Type:           MsgKillPlayer,
+		PlayerID:       "storyteller",
+		TargetPlayerID: "p2",
+		Cause:          ClientDeathCause(game.DeathCauseAbility),
+	})
+
+	msgs := playerConns["p1"].Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected error response")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "only the storyteller can kill players" {
+		t.Fatalf("expected storyteller-only kill error, got %q", errMsg.Error)
+	}
+	if len(storytellerConn.Messages()) != 0 {
+		t.Fatalf("expected no broadcast to storyteller, got %#v", storytellerConn.Messages())
+	}
+	state := h.buildRoomStateForRecipient(roomID, "storyteller")
+	p2 := findPlayerInState(t, state, "p2")
+	if !p2.IsAlive {
+		t.Fatal("expected spoofed manual kill to leave p2 alive")
 	}
 }
 

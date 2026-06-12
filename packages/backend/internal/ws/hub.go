@@ -96,6 +96,8 @@ func (h *Hub) handleMessage(conn Connection, msg ClientMessage) {
 		h.handleExecutePlayer(conn, msg)
 	case MsgUseSlayerAbility:
 		h.handleUseSlayerAbility(conn, msg)
+	case MsgKillPlayer:
+		h.handleKillPlayer(conn, msg)
 	case MsgSubmitNightAction:
 		h.handleSubmitNightAction(conn, msg)
 	case MsgResolveNight:
@@ -754,6 +756,47 @@ func (h *Hub) handleUseSlayerAbility(conn Connection, msg ClientMessage) {
 	result, err := gs.Apply(UseSlayerAbilityCmd{
 		SenderID:       senderID,
 		TargetPlayerID: msg.targetPlayerID(),
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.commitRoomUpdate(roomID, result)
+	}
+}
+
+func (h *Hub) handleKillPlayer(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	result, err := gs.Apply(KillPlayerCmd{
+		SenderID: senderID,
+		PlayerID: msg.targetPlayerID(),
+		Cause:    msg.Cause.DeathCause(),
 	})
 	if err != nil {
 		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})

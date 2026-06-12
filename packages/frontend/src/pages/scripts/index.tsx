@@ -1,41 +1,23 @@
 import { Button, ScrollView, Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
+import { TROUBLE_BREWING_SCRIPT } from '@clocktower/core';
 import {
-  getBaseRoleCount,
-  getScriptWakeOrder,
-  TROUBLE_BREWING_SCRIPT,
-} from '@clocktower/core';
-import type { CharacterType, ScriptCharacterDefinition } from '@clocktower/core';
+  CHARACTER_TYPE_LABELS,
+  CHARACTER_TYPE_ORDER,
+  charactersByType,
+  roleCountText,
+  getFirstNightOrder,
+  getLaterNightOrder,
+} from './utils';
 import './index.css';
-
-const DEFAULT_SCRIPT_ID = TROUBLE_BREWING_SCRIPT.id;
-
-const CHARACTER_TYPE_LABELS: Record<CharacterType, string> = {
-  townsfolk: '镇民 Townsfolk',
-  outsider: '外来者 Outsider',
-  minion: '爪牙 Minion',
-  demon: '恶魔 Demon',
-};
-
-const CHARACTER_TYPE_ORDER: readonly CharacterType[] = ['townsfolk', 'outsider', 'minion', 'demon'];
-
-function charactersByType(type: CharacterType): readonly ScriptCharacterDefinition[] {
-  return TROUBLE_BREWING_SCRIPT.characters.filter((character) => character.type === type);
-}
-
-function roleCountText(playerCount: number): string {
-  const count = getBaseRoleCount(playerCount);
-  if (!count) return '';
-  return `${playerCount}人：镇民${count.townsfolk} / 外来者${count.outsiders} / 爪牙${count.minions} / 恶魔${count.demons}`;
-}
 
 function closePage(): void {
   void Taro.navigateBack();
 }
 
 export default function ScriptsPage() {
-  const firstNight = getScriptWakeOrder(DEFAULT_SCRIPT_ID, 1);
-  const laterNight = getScriptWakeOrder(DEFAULT_SCRIPT_ID, 2);
+  const firstNight = getFirstNightOrder();
+  const laterNight = getLaterNightOrder();
 
   return (
     <ScrollView className='scriptPage' scrollY>

@@ -10,6 +10,8 @@ interface TaroSocketMessage {
 }
 
 interface TaroSocketTask {
+  readonly readyState?: number;
+  readonly OPEN?: number;
   send(option: { readonly data: string }): Promise<unknown> | void;
   close(option?: { readonly code?: number; readonly reason?: string }): Promise<unknown> | void;
   onOpen(handler: () => void): void;
@@ -56,8 +58,7 @@ export class TaroWebSocketTransport implements WebSocketTransport {
 
         this.task = task;
         task.onOpen(() => {
-          this.state = READY_STATE_OPEN;
-          this.openHandler?.();
+          this.markOpen();
         });
         task.onMessage((message) => {
           const data = typeof message.data === 'string' ? message.data : '';
@@ -72,6 +73,9 @@ export class TaroWebSocketTransport implements WebSocketTransport {
           this.state = READY_STATE_CLOSED;
           this.errorHandler?.();
         });
+        if (this.isTaskOpen(task)) {
+          this.markOpen();
+        }
       })
       .catch(() => {
         this.state = READY_STATE_CLOSED;
@@ -108,6 +112,17 @@ export class TaroWebSocketTransport implements WebSocketTransport {
 
   onError(handler: () => void): void {
     this.errorHandler = handler;
+  }
+
+  private markOpen(): void {
+    if (this.state === READY_STATE_OPEN) return;
+    this.state = READY_STATE_OPEN;
+    this.openHandler?.();
+  }
+
+  private isTaskOpen(task: TaroSocketTask): boolean {
+    const openState = task.OPEN ?? READY_STATE_OPEN;
+    return task.readyState === openState;
   }
 }
 

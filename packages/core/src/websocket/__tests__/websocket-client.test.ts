@@ -224,6 +224,95 @@ describe('GameWebSocketClient', () => {
     client.disconnect();
   });
 
+  it('sends room settings update command', async () => {
+    const client = new GameWebSocketClient({
+      url: `ws://localhost:${port}`,
+      maxReconnectAttempts: 0,
+    });
+
+    client.connect();
+    await waitFor(() => client.status === 'connected');
+
+    client.updateRoomSettings(7, 'trouble_brewing');
+    await waitFor(() =>
+      receivedMessages.some(
+        (msg) =>
+          msg.type === 'UPDATE_ROOM_SETTINGS' &&
+          msg.maxPlayers === 7 &&
+          msg.scriptId === 'trouble_brewing'
+      )
+    );
+
+    client.disconnect();
+  });
+
+  it('sends Slayer ability command', async () => {
+    const client = new GameWebSocketClient({
+      url: `ws://localhost:${port}`,
+      maxReconnectAttempts: 0,
+    });
+
+    client.connect();
+    await waitFor(() => client.status === 'connected');
+
+    client.useSlayerAbility('p2');
+    await waitFor(() =>
+      receivedMessages.some(
+        (msg) =>
+          msg.type === 'USE_SLAYER_ABILITY' &&
+          msg.targetPlayerId === 'p2'
+      )
+    );
+
+    client.disconnect();
+  });
+
+  it('sends manual kill command', async () => {
+    const client = new GameWebSocketClient({
+      url: `ws://localhost:${port}`,
+      maxReconnectAttempts: 0,
+    });
+
+    client.connect();
+    await waitFor(() => client.status === 'connected');
+
+    client.killPlayer('p2', 'night_kill');
+    await waitFor(() =>
+      receivedMessages.some(
+        (msg) =>
+          msg.type === 'KILL_PLAYER' &&
+          msg.targetPlayerId === 'p2' &&
+          msg.cause === 'night_kill'
+      )
+    );
+
+    client.disconnect();
+  });
+
+  it('sends night action result when provided', async () => {
+    const client = new GameWebSocketClient({
+      url: `ws://localhost:${port}`,
+      maxReconnectAttempts: 0,
+    });
+
+    client.connect();
+    await waitFor(() => client.status === 'connected');
+
+    client.submitNightAction('check_demon', ['p2', 'p3'], 'yes');
+    await waitFor(() =>
+      receivedMessages.some(
+        (msg) =>
+          msg.type === 'SUBMIT_NIGHT_ACTION' &&
+          msg.actionType === 'check_demon' &&
+          Array.isArray(msg.targetIds) &&
+          msg.targetIds.length === 2 &&
+          msg.result === 'yes'
+      )
+    );
+
+    client.disconnect();
+  });
+
   it('does not resume a room after receiving kicked error', async () => {
     const client = new GameWebSocketClient({
       url: `ws://localhost:${port}`,

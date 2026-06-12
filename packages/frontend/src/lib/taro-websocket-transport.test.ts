@@ -14,6 +14,8 @@ import { TaroWebSocketTransport } from './taro-websocket-transport';
 
 class MockSocketTask {
   private openHandler: (() => void) | null = null;
+  readonly OPEN = 1;
+  readyState = 0;
 
   readonly send = vi.fn();
   readonly close = vi.fn();
@@ -29,6 +31,7 @@ class MockSocketTask {
   onError(): void {}
 
   open(): void {
+    this.readyState = this.OPEN;
     this.openHandler?.();
   }
 }
@@ -107,5 +110,21 @@ describe('TaroWebSocketTransport', () => {
 
     currentTask.open();
     expect(opened).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the transport open when the socket task is already open before handlers are registered', async () => {
+    const task = new MockSocketTask();
+    task.open();
+    taroMock.connectSocket.mockResolvedValue(task);
+
+    const transport = new TaroWebSocketTransport('ws://example.test/ws');
+    const opened = vi.fn();
+    transport.onOpen(opened);
+
+    transport.connect();
+    await Promise.resolve();
+
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(transport.readyState).toBe(1);
   });
 });

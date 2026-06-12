@@ -556,3 +556,15 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 16:39:02 +08:00 --- 发现后端领域模型 [Domain Model] 已有 `NightAction.Result` 与 `NightActionEvent.Result`，但 `SUBMIT_NIGHT_ACTION` 客户端消息没有 `result` 字段，GameSession 也不会保存或回传 Storyteller 裁决结果 [Adjudicated Result]，导致信息类夜晚行动只能记录目标，不能记录结果 --- 使用 `result` 字段贯通 ClientMessage、Hub、SubmitNightActionCmd 与 GameSession：提交夜晚行动时修剪并保存结果文本，事件只在有结果时携带 `result` 指针；保留现有夜晚行动隐私广播 [Privacy Broadcast]，结果只发送给行动者和 Storyteller；补充会话层保存/事件测试、Hub 隐私测试和 Redis 快照恢复断言；初次测试失败暴露复用了已完成夜晚步骤的夹具 [Fixture]，将测试中的 `nightWakeIndex` 调整到 Imp 当前步骤后通过 `go test ./...`、`git diff --check` --- 修改了 packages/backend/internal/ws/message.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/backend/internal/ws/persistence_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/message.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/hub_game_flow_test.go packages/backend/internal/ws/persistence_test.go work.md`。
+
+---
+
+2026-06-12 16:57:44 +08:00 --- 发现后端已经支持房间设置更新 [Room Settings Update]、Slayer 白天能力 [Slayer Ability]、Storyteller 手动宣告死亡 [Manual Death Declaration] 与夜晚裁决结果 [Night Action Result]，但 core WebSocket 客户端 [WebSocket Client] 与 Taro 首页 [Taro Page] 还没有完整发送入口：前端只能创建时设置房间人数，Slayer 无法在页面发起能力，Storyteller 只能走旧的 `EXECUTE_PLAYER` 快捷处决，夜晚 `result` 只在本地显示不进入服务器状态 --- 使用端到端接线 [End-to-End Wiring] 补齐 `UPDATE_ROOM_SETTINGS`、`USE_SLAYER_ABILITY`、`KILL_PLAYER` 和 `SUBMIT_NIGHT_ACTION.result` 的 core 客户端类型、方法与发送测试；前端复用现有房间人数输入增加房主保存设置入口，给存活 Slayer 的白天页面增加目标按钮，给 Storyteller 控制区增加死因与目标选择后提交 `KILL_PLAYER`，并将夜晚结果随 `SUBMIT_NIGHT_ACTION` 发给后端而不是本地乐观追加；通过 `pnpm --filter @clocktower/core test -- websocket-client.test.ts`、`pnpm typecheck`、`pnpm test`、`go test ./...`、`pnpm build:frontend`、`pnpm build:core`、`git diff --check` --- 修改了 packages/core/src/websocket/index.ts、packages/core/src/websocket/__tests__/websocket-client.test.ts、packages/frontend/src/pages/index/index.tsx、packages/core/tsconfig.tsbuildinfo、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/core/src/websocket/index.ts packages/core/src/websocket/__tests__/websocket-client.test.ts packages/frontend/src/pages/index/index.tsx packages/core/tsconfig.tsbuildinfo`，并从 `work.md` 删除本条 2026-06-12 16:57:44 记录。
+
+---
+
+2026-06-12 17:07:42 +08:00 --- 审查未提交代码 [Uncommitted Code Review] 时发现前端保存房间设置 [Room Settings Save] 会总是发送 `DEFAULT_SCRIPT_ID`，而后端在角色已分配 [Characters Assigned] 后会拒绝任何 `scriptId` 字段，导致房主只是保存玩家人数也可能被误判为脚本变更 [Script Change] --- 将 Taro 首页的保存设置动作改为只发送 `maxPlayers`，保留脚本切换给未来明确 UI；重新通过 `pnpm test`、`pnpm typecheck`、`go test ./...`、`pnpm build:frontend`、`pnpm --filter @clocktower/frontend exec taro build --type h5`、`pnpm build:core` --- 修改了 packages/frontend/src/pages/index/index.tsx、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/pages/index/index.tsx`，并从 `work.md` 删除本条 2026-06-12 17:07:42 记录。

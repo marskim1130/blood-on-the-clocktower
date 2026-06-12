@@ -5,6 +5,7 @@ export interface ClientMessage {
     | 'JOIN_ROOM'
     | 'LEAVE_ROOM'
     | 'KICK_PLAYER'
+    | 'UPDATE_ROOM_SETTINGS'
     | 'SET_STORYTELLER'
     | 'ASSIGN_CHARACTERS'
     | 'SUBMIT_EVENT'
@@ -14,6 +15,8 @@ export interface ClientMessage {
     | 'CAST_VOTE'
     | 'RESOLVE_NOMINATION'
     | 'EXECUTE_PLAYER'
+    | 'USE_SLAYER_ABILITY'
+    | 'KILL_PLAYER'
     | 'SUBMIT_NIGHT_ACTION'
     | 'RESOLVE_NIGHT'
     | 'END_GAME';
@@ -33,10 +36,14 @@ export interface ClientMessage {
   readonly decision?: boolean;
   /** Legacy alias for EXECUTE_PLAYER; prefer targetPlayerId. */
   readonly executePlayerId?: string;
+  /** Death cause for KILL_PLAYER (e.g. 'execution', 'night_kill', 'ability'). */
+  readonly cause?: string;
   /** Night action type for SUBMIT_NIGHT_ACTION (e.g. 'kill', 'poison'). */
   readonly actionType?: string;
   /** Target player ids for SUBMIT_NIGHT_ACTION. */
   readonly targetIds?: readonly string[];
+  /** Optional Storyteller-adjudicated result for SUBMIT_NIGHT_ACTION. */
+  readonly result?: string;
   /** Winning team for END_GAME. */
   readonly winner?: 'good' | 'evil';
   /** Optional machine-readable reason for END_GAME. */
@@ -358,6 +365,14 @@ export class GameWebSocketClient {
     this.send({ type: 'KICK_PLAYER', targetPlayerId });
   }
 
+  updateRoomSettings(maxPlayers?: number, scriptId?: string): void {
+    this.send({
+      type: 'UPDATE_ROOM_SETTINGS',
+      ...(typeof maxPlayers === 'number' ? { maxPlayers } : {}),
+      ...(scriptId ? { scriptId } : {}),
+    });
+  }
+
   setStoryteller(targetPlayerId: string): void {
     this.send({ type: 'SET_STORYTELLER', targetPlayerId });
   }
@@ -394,8 +409,21 @@ export class GameWebSocketClient {
     this.send({ type: 'EXECUTE_PLAYER', targetPlayerId: playerId });
   }
 
-  submitNightAction(actionType: string, targetIds: readonly string[]): void {
-    this.send({ type: 'SUBMIT_NIGHT_ACTION', actionType, targetIds });
+  useSlayerAbility(targetPlayerId: string): void {
+    this.send({ type: 'USE_SLAYER_ABILITY', targetPlayerId });
+  }
+
+  killPlayer(targetPlayerId: string, cause: string): void {
+    this.send({ type: 'KILL_PLAYER', targetPlayerId, cause });
+  }
+
+  submitNightAction(actionType: string, targetIds: readonly string[], result?: string): void {
+    this.send({
+      type: 'SUBMIT_NIGHT_ACTION',
+      actionType,
+      targetIds,
+      ...(result?.trim() ? { result: result.trim() } : {}),
+    });
   }
 
   resolveNight(): void {

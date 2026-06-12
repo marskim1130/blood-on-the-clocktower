@@ -9,6 +9,17 @@ import {
 } from '@clocktower/core';
 import type { ConnectionStatus, GameCharacter, RoomState, ServerMessage } from '@clocktower/core';
 import { createTaroWebSocketTransport } from '../../lib/taro-websocket-transport';
+import {
+  type GamePhase,
+  type DeathCause,
+  type InputEvent,
+  mapProtocolPhase,
+  normalizeWinner,
+  eventValue,
+  getStoredString,
+  persistString,
+  getOrCreatePlayerId,
+} from '../../lib/utils';
 import './index.css';
 
 const PLAYER_ID_STORAGE_KEY = 'clocktower.playerId';
@@ -22,8 +33,6 @@ const DEFAULT_SCRIPT_NAME = TROUBLE_BREWING_SCRIPT.name;
 
 // ─── Phase & Role Constants ──────────────────────────────────────
 
-type GamePhase = 'setup' | 'day' | 'voting' | 'night' | 'finished';
-
 const PHASE_LABELS: Record<GamePhase, string> = {
   setup: '准备 Setup',
   day: '白天 Day',
@@ -32,13 +41,17 @@ const PHASE_LABELS: Record<GamePhase, string> = {
   finished: '游戏结束 Finished',
 };
 
-type DeathCause = 'execution' | 'night_kill' | 'ability';
-
 const DEATH_CAUSE_LABELS: Record<DeathCause, string> = {
   execution: '处决',
   night_kill: '夜晚击杀',
   ability: '能力致死',
 };
+
+const DEATH_CAUSE_OPTIONS: ReadonlyArray<{ readonly id: DeathCause; readonly label: string }> = [
+  { id: 'execution', label: '处决' },
+  { id: 'night_kill', label: '夜杀' },
+  { id: 'ability', label: '能力' },
+];
 
 // ─── Night Action Options ────────────────────────────────────────
 
@@ -83,55 +96,8 @@ interface GameOverInfo {
   readonly description: string;
 }
 
-type InputEvent = {
-  readonly detail: {
-    readonly value: string;
-  };
-};
-
-function getOrCreatePlayerId(): string {
-  const stored = Taro.getStorageSync<string>(PLAYER_ID_STORAGE_KEY);
-  if (stored) return stored;
-
-  const generated = `player_${Math.random().toString(36).slice(2, 10)}`;
-  Taro.setStorageSync(PLAYER_ID_STORAGE_KEY, generated);
-  return generated;
-}
-
-function getStoredString(key: string, fallback = ''): string {
-  const stored = Taro.getStorageSync<string>(key);
-  return typeof stored === 'string' && stored.trim() ? stored : fallback;
-}
-
-function persistString(key: string, value: string): void {
-  Taro.setStorageSync(key, value);
-}
-
 function buildSampleAssignments(players: RoomState['players']): Record<string, string> {
   return buildDefaultScriptAssignments(players, DEFAULT_SCRIPT_ID);
-}
-
-function eventValue(event: InputEvent): string {
-  return event.detail.value;
-}
-
-function mapProtocolPhase(phase: number | undefined): GamePhase | null {
-  if (phase === undefined) return null;
-  const phaseMap: Record<number, GamePhase> = {
-    0: 'setup',
-    1: 'setup',
-    2: 'day',
-    3: 'night',
-    4: 'voting',
-    5: 'finished',
-  };
-  return phaseMap[phase] ?? null;
-}
-
-function normalizeWinner(winner: number | string): string {
-  if (winner === 1 || winner === 'good') return 'good';
-  if (winner === 2 || winner === 'evil') return 'evil';
-  return String(winner);
 }
 
 export default function IndexPage() {
@@ -166,6 +132,8 @@ export default function IndexPage() {
   const [deathRecords, setDeathRecords] = useState<Record<string, DeathRecord>>({});
   const [ghostVotesRemaining, setGhostVotesRemaining] = useState<Set<string>>(new Set());
   const [deathAnnouncements, setDeathAnnouncements] = useState<readonly string[]>([]);
+  const [manualDeathTargetId, setManualDeathTargetId] = useState('');
+  const [manualDeathCause, setManualDeathCause] = useState<DeathCause>('execution');
 
   // ─── Night State ─────────────────────────────────────────────
   const [nightActions, setNightActions] = useState<readonly NightActionRecord[]>([]);
@@ -194,11 +162,14 @@ export default function IndexPage() {
 
   const isStoryteller = roomState?.storytellerId === playerId;
   const isRoomCreator = roomState?.creatorId === playerId;
+  const selfPlayer = useMemo(
+    () => roomState?.players.find((player) => player.id === playerId) ?? null,
+    [playerId, roomState],
+  );
   const visibleCharacter = useMemo(() => {
     if (myCharacter) return myCharacter;
-    const self = roomState?.players.find((player) => player.id === playerId);
-    return self?.character ?? null;
-  }, [myCharacter, playerId, roomState]);
+    return selfPlayer?.character ?? null;
+  }, [myCharacter, selfPlayer]);
 
   const alivePlayers = useMemo(
     () => (roomState?.players ?? []).filter((player) => player.isAlive),
@@ -243,6 +214,7 @@ export default function IndexPage() {
   const currentRoomId = roomState?.roomId ?? roomIdInput.trim();
   const currentScriptName = roomState?.scriptName ?? DEFAULT_SCRIPT_NAME;
   const currentExecutionThreshold = Math.ceil(alivePlayers.length / 2);
+  const canUseSlayerAbility = gamePhase === 'day' && selfPlayer?.isAlive === true && visibleCharacter?.id === 'slayer';
 
   function toggleNightTarget(targetId: string): void {
     setNightTargetIds((current) =>
@@ -278,6 +250,10 @@ export default function IndexPage() {
 
   function syncRoomSnapshot(state: RoomState): void {
     setRoomState(state);
+    if (typeof state.maxPlayers === 'number') {
+      setMaxPlayersInput(String(state.maxPlayers));
+      persistString(MAX_PLAYERS_STORAGE_KEY, String(state.maxPlayers));
+    }
 
     const snapshotPhase = mapProtocolPhase(state.phase);
     if (snapshotPhase) {
@@ -650,6 +626,20 @@ export default function IndexPage() {
     appendLog(`已发送 KICK_PLAYER -> ${targetPlayerId}`);
   }
 
+  function updateRoomSettings(): void {
+    const client = requireClient();
+    if (!client) return;
+
+    const maxPlayers = Number.parseInt(maxPlayersInput, 10);
+    if (!Number.isInteger(maxPlayers) || maxPlayers < 5 || maxPlayers > 15) {
+      setErrorMessage('实际玩家数必须在 5-15 之间');
+      return;
+    }
+
+    client.updateRoomSettings(maxPlayers);
+    appendLog(`已发送 UPDATE_ROOM_SETTINGS -> ${maxPlayers}`);
+  }
+
   function setStoryteller(targetPlayerId: string): void {
     const client = requireClient();
     if (!client) return;
@@ -747,6 +737,26 @@ export default function IndexPage() {
     appendLog(`已发送 EXECUTE_PLAYER -> ${targetPlayerId}`);
   }
 
+  function useSlayerAbility(targetPlayerId: string): void {
+    const client = requireClient();
+    if (!client) return;
+    client.useSlayerAbility(targetPlayerId);
+    appendLog(`已发送 USE_SLAYER_ABILITY -> ${targetPlayerId}`);
+  }
+
+  function declarePlayerDeath(): void {
+    const client = requireClient();
+    if (!client) return;
+    if (!manualDeathTargetId) {
+      setErrorMessage('请选择要宣告死亡的玩家');
+      return;
+    }
+
+    client.killPlayer(manualDeathTargetId, manualDeathCause);
+    appendLog(`已发送 KILL_PLAYER -> ${manualDeathTargetId} (${manualDeathCause})`);
+    setManualDeathTargetId('');
+  }
+
   function submitNightAction(): void {
     const client = requireClient();
     if (!client) return;
@@ -765,19 +775,7 @@ export default function IndexPage() {
       return;
     }
     const result = nightResultInput.trim() || null;
-    client.submitNightAction(nightActionType, nightTargetIds);
-    if (result) {
-      // Store result locally for display
-      setNightActions((current) => [
-        ...current,
-        {
-          actorId: playerId,
-          actionType: nightActionType,
-          targetIds: nightTargetIds,
-          result,
-        },
-      ]);
-    }
+    client.submitNightAction(nightActionType, nightTargetIds, result ?? undefined);
     setNightTargetIds([]);
     setNightResultInput('');
     appendLog(`已发送夜间行动: ${action.label}`);
@@ -900,7 +898,12 @@ export default function IndexPage() {
       <View className='card'>
         <Text className='sectionTitle'>房间 [Room]</Text>
         <Input className='input' value={maxPlayersInput} type='number' placeholder='实际玩家数，默认 5' onInput={(event: InputEvent) => updateMaxPlayersInput(eventValue(event))} />
-        <Button className='button primary' onClick={createRoom}>创建房间</Button>
+        <View className='row'>
+          <Button className='button primary' onClick={createRoom}>创建房间</Button>
+          {isRoomCreator && gamePhase === 'setup' && (
+            <Button className='button' onClick={updateRoomSettings}>保存设置</Button>
+          )}
+        </View>
         <Input className='input' value={roomIdInput} placeholder='房间号' onInput={(event: InputEvent) => updateRoomIdInput(eventValue(event))} />
         <View className='row'>
           <Button className='button primary' onClick={joinRoom}>加入房间</Button>
@@ -971,6 +974,23 @@ export default function IndexPage() {
         {!isStoryteller && <Text className='hint'>只有 Storyteller 可以分配角色。</Text>}
       </View>
 
+      {canUseSlayerAbility && (
+        <View className='card'>
+          <Text className='sectionTitle'>Slayer 能力 [Slayer Ability]</Text>
+          <View className='targetSelector'>
+            {alivePlayers.map((player) => (
+              <Button
+                className='miniButton'
+                key={player.id}
+                onClick={() => useSlayerAbility(player.id)}
+              >
+                {player.name || player.id}
+              </Button>
+            ))}
+          </View>
+        </View>
+      )}
+
       {/* ─── Storyteller Controls ──────────────────────────── */}
       {isStoryteller && (
         <View className='card'>
@@ -984,6 +1004,35 @@ export default function IndexPage() {
             <View className='row'>
               <Button className='button' onClick={() => changePhase('day')}>进入白天</Button>
               <Button className='button' onClick={() => changePhase('night')}>进入夜晚</Button>
+            </View>
+          )}
+
+          {gamePhase !== 'setup' && gamePhase !== 'finished' && (
+            <View className='endGameControls'>
+              <Text className='sectionTitle'>宣告死亡 [Death Declaration]</Text>
+              <View className='actionTypeList'>
+                {DEATH_CAUSE_OPTIONS.map((cause) => (
+                  <Button
+                    className={`miniButton ${manualDeathCause === cause.id ? 'selected' : ''}`}
+                    key={cause.id}
+                    onClick={() => setManualDeathCause(cause.id)}
+                  >
+                    {cause.label}
+                  </Button>
+                ))}
+              </View>
+              <View className='targetSelector'>
+                {alivePlayers.map((player) => (
+                  <Button
+                    className={`miniButton ${manualDeathTargetId === player.id ? 'selected' : ''}`}
+                    key={player.id}
+                    onClick={() => setManualDeathTargetId(player.id)}
+                  >
+                    {player.name || player.id}
+                  </Button>
+                ))}
+              </View>
+              <Button className='button danger' onClick={declarePlayerDeath}>宣告死亡</Button>
             </View>
           )}
 

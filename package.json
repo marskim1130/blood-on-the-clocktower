@@ -5,6 +5,9 @@
     "build": "pnpm -r run build",
     "build:core": "pnpm --filter @clocktower/core run build",
     "build:frontend": "pnpm --filter @clocktower/frontend run build",
+    "dev": "concurrently -n backend,frontend -c blue,green \"pnpm dev:backend\" \"pnpm dev:frontend\"",
+    "dev:backend": "cd packages/backend && go run ./cmd/server/",
+    "dev:frontend": "pnpm --filter @clocktower/frontend run dev",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "typecheck": "tsc --build",
@@ -15,6 +18,7 @@
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
+    "concurrently": "^10.0.3",
     "eslint": "^8.57.0",
     "protobufjs": "^7.4.0",
     "protobufjs-cli": "^1.1.0",

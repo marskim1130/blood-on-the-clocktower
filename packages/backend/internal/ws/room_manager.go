@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+
+	"github.com/your-org/blood-on-the-clocktower/internal/game"
 )
 
 const defaultMaxPlayers = 10
@@ -16,6 +18,8 @@ type Room struct {
 	clients    map[string]*Client // playerID -> Client
 	maxPlayers int                // actual players, excluding storyteller capacity
 	creatorID  string
+	scriptID   string
+	kicked     map[string]bool
 }
 
 func (r *Room) addClient(conn Connection, playerID string) {
@@ -38,9 +42,13 @@ func NewRoomManager() *RoomManager {
 	}
 }
 
-func (rm *RoomManager) CreateRoom(creatorID string, maxPlayers int) *Room {
+func (rm *RoomManager) CreateRoom(creatorID string, maxPlayers int, scriptIDs ...string) *Room {
 	if maxPlayers < 5 || maxPlayers > 15 {
 		maxPlayers = defaultMaxPlayers
+	}
+	scriptID := game.TroubleBrewingScriptID
+	if len(scriptIDs) > 0 && scriptIDs[0] != "" {
+		scriptID = scriptIDs[0]
 	}
 
 	rm.mu.Lock()
@@ -50,6 +58,8 @@ func (rm *RoomManager) CreateRoom(creatorID string, maxPlayers int) *Room {
 		clients:    make(map[string]*Client),
 		maxPlayers: maxPlayers,
 		creatorID:  creatorID,
+		scriptID:   scriptID,
+		kicked:     make(map[string]bool),
 	}
 	rm.rooms[roomID] = room
 	rm.mu.Unlock()
@@ -69,6 +79,9 @@ func (rm *RoomManager) JoinRoom(roomID string, conn Connection, playerID, player
 	room.mu.Lock()
 	defer room.mu.Unlock()
 
+	if room.kicked != nil && room.kicked[playerID] {
+		return fmt.Errorf("player was kicked from room")
+	}
 	if _, reconnecting := room.clients[playerID]; !reconnecting && len(room.clients) >= room.maxPlayers+1 {
 		return fmt.Errorf("room is full")
 	}
@@ -86,12 +99,7 @@ func (rm *RoomManager) LeaveRoom(playerID string) (roomID string, err error) {
 		if _, ok := room.clients[playerID]; ok {
 			delete(room.clients, playerID)
 			roomID = id
-			shouldDestroy := len(room.clients) == 0
 			room.mu.Unlock()
-
-			if shouldDestroy {
-				delete(rm.rooms, id)
-			}
 			return roomID, nil
 		}
 		room.mu.Unlock()
@@ -110,18 +118,54 @@ func (rm *RoomManager) RemoveClientByConn(conn Connection) (roomID, playerID str
 				delete(room.clients, pid)
 				roomID = id
 				playerID = pid
-				shouldDestroy := len(room.clients) == 0
 				room.mu.Unlock()
-
-				if shouldDestroy {
-					delete(rm.rooms, id)
-				}
 				return roomID, playerID, nil
 			}
 		}
 		room.mu.Unlock()
 	}
 	return "", "", fmt.Errorf("connection not in any room")
+}
+
+func (rm *RoomManager) RemoveClient(roomID, playerID string) {
+	rm.mu.RLock()
+	room, exists := rm.rooms[roomID]
+	rm.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	room.mu.Lock()
+	delete(room.clients, playerID)
+	room.mu.Unlock()
+}
+
+func (rm *RoomManager) KickPlayer(roomID, playerID string) (*Client, error) {
+	rm.mu.RLock()
+	room, exists := rm.rooms[roomID]
+	rm.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("room not found")
+	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+
+	if room.kicked == nil {
+		room.kicked = make(map[string]bool)
+	}
+	room.kicked[playerID] = true
+	client := room.clients[playerID]
+	delete(room.clients, playerID)
+	return client, nil
+}
+
+func (rm *RoomManager) DestroyRoom(roomID string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	delete(rm.rooms, roomID)
 }
 
 func (rm *RoomManager) GetRoom(roomID string) *Room {
@@ -211,6 +255,20 @@ func (rm *RoomManager) MaxPlayers(roomID string) int {
 	room.mu.RLock()
 	defer room.mu.RUnlock()
 	return room.maxPlayers
+}
+
+func (rm *RoomManager) ScriptID(roomID string) string {
+	rm.mu.RLock()
+	room, exists := rm.rooms[roomID]
+	rm.mu.RUnlock()
+
+	if !exists {
+		return ""
+	}
+
+	room.mu.RLock()
+	defer room.mu.RUnlock()
+	return room.scriptID
 }
 
 func (rm *RoomManager) PlayerCount(roomID string) int {

@@ -4,6 +4,7 @@ export interface ClientMessage {
     | 'CREATE_ROOM'
     | 'JOIN_ROOM'
     | 'LEAVE_ROOM'
+    | 'KICK_PLAYER'
     | 'SET_STORYTELLER'
     | 'ASSIGN_CHARACTERS'
     | 'SUBMIT_EVENT'
@@ -14,12 +15,14 @@ export interface ClientMessage {
     | 'RESOLVE_NOMINATION'
     | 'EXECUTE_PLAYER'
     | 'SUBMIT_NIGHT_ACTION'
-    | 'RESOLVE_NIGHT';
+    | 'RESOLVE_NIGHT'
+    | 'END_GAME';
   readonly roomId?: string;
   readonly playerName?: string;
   readonly playerId?: string;
   readonly targetPlayerId?: string;
   readonly maxPlayers?: number;
+  readonly scriptId?: string;
   readonly assignments?: Record<string, string>;
   readonly event?: Record<string, unknown>;
   /** Phase name for CHANGE_PHASE (e.g. 'day', 'night', 'voting'). */
@@ -34,6 +37,12 @@ export interface ClientMessage {
   readonly actionType?: string;
   /** Target player ids for SUBMIT_NIGHT_ACTION. */
   readonly targetIds?: readonly string[];
+  /** Winning team for END_GAME. */
+  readonly winner?: 'good' | 'evil';
+  /** Optional machine-readable reason for END_GAME. */
+  readonly reason?: string;
+  /** Optional human-readable explanation for END_GAME. */
+  readonly description?: string;
 }
 
 export interface ServerMessage {
@@ -54,7 +63,37 @@ export interface RoomState {
     readonly votes?: number;
   }>;
   readonly maxPlayers?: number;
+  readonly scriptId?: string;
+  readonly scriptName?: string;
+  readonly creatorId?: string;
   readonly storytellerId?: string;
+  readonly phase?: number;
+  readonly dayNumber?: number;
+  readonly nomination?: {
+    readonly nominatorId: string;
+    readonly nomineeId: string;
+    readonly votes?: Record<string, boolean>;
+  } | null;
+  readonly deaths?: ReadonlyArray<{
+    readonly playerId: string;
+    readonly cause: string;
+    readonly dayNumber: number;
+    readonly killedBy?: string;
+  }>;
+  readonly ghostVotesRemaining?: readonly string[];
+  readonly nightWakeSteps?: readonly RoomNightWakeStep[];
+  readonly currentNightWakeIndex?: number;
+  readonly currentNightWakeStep?: RoomNightWakeStep | null;
+  readonly winner?: GameEndedPayload | null;
+}
+
+export interface RoomNightWakeStep {
+  readonly characterId: string;
+  readonly order: number;
+  readonly actionType: string;
+  readonly prompt: string;
+  readonly minTargets: number;
+  readonly maxTargets: number;
 }
 
 export interface GameCharacter {
@@ -68,13 +107,21 @@ export type GameServerEvent =
   | { readonly playerJoined: { readonly player: { readonly id: string; readonly name: string; readonly isAlive: boolean } } }
   | { readonly playerLeft: { readonly playerId: string } }
   | { readonly phaseChanged: { readonly phase: number } }
-  | { readonly voteCast: { readonly voterId: string; readonly targetId?: string } }
+  | { readonly voteCast: { readonly voterId: string; readonly targetId?: string; readonly decision?: boolean } }
   | { readonly characterAssigned: { readonly playerId: string; readonly character: GameCharacter } }
   | { readonly playerDied: { readonly playerId: string; readonly cause: string; readonly dayNumber: number } }
   | { readonly nominationStarted: { readonly nominatorId: string; readonly nomineeId: string } }
-  | { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number } }
+  | { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number; readonly requiredVotes?: number } }
   | { readonly nightAction: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result: string | null } }
-  | { readonly gameOver: { readonly winner: string; readonly reason: string; readonly description: string } };
+  | { readonly nightActionSubmitted: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result?: string | null } }
+  | { readonly gameOver: GameEndedPayload }
+  | { readonly gameEnded: GameEndedPayload };
+
+export interface GameEndedPayload {
+  readonly winner: number | string;
+  readonly reason: string;
+  readonly description: string;
+}
 
 type MessageHandler = (msg: ServerMessage) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
@@ -186,6 +233,17 @@ interface ResolvedWebSocketClientOptions {
   readonly transportFactory: WebSocketTransportFactory;
 }
 
+interface RoomResumeSession {
+  readonly roomId: string;
+  readonly playerId: string;
+  readonly playerName: string;
+}
+
+interface PendingCreatedRoomIdentity {
+  readonly playerId: string;
+  readonly playerName: string;
+}
+
 export class GameWebSocketClient {
   private transport: WebSocketTransport | null = null;
   private readonly options: ResolvedWebSocketClientOptions;
@@ -195,6 +253,8 @@ export class GameWebSocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalDisconnect = false;
   private _status: ConnectionStatus = 'disconnected';
+  private resumeSession: RoomResumeSession | null = null;
+  private pendingCreatedRoomIdentity: PendingCreatedRoomIdentity | null = null;
 
   constructor(options: WebSocketClientOptions) {
     this.options = {
@@ -226,11 +286,13 @@ export class GameWebSocketClient {
     transport.onOpen(() => {
       this.setStatus('connected');
       this.reconnectAttempts = 0;
+      this.resumeRoomIfNeeded();
     });
 
     transport.onMessage((data) => {
       try {
         const msg: ServerMessage = JSON.parse(data);
+        this.captureResumeSession(msg);
         this.handlers.forEach((handler) => handler(msg));
       } catch {
         console.warn('Failed to parse WebSocket message');
@@ -269,16 +331,31 @@ export class GameWebSocketClient {
     this.setStatus('disconnected');
   }
 
-  createRoom(playerId: string, playerName: string, maxPlayers: number): void {
-    this.send({ type: 'CREATE_ROOM', playerId, playerName, maxPlayers });
+  createRoom(playerId: string, playerName: string, maxPlayers: number, scriptId?: string): void {
+    this.pendingCreatedRoomIdentity = { playerId, playerName };
+    this.send({
+      type: 'CREATE_ROOM',
+      playerId,
+      playerName,
+      maxPlayers,
+      ...(scriptId ? { scriptId } : {}),
+    });
   }
 
   joinRoom(roomId: string, playerId: string, playerName: string): void {
+    this.resumeSession = { roomId, playerId, playerName };
+    this.pendingCreatedRoomIdentity = null;
     this.send({ type: 'JOIN_ROOM', roomId, playerId, playerName });
   }
 
   leaveRoom(): void {
+    this.resumeSession = null;
+    this.pendingCreatedRoomIdentity = null;
     this.send({ type: 'LEAVE_ROOM' });
+  }
+
+  kickPlayer(targetPlayerId: string): void {
+    this.send({ type: 'KICK_PLAYER', targetPlayerId });
   }
 
   setStoryteller(targetPlayerId: string): void {
@@ -325,6 +402,15 @@ export class GameWebSocketClient {
     this.send({ type: 'RESOLVE_NIGHT' });
   }
 
+  endGame(winner: 'good' | 'evil', description?: string): void {
+    this.send({
+      type: 'END_GAME',
+      winner,
+      reason: 'storyteller_decision',
+      ...(description?.trim() ? { description: description.trim() } : {}),
+    });
+  }
+
   send(msg: ClientMessage): void {
     if (this.transport?.readyState !== READY_STATE_OPEN) {
       throw new Error('WebSocket is not connected');
@@ -354,5 +440,37 @@ export class GameWebSocketClient {
     this.reconnectTimer = setTimeout(() => {
       this.connect();
     }, this.options.reconnectInterval);
+  }
+
+  private captureResumeSession(msg: ServerMessage): void {
+    if (msg.type === 'ERROR' && msg.error === 'kicked from room') {
+      this.resumeSession = null;
+      this.pendingCreatedRoomIdentity = null;
+      return;
+    }
+
+    if (msg.type !== 'ROOM_STATE' || !msg.roomId || !this.pendingCreatedRoomIdentity) return;
+
+    this.resumeSession = {
+      roomId: msg.roomId,
+      playerId: this.pendingCreatedRoomIdentity.playerId,
+      playerName: this.pendingCreatedRoomIdentity.playerName,
+    };
+    this.pendingCreatedRoomIdentity = null;
+  }
+
+  private resumeRoomIfNeeded(): void {
+    if (!this.resumeSession) return;
+
+    try {
+      this.send({
+        type: 'JOIN_ROOM',
+        roomId: this.resumeSession.roomId,
+        playerId: this.resumeSession.playerId,
+        playerName: this.resumeSession.playerName,
+      });
+    } catch {
+      this.setStatus('error');
+    }
   }
 }

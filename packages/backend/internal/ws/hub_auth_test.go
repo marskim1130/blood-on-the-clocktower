@@ -197,6 +197,60 @@ func TestLeaveRoomIgnoresForgedPlayerID(t *testing.T) {
 	}
 }
 
+func TestKickPlayerRejectsForgedCreatorID(t *testing.T) {
+	h := NewHub()
+
+	creatorConn := NewFakeConnection()
+	h.handleMessage(creatorConn, ClientMessage{
+		Type:       MsgCreateRoom,
+		PlayerID:   "creator",
+		PlayerName: "Creator",
+		MaxPlayers: 10,
+	})
+	roomID := creatorConn.Messages()[0].(ServerMessage).RoomID
+
+	victimConn := NewFakeConnection()
+	h.handleMessage(victimConn, ClientMessage{
+		Type:       MsgJoinRoom,
+		RoomID:     roomID,
+		PlayerID:   "victim",
+		PlayerName: "Victim",
+	})
+
+	attackerConn := NewFakeConnection()
+	h.handleMessage(attackerConn, ClientMessage{
+		Type:       MsgJoinRoom,
+		RoomID:     roomID,
+		PlayerID:   "attacker",
+		PlayerName: "Attacker",
+	})
+	attackerConn.ClearMessages()
+
+	h.handleMessage(attackerConn, ClientMessage{
+		Type:           MsgKickPlayer,
+		PlayerID:       "creator",
+		TargetPlayerID: "victim",
+	})
+
+	msgs := attackerConn.Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected error response for forged creator kick")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "only room creator can kick players" {
+		t.Fatalf("expected creator-only kick error, got %q", errMsg.Error)
+	}
+	if _, exists := h.rm.GetClientsByRoom(roomID)["victim"]; !exists {
+		t.Fatal("victim should remain in room after forged kick attempt")
+	}
+	if len(victimConn.Messages()) == 0 {
+		t.Fatal("expected victim to still have prior join messages")
+	}
+}
+
 // TestSetStorytellerRejectsUnknownConnection verifies that a connection
 // not yet associated with any room gets a clear error when trying to
 // set storyteller, not a misleading "no game session" message.

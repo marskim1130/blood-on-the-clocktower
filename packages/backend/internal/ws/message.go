@@ -13,6 +13,7 @@ const (
 	MsgCreateRoom        = "CREATE_ROOM"
 	MsgJoinRoom          = "JOIN_ROOM"
 	MsgLeaveRoom         = "LEAVE_ROOM"
+	MsgKickPlayer        = "KICK_PLAYER"
 	MsgSetStoryteller    = "SET_STORYTELLER"
 	MsgAssignCharacters  = "ASSIGN_CHARACTERS"
 	MsgSubmitEvent       = "SUBMIT_EVENT"
@@ -24,6 +25,7 @@ const (
 	MsgExecutePlayer     = "EXECUTE_PLAYER"
 	MsgSubmitNightAction = "SUBMIT_NIGHT_ACTION"
 	MsgResolveNight      = "RESOLVE_NIGHT"
+	MsgEndGame           = "END_GAME"
 )
 
 // ClientMessage represents a message from client to server
@@ -35,13 +37,17 @@ type ClientMessage struct {
 	TargetPlayerID  string            `json:"targetPlayerId,omitempty"`
 	ExecutePlayerID string            `json:"executePlayerId,omitempty"`
 	MaxPlayers      int               `json:"maxPlayers,omitempty"`
+	ScriptID        string            `json:"scriptId,omitempty"`
 	Assignments     map[string]string `json:"assignments,omitempty"` // playerID -> characterID
 	Event           *game.GameEvent   `json:"event,omitempty"`
-	NomineeID       string            `json:"nomineeId,omitempty"`  // NOMINATE target
-	Decision        *bool             `json:"decision,omitempty"`   // CAST_VOTE value
-	Phase           ClientGamePhase   `json:"phase,omitempty"`      // CHANGE_PHASE target
-	ActionType      string            `json:"actionType,omitempty"` // SUBMIT_NIGHT_ACTION type
-	TargetIDs       []string          `json:"targetIds,omitempty"`  // SUBMIT_NIGHT_ACTION targets
+	NomineeID       string            `json:"nomineeId,omitempty"`   // NOMINATE target
+	Decision        *bool             `json:"decision,omitempty"`    // CAST_VOTE value
+	Phase           ClientGamePhase   `json:"phase,omitempty"`       // CHANGE_PHASE target
+	Winner          ClientTeam        `json:"winner,omitempty"`      // END_GAME winning team
+	Reason          string            `json:"reason,omitempty"`      // END_GAME reason
+	Description     string            `json:"description,omitempty"` // END_GAME description
+	ActionType      string            `json:"actionType,omitempty"`  // SUBMIT_NIGHT_ACTION type
+	TargetIDs       []string          `json:"targetIds,omitempty"`   // SUBMIT_NIGHT_ACTION targets
 }
 
 // ClientGamePhase accepts both the numeric protocol enum and the current
@@ -96,6 +102,51 @@ func parseClientGamePhase(value string) (game.GamePhase, bool) {
 	}
 }
 
+// ClientTeam accepts both the numeric protocol enum and compact frontend names.
+type ClientTeam game.Team
+
+func (t ClientTeam) Team() game.Team {
+	return game.Team(t)
+}
+
+func (t *ClientTeam) UnmarshalJSON(raw []byte) error {
+	if string(raw) == "null" {
+		*t = ClientTeam(game.TeamUnspecified)
+		return nil
+	}
+
+	var numeric int
+	if err := json.Unmarshal(raw, &numeric); err == nil {
+		*t = ClientTeam(game.Team(numeric))
+		return nil
+	}
+
+	var named string
+	if err := json.Unmarshal(raw, &named); err != nil {
+		return err
+	}
+
+	team, ok := parseClientTeam(named)
+	if !ok {
+		return fmt.Errorf("unknown team %q", named)
+	}
+	*t = ClientTeam(team)
+	return nil
+}
+
+func parseClientTeam(value string) (game.Team, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "good", "1":
+		return game.TeamGood, true
+	case "evil", "2":
+		return game.TeamEvil, true
+	case "unspecified", "0":
+		return game.TeamUnspecified, true
+	default:
+		return game.TeamUnspecified, false
+	}
+}
+
 func (msg ClientMessage) targetPlayerID() string {
 	if msg.TargetPlayerID != "" {
 		return msg.TargetPlayerID
@@ -114,13 +165,20 @@ type ServerMessage struct {
 
 // RoomState represents the current state of a room
 type RoomState struct {
-	RoomID        string               `json:"roomId"`
-	Players       []game.Player        `json:"players"`
-	MaxPlayers    int                  `json:"maxPlayers"`
-	StorytellerID string               `json:"storytellerId,omitempty"`
-	Phase         game.GamePhase       `json:"phase"`
-	DayNumber     int32                `json:"dayNumber"`
-	Nomination    *game.Nomination     `json:"nomination,omitempty"`
-	Deaths        []game.DeathRecord   `json:"deaths,omitempty"`
-	Winner        *game.GameEndedEvent `json:"winner,omitempty"`
+	RoomID                string               `json:"roomId"`
+	Players               []game.Player        `json:"players"`
+	MaxPlayers            int                  `json:"maxPlayers"`
+	ScriptID              string               `json:"scriptId"`
+	ScriptName            string               `json:"scriptName"`
+	CreatorID             string               `json:"creatorId,omitempty"`
+	StorytellerID         string               `json:"storytellerId,omitempty"`
+	Phase                 game.GamePhase       `json:"phase"`
+	DayNumber             int32                `json:"dayNumber"`
+	Nomination            *game.Nomination     `json:"nomination,omitempty"`
+	Deaths                []game.DeathRecord   `json:"deaths,omitempty"`
+	GhostVotesRemaining   []string             `json:"ghostVotesRemaining,omitempty"`
+	NightWakeSteps        []game.NightWakeStep `json:"nightWakeSteps,omitempty"`
+	CurrentNightWakeIndex int                  `json:"currentNightWakeIndex,omitempty"`
+	CurrentNightWakeStep  *game.NightWakeStep  `json:"currentNightWakeStep,omitempty"`
+	Winner                *game.GameEndedEvent `json:"winner,omitempty"`
 }

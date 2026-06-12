@@ -71,8 +71,9 @@ func TestGameSessionAssignCharacters(t *testing.T) {
 	gs.AddPlayer(game.Player{ID: "p3", Name: "Charlie", IsAlive: true})
 	gs.AddPlayer(game.Player{ID: "p4", Name: "Dave", IsAlive: true})
 	gs.AddPlayer(game.Player{ID: "p5", Name: "Eve", IsAlive: true})
+	gs.AddPlayer(game.Player{ID: "p6", Name: "Frank", IsAlive: true})
 
-	// Set storyteller (p1), remaining players: p2-p5 (4 players)
+	// Set storyteller (p1), remaining players: p2-p6 (5 players)
 	gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p1"})
 
 	result, err := gs.Apply(AssignCharactersCmd{
@@ -81,14 +82,15 @@ func TestGameSessionAssignCharacters(t *testing.T) {
 			"p2": "washerwoman",
 			"p3": "librarian",
 			"p4": "investigator",
-			"p5": "imp",
+			"p5": "poisoner",
+			"p6": "imp",
 		},
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result.Events) != 4 {
-		t.Errorf("expected 4 events, got %d", len(result.Events))
+	if len(result.Events) != 5 {
+		t.Errorf("expected 5 events, got %d", len(result.Events))
 	}
 }
 
@@ -155,7 +157,7 @@ func TestGameSessionAssignCharactersBogusPlayerIDs(t *testing.T) {
 	}
 }
 
-func TestGameSessionSubmitEvent(t *testing.T) {
+func TestGameSessionRejectsRawSubmittedEvents(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
 
@@ -165,11 +167,117 @@ func TestGameSessionSubmitEvent(t *testing.T) {
 			PhaseChanged: &game.PhaseChanged{Phase: game.GamePhaseDay},
 		},
 	})
+	if err == nil {
+		t.Fatal("expected raw submitted events to be rejected")
+	}
+	if err.Error() != "raw event submission is disabled; use explicit game commands" {
+		t.Fatalf("expected raw event submission error, got %q", err.Error())
+	}
+	if result.Updated || len(result.Events) != 0 {
+		t.Fatalf("expected rejected submit event to make no changes, got %#v", result)
+	}
+}
+
+func TestGameSessionKickPlayerDuringSetup(t *testing.T) {
+	gs := NewGameSession()
+	gs.AddPlayer(game.Player{ID: "creator", Name: "Creator", IsAlive: true})
+	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
+
+	result, err := gs.Apply(KickPlayerCmd{
+		SenderID:       "creator",
+		TargetPlayerID: "p1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected kick error: %v", err)
+	}
+	if !result.Updated {
+		t.Fatal("expected kick to update state")
+	}
+	if len(result.Events) != 1 || result.Events[0].PlayerLeft == nil || result.Events[0].PlayerLeft.PlayerID != "p1" {
+		t.Fatalf("expected player left event for p1, got %#v", result.Events)
+	}
+	for _, player := range gs.Players() {
+		if player.ID == "p1" {
+			t.Fatal("expected p1 to be removed from session players")
+		}
+	}
+}
+
+func TestGameSessionKickPlayerRejectsAfterSetup(t *testing.T) {
+	gs := NewGameSession()
+	gs.AddPlayer(game.Player{ID: "creator", Name: "Creator", IsAlive: true})
+	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
+	gs.phase = game.GamePhaseDay
+
+	result, err := gs.Apply(KickPlayerCmd{
+		SenderID:       "creator",
+		TargetPlayerID: "p1",
+	})
+	if err == nil {
+		t.Fatal("expected kick after setup to be rejected")
+	}
+	if err.Error() != "players can only be kicked during setup phase" {
+		t.Fatalf("expected setup-only error, got %q", err.Error())
+	}
+	if result.Updated || len(result.Events) != 0 {
+		t.Fatalf("expected rejected kick to make no changes, got %#v", result)
+	}
+}
+
+func TestGameSessionEndGameByStoryteller(t *testing.T) {
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.phase = game.GamePhaseDay
+
+	result, err := gs.Apply(EndGameCmd{
+		SenderID:    "storyteller",
+		Winner:      game.TeamEvil,
+		Description: "The town conceded.",
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result.Events) != 1 {
-		t.Errorf("expected 1 event, got %d", len(result.Events))
+	if !result.Updated {
+		t.Fatal("expected end game to update state")
+	}
+	if len(result.Events) != 1 || result.Events[0].GameEnded == nil {
+		t.Fatalf("expected one game ended event, got %#v", result.Events)
+	}
+
+	state := gs.StateForRoom("room-1")
+	if state.Phase != game.GamePhaseFinished {
+		t.Fatalf("expected finished phase, got %d", state.Phase)
+	}
+	if state.Winner == nil {
+		t.Fatal("expected winner in room state")
+	}
+	if state.Winner.Winner != game.TeamEvil ||
+		state.Winner.Reason != game.WinReasonStorytellerDecision ||
+		state.Winner.Description != "The town conceded." {
+		t.Fatalf("unexpected winner payload: %#v", state.Winner)
+	}
+}
+
+func TestGameSessionEndGameRejectsInvalidWinner(t *testing.T) {
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.phase = game.GamePhaseDay
+
+	result, err := gs.Apply(EndGameCmd{
+		SenderID: "storyteller",
+		Winner:   game.TeamUnspecified,
+	})
+	if err == nil {
+		t.Fatal("expected invalid winner error")
+	}
+	if err.Error() != "winner must be good or evil" {
+		t.Fatalf("expected invalid winner error, got %q", err.Error())
+	}
+	if result.Updated || len(result.Events) != 0 {
+		t.Fatalf("expected rejected end game to make no changes, got %#v", result)
+	}
+	if phase := gs.Phase(); phase != game.GamePhaseDay {
+		t.Fatalf("expected phase to remain day, got %d", phase)
 	}
 }
 
@@ -205,6 +313,49 @@ func TestGameSessionStateForRoom(t *testing.T) {
 	}
 	if len(state.Players) != 1 {
 		t.Errorf("expected 1 player (storyteller removed), got %d", len(state.Players))
+	}
+}
+
+func TestGameSessionStateForRoomReturnsImmutableSnapshot(t *testing.T) {
+	gs := NewGameSession()
+	gs.players = []game.Player{
+		{ID: "p1", Name: "Alice", IsAlive: true},
+		{ID: "p2", Name: "Bob", IsAlive: true},
+	}
+	gs.phase = game.GamePhaseVoting
+	gs.nomination = &game.Nomination{
+		NominatorID: "p1",
+		NomineeID:   "p2",
+		Votes:       map[string]bool{"p1": true},
+	}
+	gs.deaths = []game.DeathRecord{{PlayerID: "p2", Cause: game.DeathCauseExecution, DayNumber: 1}}
+	gs.winner = &game.GameEndedEvent{
+		Winner:      game.TeamGood,
+		Reason:      game.WinReasonImpExecuted,
+		Description: "good wins",
+	}
+
+	state := gs.StateForRoom("room-1")
+
+	gs.nomination.Resolved = true
+	gs.nomination.Votes["p2"] = false
+	gs.deaths[0].PlayerID = "p1"
+	gs.winner.Winner = game.TeamEvil
+
+	if state.Nomination == nil {
+		t.Fatal("expected nomination snapshot")
+	}
+	if state.Nomination.Resolved {
+		t.Fatal("expected nomination snapshot not to reflect later resolved mutation")
+	}
+	if _, exists := state.Nomination.Votes["p2"]; exists {
+		t.Fatal("expected nomination vote map snapshot not to reflect later mutation")
+	}
+	if state.Deaths[0].PlayerID != "p2" {
+		t.Fatalf("expected death snapshot to remain p2, got %s", state.Deaths[0].PlayerID)
+	}
+	if state.Winner == nil || state.Winner.Winner != game.TeamGood {
+		t.Fatalf("expected winner snapshot to remain good, got %#v", state.Winner)
 	}
 }
 

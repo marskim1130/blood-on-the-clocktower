@@ -17,13 +17,18 @@ var upgrader = websocket.Upgrader{
 // Hub is the transport layer: WebSocket upgrade, message routing, broadcast dispatch.
 // Implements Broadcaster. No game logic, no room state.
 type Hub struct {
-	rm         *RoomManager
-	sessions   map[string]*GameSession // roomID -> GameSession
-	mu         sync.RWMutex
-	connToRoom map[Connection]string // conn -> roomID (for disconnect lookup)
+	rm            *RoomManager
+	sessions      map[string]*GameSession // roomID -> GameSession
+	mu            sync.RWMutex
+	connToRoom    map[Connection]string // conn -> roomID (for disconnect lookup)
+	snapshotStore snapshotStore
 }
 
 func NewHub() *Hub {
+	return newHub()
+}
+
+func newHub() *Hub {
 	return &Hub{
 		rm:         NewRoomManager(),
 		sessions:   make(map[string]*GameSession),
@@ -66,6 +71,8 @@ func (h *Hub) handleMessage(conn Connection, msg ClientMessage) {
 		h.handleJoinRoom(conn, msg)
 	case MsgLeaveRoom:
 		h.handleLeaveRoom(conn, msg)
+	case MsgKickPlayer:
+		h.handleKickPlayer(conn, msg)
 	case MsgSetStoryteller:
 		h.handleSetStoryteller(conn, msg)
 	case MsgAssignCharacters:
@@ -88,23 +95,35 @@ func (h *Hub) handleMessage(conn Connection, msg ClientMessage) {
 		h.handleSubmitNightAction(conn, msg)
 	case MsgResolveNight:
 		h.handleResolveNight(conn, msg)
+	case MsgEndGame:
+		h.handleEndGame(conn, msg)
 	}
 }
 
 func (h *Hub) handleCreateRoom(conn Connection, msg ClientMessage) {
-	room := h.rm.CreateRoom(msg.PlayerID, msg.MaxPlayers)
+	scriptID := msg.ScriptID
+	if scriptID == "" {
+		scriptID = game.TroubleBrewingScriptID
+	}
+	if game.GetScriptByID(scriptID) == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "unsupported script"})
+		return
+	}
+
+	room := h.rm.CreateRoom(msg.PlayerID, msg.MaxPlayers, scriptID)
 
 	room.mu.Lock()
 	room.addClient(conn, msg.PlayerID)
 	room.mu.Unlock()
 
-	gs := NewGameSession()
+	gs := NewGameSession(scriptID)
 	gs.AddPlayer(game.Player{ID: msg.PlayerID, Name: msg.PlayerName, IsAlive: true})
 
 	h.mu.Lock()
 	h.sessions[room.id] = gs
 	h.connToRoom[conn] = room.id
 	h.mu.Unlock()
+	h.persistSnapshot()
 
 	conn.SendJSON(ServerMessage{
 		Type:   "ROOM_STATE",
@@ -125,8 +144,21 @@ func (h *Hub) handleJoinRoom(conn Connection, msg ClientMessage) {
 	gs := h.sessions[msg.RoomID]
 	h.mu.Unlock()
 
+	addedParticipant := true
 	if gs != nil {
-		gs.AddPlayer(game.Player{ID: msg.PlayerID, Name: msg.PlayerName, IsAlive: true})
+		added, err := gs.AddOrReconnectPlayer(game.Player{ID: msg.PlayerID, Name: msg.PlayerName, IsAlive: true}, h.rm.MaxPlayers(msg.RoomID))
+		if err != nil {
+			h.rm.RemoveClient(msg.RoomID, msg.PlayerID)
+			h.mu.Lock()
+			delete(h.connToRoom, conn)
+			h.mu.Unlock()
+			conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+			return
+		}
+		addedParticipant = added
+	}
+	if gs != nil {
+		h.persistSnapshot()
 	}
 
 	conn.SendJSON(ServerMessage{
@@ -135,14 +167,16 @@ func (h *Hub) handleJoinRoom(conn Connection, msg ClientMessage) {
 		State:  h.buildRoomStateForRecipient(msg.RoomID, msg.PlayerID),
 	})
 
-	h.BroadcastExcept(msg.RoomID, msg.PlayerID, ServerMessage{
-		Type: "EVENT_BROADCAST",
-		Event: &game.GameEvent{
-			PlayerJoined: &game.PlayerJoined{
-				Player: game.Player{ID: msg.PlayerID, Name: msg.PlayerName, IsAlive: true},
+	if addedParticipant {
+		h.BroadcastExcept(msg.RoomID, msg.PlayerID, ServerMessage{
+			Type: "EVENT_BROADCAST",
+			Event: &game.GameEvent{
+				PlayerJoined: &game.PlayerJoined{
+					Player: game.Player{ID: msg.PlayerID, Name: msg.PlayerName, IsAlive: true},
+				},
 			},
-		},
-	})
+		})
+	}
 }
 
 func (h *Hub) handleLeaveRoom(conn Connection, _ ClientMessage) {
@@ -184,11 +218,72 @@ func (h *Hub) handleLeaveRoom(conn Connection, _ ClientMessage) {
 		},
 	})
 
-	// Clean up session if room destroyed
-	if h.rm.GetRoom(roomID) == nil {
+	shouldDestroy := gs == nil || gs.ParticipantCount() == 0
+	if shouldDestroy {
+		h.rm.DestroyRoom(roomID)
 		h.mu.Lock()
 		delete(h.sessions, roomID)
 		h.mu.Unlock()
+	}
+	h.persistSnapshot()
+}
+
+func (h *Hub) handleKickPlayer(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if senderID != h.rm.CreatorID(roomID) {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "only room creator can kick players"})
+		return
+	}
+
+	result, err := gs.Apply(KickPlayerCmd{
+		SenderID:       senderID,
+		TargetPlayerID: msg.TargetPlayerID,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	kickedClient, err := h.rm.KickPlayer(roomID, msg.TargetPlayerID)
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+	if kickedClient != nil {
+		h.mu.Lock()
+		delete(h.connToRoom, kickedClient.Conn)
+		h.mu.Unlock()
+		if err := kickedClient.Conn.SendJSON(ServerMessage{Type: "ERROR", Error: "kicked from room"}); err != nil {
+			log.Printf("notify kicked player %s in room %s failed: %v", msg.TargetPlayerID, roomID, err)
+		}
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.persistSnapshot()
+		h.BroadcastRoomState(roomID)
 	}
 }
 
@@ -231,6 +326,7 @@ func (h *Hub) handleSetStoryteller(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -280,6 +376,7 @@ func (h *Hub) handleAssignCharacters(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -361,6 +458,7 @@ func (h *Hub) handleStartGame(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -407,6 +505,7 @@ func (h *Hub) handleChangePhase(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -447,6 +546,7 @@ func (h *Hub) handleNominate(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -492,6 +592,7 @@ func (h *Hub) handleCastVote(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -535,6 +636,7 @@ func (h *Hub) handleResolveNomination(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -581,6 +683,7 @@ func (h *Hub) handleExecutePlayer(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -626,6 +729,7 @@ func (h *Hub) handleSubmitNightAction(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -669,6 +773,50 @@ func (h *Hub) handleResolveNight(conn Connection, msg ClientMessage) {
 	}
 
 	if result.Updated {
+		h.persistSnapshot()
+		h.BroadcastRoomState(roomID)
+	}
+}
+
+func (h *Hub) handleEndGame(conn Connection, msg ClientMessage) {
+	h.mu.RLock()
+	roomID := h.connToRoom[conn]
+	gs := h.sessions[roomID]
+	h.mu.RUnlock()
+
+	if roomID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+	if gs == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "no game session"})
+		return
+	}
+
+	senderID := h.rm.GetPlayerByConn(roomID, conn)
+	if senderID == "" {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "not in any room"})
+		return
+	}
+
+	result, err := gs.Apply(EndGameCmd{
+		SenderID:    senderID,
+		Winner:      msg.Winner.Team(),
+		Reason:      game.WinReason(msg.Reason),
+		Description: msg.Description,
+	})
+	if err != nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
+		return
+	}
+
+	for _, event := range result.Events {
+		eventCopy := event
+		h.Broadcast(roomID, ServerMessage{Type: "EVENT_BROADCAST", Event: &eventCopy})
+	}
+
+	if result.Updated {
+		h.persistSnapshot()
 		h.BroadcastRoomState(roomID)
 	}
 }
@@ -679,30 +827,9 @@ func (h *Hub) handleDisconnect(conn Connection) {
 	delete(h.connToRoom, conn)
 	h.mu.Unlock()
 
-	roomID, playerID, err := h.rm.RemoveClientByConn(conn)
+	_, _, err := h.rm.RemoveClientByConn(conn)
 	if err != nil {
 		return
-	}
-
-	h.mu.RLock()
-	gs := h.sessions[roomID]
-	h.mu.RUnlock()
-
-	if gs != nil {
-		gs.RemovePlayer(playerID)
-	}
-
-	h.Broadcast(roomID, ServerMessage{
-		Type: "EVENT_BROADCAST",
-		Event: &game.GameEvent{
-			PlayerLeft: &game.PlayerLeft{PlayerID: playerID},
-		},
-	})
-
-	if h.rm.GetRoom(roomID) == nil {
-		h.mu.Lock()
-		delete(h.sessions, roomID)
-		h.mu.Unlock()
 	}
 }
 
@@ -809,10 +936,28 @@ func (h *Hub) buildRoomStateForRecipient(roomID, recipientID string) *RoomState 
 	h.mu.RUnlock()
 
 	if gs == nil {
-		return &RoomState{RoomID: roomID, MaxPlayers: h.rm.MaxPlayers(roomID)}
+		state := &RoomState{RoomID: roomID, MaxPlayers: h.rm.MaxPlayers(roomID)}
+		state.CreatorID = h.rm.CreatorID(roomID)
+		applyScriptToRoomState(state, h.rm.ScriptID(roomID))
+		return state
 	}
 
 	state := gs.StateForRoomForRecipient(roomID, recipientID)
 	state.MaxPlayers = h.rm.MaxPlayers(roomID)
+	state.CreatorID = h.rm.CreatorID(roomID)
+	applyScriptToRoomState(state, h.rm.ScriptID(roomID))
 	return state
+}
+
+func applyScriptToRoomState(state *RoomState, scriptID string) {
+	if state == nil {
+		return
+	}
+	if scriptID == "" {
+		scriptID = game.TroubleBrewingScriptID
+	}
+	state.ScriptID = scriptID
+	if script := game.GetScriptByID(scriptID); script != nil {
+		state.ScriptName = script.Name
+	}
 }

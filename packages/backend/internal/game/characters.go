@@ -19,6 +19,15 @@ type CharacterDefinition struct {
 	Ability string
 }
 
+// ScriptDefinition defines a playable script and its character pool.
+type ScriptDefinition struct {
+	ID         string
+	Name       string
+	Characters []CharacterDefinition
+}
+
+const TroubleBrewingScriptID = "trouble_brewing"
+
 // TroubleBrewing contains all Trouble Brewing character definitions
 var TroubleBrewing = []CharacterDefinition{
 	// Townsfolk
@@ -74,11 +83,36 @@ var TroubleBrewing = []CharacterDefinition{
 		Ability: "Each night, choose a player: they die. If you kill yourself this way, a Minion becomes the Imp."},
 }
 
+// TroubleBrewingScript is the default supported script.
+var TroubleBrewingScript = ScriptDefinition{
+	ID:         TroubleBrewingScriptID,
+	Name:       "Trouble Brewing",
+	Characters: TroubleBrewing,
+}
+
+var scriptsByID = map[string]*ScriptDefinition{
+	TroubleBrewingScriptID: &TroubleBrewingScript,
+}
+
+// GetScriptByID returns a playable script definition by ID.
+func GetScriptByID(id string) *ScriptDefinition {
+	return scriptsByID[id]
+}
+
 // GetCharacterByID returns a character definition by ID
 func GetCharacterByID(id string) *CharacterDefinition {
-	for _, c := range TroubleBrewing {
-		if c.ID == id {
-			return &c
+	return GetScriptCharacterByID(TroubleBrewingScriptID, id)
+}
+
+// GetScriptCharacterByID returns a character definition from a specific script.
+func GetScriptCharacterByID(scriptID, characterID string) *CharacterDefinition {
+	script := GetScriptByID(scriptID)
+	if script == nil {
+		return nil
+	}
+	for i := range script.Characters {
+		if script.Characters[i].ID == characterID {
+			return &script.Characters[i]
 		}
 	}
 	return nil
@@ -96,7 +130,6 @@ type RoleCount struct {
 // Source: Trouble Brewing rulebook
 // Note: These are for actual players (excluding storyteller)
 var ValidRoleCounts = map[int]RoleCount{
-	4:  {Townsfolk: 3, Outsiders: 0, Minions: 0, Demons: 1},
 	5:  {Townsfolk: 3, Outsiders: 0, Minions: 1, Demons: 1},
 	6:  {Townsfolk: 3, Outsiders: 1, Minions: 1, Demons: 1},
 	7:  {Townsfolk: 5, Outsiders: 0, Minions: 1, Demons: 1},
@@ -110,20 +143,112 @@ var ValidRoleCounts = map[int]RoleCount{
 	15: {Townsfolk: 9, Outsiders: 2, Minions: 3, Demons: 1},
 }
 
+// TroubleBrewingFirstNightOrder defines the storyteller wake order for night one.
+var TroubleBrewingFirstNightOrder = []NightWakeStep{
+	{CharacterID: "poisoner", Order: 1, ActionType: NightActionPoison, Prompt: "Poisoner chooses one player to poison until dusk.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "washerwoman", Order: 2, ActionType: NightActionLearnTownsfolk, Prompt: "Washerwoman learns that one of two players is a specific Townsfolk.", MinTargets: 2, MaxTargets: 2},
+	{CharacterID: "librarian", Order: 3, ActionType: NightActionLearnOutsider, Prompt: "Librarian learns that one of two players is a specific Outsider, or that none are in play.", MinTargets: 0, MaxTargets: 2},
+	{CharacterID: "investigator", Order: 4, ActionType: NightActionLearnMinion, Prompt: "Investigator learns that one of two players is a specific Minion.", MinTargets: 2, MaxTargets: 2},
+	{CharacterID: "chef", Order: 5, ActionType: NightActionLearnEvilPairs, Prompt: "Chef learns the number of adjacent evil pairs.", MinTargets: 0, MaxTargets: 0},
+	{CharacterID: "empath", Order: 6, ActionType: NightActionLearnEvilNeighbors, Prompt: "Empath learns how many alive neighbours are evil.", MinTargets: 0, MaxTargets: 0},
+	{CharacterID: "fortuneteller", Order: 7, ActionType: NightActionCheckDemon, Prompt: "Fortune Teller chooses two players and learns if either registers as the Demon.", MinTargets: 2, MaxTargets: 2},
+	{CharacterID: "butler", Order: 8, ActionType: NightActionLearnMaster, Prompt: "Butler chooses their master for tomorrow.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "imp", Order: 9, ActionType: NightActionKill, Prompt: "Imp chooses one player to die.", MinTargets: 1, MaxTargets: 1},
+}
+
+// TroubleBrewingSubsequentNightOrder defines the storyteller wake order after night one.
+var TroubleBrewingSubsequentNightOrder = []NightWakeStep{
+	{CharacterID: "poisoner", Order: 1, ActionType: NightActionPoison, Prompt: "Poisoner chooses one player to poison until dusk.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "monk", Order: 2, ActionType: NightActionProtect, Prompt: "Monk chooses one player other than themself to protect from the Demon.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "imp", Order: 3, ActionType: NightActionKill, Prompt: "Imp chooses one player to die.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "empath", Order: 4, ActionType: NightActionLearnEvilNeighbors, Prompt: "Empath learns how many alive neighbours are evil.", MinTargets: 0, MaxTargets: 0},
+	{CharacterID: "fortuneteller", Order: 5, ActionType: NightActionCheckDemon, Prompt: "Fortune Teller chooses two players and learns if either registers as the Demon.", MinTargets: 2, MaxTargets: 2},
+	{CharacterID: "undertaker", Order: 6, ActionType: NightActionLearnExecuted, Prompt: "Undertaker learns which character died by execution today.", MinTargets: 0, MaxTargets: 0},
+	{CharacterID: "butler", Order: 7, ActionType: NightActionLearnMaster, Prompt: "Butler chooses their master for tomorrow.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "ravenkeeper", Order: 8, ActionType: NightActionLearnDied, Prompt: "If Ravenkeeper died tonight, they choose one player and learn their character.", MinTargets: 1, MaxTargets: 1},
+}
+
+// GetScriptWakeOrder returns the full wake order for a script and night number.
+func GetScriptWakeOrder(scriptID string, nightNumber int32) []NightWakeStep {
+	if scriptID != TroubleBrewingScriptID {
+		return nil
+	}
+	if nightNumber <= 1 {
+		return cloneNightWakeSteps(TroubleBrewingFirstNightOrder)
+	}
+	return cloneNightWakeSteps(TroubleBrewingSubsequentNightOrder)
+}
+
+// GetActiveNightWakeSteps filters the script wake order down to assigned, alive characters.
+func GetActiveNightWakeSteps(scriptID string, nightNumber int32, players []Player) []NightWakeStep {
+	inPlay := map[string]bool{}
+	for _, player := range players {
+		if player.Character == nil || !player.IsAlive {
+			continue
+		}
+		inPlay[player.Character.ID] = true
+	}
+
+	steps := GetScriptWakeOrder(scriptID, nightNumber)
+	active := make([]NightWakeStep, 0, len(steps))
+	for _, step := range steps {
+		if inPlay[step.CharacterID] {
+			active = append(active, step)
+		}
+	}
+	return active
+}
+
+func cloneNightWakeSteps(steps []NightWakeStep) []NightWakeStep {
+	result := make([]NightWakeStep, len(steps))
+	copy(result, steps)
+	return result
+}
+
 // ValidateAssignment checks if a character assignment is valid for the given player count
 func ValidateAssignment(assignments map[string]string, playerCount int) bool {
+	return ValidateScriptAssignment(TroubleBrewingScriptID, assignments, playerCount)
+}
+
+// ValidateScriptAssignment checks if a character assignment is valid for a script.
+func ValidateScriptAssignment(scriptID string, assignments map[string]string, playerCount int) bool {
+	if GetScriptByID(scriptID) == nil {
+		return false
+	}
+
 	counts, ok := ValidRoleCounts[playerCount]
 	if !ok {
 		return false
 	}
+	if len(assignments) != playerCount {
+		return false
+	}
 
 	typeCounts := map[CharacterType]int{}
+	seenCharacters := map[string]bool{}
+	hasBaron := false
 	for _, charID := range assignments {
-		def := GetCharacterByID(charID)
+		if seenCharacters[charID] {
+			return false
+		}
+		seenCharacters[charID] = true
+		if charID == "baron" {
+			hasBaron = true
+		}
+
+		def := GetScriptCharacterByID(scriptID, charID)
 		if def == nil {
 			return false
 		}
 		typeCounts[def.Type]++
+	}
+
+	if hasBaron {
+		counts.Townsfolk -= 2
+		counts.Outsiders += 2
+		if counts.Townsfolk < 0 {
+			return false
+		}
 	}
 
 	return typeCounts[CharacterTypeTownsfolk] == counts.Townsfolk &&

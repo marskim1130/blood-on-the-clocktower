@@ -25,26 +25,33 @@ const (
 type NightActionType string
 
 const (
-	NightActionPoison         NightActionType = "poison"
-	NightActionProtect        NightActionType = "protect"
-	NightActionKill           NightActionType = "kill"
-	NightActionLearnTownsfolk NightActionType = "learn_townsfolk"
-	NightActionLearnOutsider  NightActionType = "learn_outsider"
-	NightActionLearnMinion    NightActionType = "learn_minion"
-	NightActionLearnDemon     NightActionType = "learn_demon"
-	NightActionChoosePlayer   NightActionType = "choose_player"
-	NightActionNone           NightActionType = "none"
+	NightActionPoison             NightActionType = "poison"
+	NightActionProtect            NightActionType = "protect"
+	NightActionKill               NightActionType = "kill"
+	NightActionLearnTownsfolk     NightActionType = "learn_townsfolk"
+	NightActionLearnOutsider      NightActionType = "learn_outsider"
+	NightActionLearnMinion        NightActionType = "learn_minion"
+	NightActionLearnEvilPairs     NightActionType = "learn_evil_pairs"
+	NightActionLearnEvilNeighbors NightActionType = "learn_evil_neighbors"
+	NightActionCheckDemon         NightActionType = "check_demon"
+	NightActionLearnExecuted      NightActionType = "learn_executed"
+	NightActionLearnDied          NightActionType = "learn_died"
+	NightActionLearnMaster        NightActionType = "learn_master"
+	NightActionLearnDemon         NightActionType = "learn_demon"
+	NightActionChoosePlayer       NightActionType = "choose_player"
+	NightActionNone               NightActionType = "none"
 )
 
 // WinReason represents the reason the game ended
 type WinReason string
 
 const (
-	WinReasonImpExecuted  WinReason = "imp_executed"
-	WinReasonMayorEndgame WinReason = "mayor_endgame"
-	WinReasonEvilMajority WinReason = "evil_majority"
-	WinReasonSaintExecuted WinReason = "saint_executed"
-	WinReasonImpStarpass  WinReason = "imp_starpass"
+	WinReasonImpExecuted         WinReason = "imp_executed"
+	WinReasonMayorEndgame        WinReason = "mayor_endgame"
+	WinReasonEvilMajority        WinReason = "evil_majority"
+	WinReasonSaintExecuted       WinReason = "saint_executed"
+	WinReasonImpStarpass         WinReason = "imp_starpass"
+	WinReasonStorytellerDecision WinReason = "storyteller_decision"
 )
 
 // Team represents the team a character belongs to
@@ -75,10 +82,10 @@ type Player struct {
 
 // DeathRecord represents a record of a player's death
 type DeathRecord struct {
-	PlayerID  string    `json:"playerId"`
+	PlayerID  string     `json:"playerId"`
 	Cause     DeathCause `json:"cause"`
-	DayNumber int32     `json:"dayNumber"`
-	KilledBy  string    `json:"killedBy,omitempty"`
+	DayNumber int32      `json:"dayNumber"`
+	KilledBy  string     `json:"killedBy,omitempty"`
 }
 
 // Nomination represents an active nomination for execution
@@ -97,6 +104,16 @@ type NightAction struct {
 	Result     string          `json:"result,omitempty"`
 }
 
+// NightWakeStep describes one storyteller-facing wake step for the current script.
+type NightWakeStep struct {
+	CharacterID string          `json:"characterId"`
+	Order       int             `json:"order"`
+	ActionType  NightActionType `json:"actionType"`
+	Prompt      string          `json:"prompt"`
+	MinTargets  int             `json:"minTargets"`
+	MaxTargets  int             `json:"maxTargets"`
+}
+
 // GameState represents the complete state of a game
 type GameState struct {
 	ID           string            `json:"id"`
@@ -113,16 +130,16 @@ type GameState struct {
 
 // GameEvent represents events that can occur in the game
 type GameEvent struct {
-	PlayerJoined       *PlayerJoined           `json:"playerJoined,omitempty"`
-	PlayerLeft         *PlayerLeft             `json:"playerLeft,omitempty"`
-	PhaseChanged       *PhaseChanged           `json:"phaseChanged,omitempty"`
-	VoteCast           *VoteCast               `json:"voteCast,omitempty"`
-	CharacterAssigned  *CharacterAssigned       `json:"characterAssigned,omitempty"`
-	PlayerDied         *PlayerDiedEvent        `json:"playerDied,omitempty"`
-	NominationStarted  *NominationStartedEvent `json:"nominationStarted,omitempty"`
-	NominationResolved *NominationResolvedEvent `json:"nominationResolved,omitempty"`
-	NightActionSubmitted *NightActionEvent     `json:"nightActionSubmitted,omitempty"`
-	GameEnded          *GameEndedEvent         `json:"gameEnded,omitempty"`
+	PlayerJoined         *PlayerJoined            `json:"playerJoined,omitempty"`
+	PlayerLeft           *PlayerLeft              `json:"playerLeft,omitempty"`
+	PhaseChanged         *PhaseChanged            `json:"phaseChanged,omitempty"`
+	VoteCast             *VoteCast                `json:"voteCast,omitempty"`
+	CharacterAssigned    *CharacterAssigned       `json:"characterAssigned,omitempty"`
+	PlayerDied           *PlayerDiedEvent         `json:"playerDied,omitempty"`
+	NominationStarted    *NominationStartedEvent  `json:"nominationStarted,omitempty"`
+	NominationResolved   *NominationResolvedEvent `json:"nominationResolved,omitempty"`
+	NightActionSubmitted *NightActionEvent        `json:"nightActionSubmitted,omitempty"`
+	GameEnded            *GameEndedEvent          `json:"gameEnded,omitempty"`
 }
 
 type PlayerJoined struct {
@@ -163,10 +180,11 @@ type NominationStartedEvent struct {
 
 // NominationResolvedEvent represents the result of a nomination vote
 type NominationResolvedEvent struct {
-	NomineeID string `json:"nomineeId"`
-	Executed  bool   `json:"executed"`
-	YesVotes  int    `json:"yesVotes"`
-	NoVotes   int    `json:"noVotes"`
+	NomineeID     string `json:"nomineeId"`
+	Executed      bool   `json:"executed"`
+	YesVotes      int    `json:"yesVotes"`
+	NoVotes       int    `json:"noVotes"`
+	RequiredVotes int    `json:"requiredVotes"`
 }
 
 // NightActionEvent represents a night action submitted by a player

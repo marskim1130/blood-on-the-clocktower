@@ -2,6 +2,8 @@ package ws
 
 import (
 	"testing"
+
+	"github.com/your-org/blood-on-the-clocktower/internal/game"
 )
 
 func TestRoomManagerCreateRoom(t *testing.T) {
@@ -16,6 +18,18 @@ func TestRoomManagerCreateRoom(t *testing.T) {
 	}
 	if room.creatorID != "p1" {
 		t.Errorf("expected creatorID=p1, got %s", room.creatorID)
+	}
+	if room.scriptID != game.TroubleBrewingScriptID {
+		t.Errorf("expected default script=%s, got %s", game.TroubleBrewingScriptID, room.scriptID)
+	}
+}
+
+func TestRoomManagerCreateRoomStoresScript(t *testing.T) {
+	rm := NewRoomManager()
+	room := rm.CreateRoom("p1", 10, game.TroubleBrewingScriptID)
+
+	if got := rm.ScriptID(room.id); got != game.TroubleBrewingScriptID {
+		t.Errorf("expected scriptID=%s, got %s", game.TroubleBrewingScriptID, got)
 	}
 }
 
@@ -106,7 +120,7 @@ func TestRoomManagerLeaveRoom(t *testing.T) {
 	}
 }
 
-func TestRoomManagerLeaveRoomAutoDestroy(t *testing.T) {
+func TestRoomManagerLeaveRoomKeepsRoomLifecycleExternal(t *testing.T) {
 	rm := NewRoomManager()
 	room := rm.CreateRoom("p1", 10)
 	conn := NewFakeConnection()
@@ -114,8 +128,48 @@ func TestRoomManagerLeaveRoomAutoDestroy(t *testing.T) {
 
 	rm.LeaveRoom("p1")
 
+	if rm.GetRoom(room.id) == nil {
+		t.Error("expected room to remain until the hub destroys it")
+	}
+}
+
+func TestRoomManagerKickPlayerPreventsRejoin(t *testing.T) {
+	rm := NewRoomManager()
+	room := rm.CreateRoom("creator", 5)
+	conn := NewFakeConnection()
+	if err := rm.JoinRoom(room.id, conn, "p1", "Alice"); err != nil {
+		t.Fatalf("unexpected join error: %v", err)
+	}
+
+	kickedClient, err := rm.KickPlayer(room.id, "p1")
+	if err != nil {
+		t.Fatalf("unexpected kick error: %v", err)
+	}
+	if kickedClient == nil || kickedClient.PlayerID != "p1" {
+		t.Fatalf("expected kicked client for p1, got %#v", kickedClient)
+	}
+	if client, _ := rm.GetClient("p1"); client != nil {
+		t.Fatal("expected kicked player to be removed from connected clients")
+	}
+
+	rejoinConn := NewFakeConnection()
+	err = rm.JoinRoom(room.id, rejoinConn, "p1", "Alice")
+	if err == nil {
+		t.Fatal("expected kicked player rejoin to be rejected")
+	}
+	if err.Error() != "player was kicked from room" {
+		t.Fatalf("expected kicked rejoin error, got %q", err.Error())
+	}
+}
+
+func TestRoomManagerDestroyRoom(t *testing.T) {
+	rm := NewRoomManager()
+	room := rm.CreateRoom("p1", 10)
+
+	rm.DestroyRoom(room.id)
+
 	if rm.GetRoom(room.id) != nil {
-		t.Error("expected room to be destroyed after last player left")
+		t.Error("expected room to be destroyed explicitly")
 	}
 }
 
@@ -134,6 +188,9 @@ func TestRoomManagerRemoveClientByConn(t *testing.T) {
 	}
 	if playerID != "p1" {
 		t.Errorf("expected playerID=p1, got %s", playerID)
+	}
+	if rm.GetRoom(room.id) == nil {
+		t.Error("expected disconnect cleanup to keep the room available for reconnect")
 	}
 }
 

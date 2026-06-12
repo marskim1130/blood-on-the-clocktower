@@ -154,7 +154,7 @@ func TestBroadcastOnlyToRoomMembers(t *testing.T) {
 	}
 }
 
-func TestEndToEndEventFlow(t *testing.T) {
+func TestSubmitEventFromRoomMemberIsRejected(t *testing.T) {
 	hub := NewHub()
 	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
 	defer server.Close()
@@ -180,32 +180,32 @@ func TestEndToEndEventFlow(t *testing.T) {
 	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
 	ws1.ReadMessage() // consume PLAYER_JOINED broadcast
 
-	// Player 1 submits a phase change event
+	// Player 1 attempts to submit a raw phase change event. The server must stay
+	// authoritative and reject raw client-provided GameEvent payloads.
 	phaseEvent := game.GameEvent{
 		PhaseChanged: &game.PhaseChanged{Phase: game.GamePhaseDay},
 	}
 	ws1.WriteJSON(ClientMessage{Type: "SUBMIT_EVENT", Event: &phaseEvent})
 
-	// Both players should receive the broadcast
-	for _, ws := range []*websocket.Conn{ws1, ws2} {
-		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, raw, err := ws.ReadMessage()
-		if err != nil {
-			t.Fatalf("failed to receive event broadcast: %v", err)
-		}
+	ws1.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := ws1.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to receive submit event rejection: %v", err)
+	}
 
-		var msg ServerMessage
-		json.Unmarshal(raw, &msg)
+	var msg ServerMessage
+	json.Unmarshal(raw, &msg)
+	if msg.Type != "ERROR" {
+		t.Fatalf("expected ERROR, got %s", msg.Type)
+	}
+	if msg.Error != "raw event submission is disabled; use explicit game commands" {
+		t.Fatalf("expected raw submission rejection, got %q", msg.Error)
+	}
 
-		if msg.Type != "EVENT_BROADCAST" {
-			t.Errorf("expected EVENT_BROADCAST, got %s", msg.Type)
-		}
-		if msg.Event == nil || msg.Event.PhaseChanged == nil {
-			t.Error("expected phaseChanged event")
-		}
-		if msg.Event.PhaseChanged.Phase != game.GamePhaseDay {
-			t.Errorf("expected phase DAY (%d), got %d", game.GamePhaseDay, msg.Event.PhaseChanged.Phase)
-		}
+	ws2.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	_, _, err = ws2.ReadMessage()
+	if err == nil {
+		t.Fatal("expected no raw event broadcast to other room members")
 	}
 }
 
@@ -368,7 +368,7 @@ func TestLeaveRoomRemovesPlayer(t *testing.T) {
 	}
 }
 
-func TestRoomAutoDestroysWhenEmpty(t *testing.T) {
+func TestRoomSurvivesDisconnectForReconnect(t *testing.T) {
 	hub := NewHub()
 	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
 	defer server.Close()
@@ -388,21 +388,171 @@ func TestRoomAutoDestroysWhenEmpty(t *testing.T) {
 	// Wait for disconnect to propagate
 	time.Sleep(100 * time.Millisecond)
 
-	// Try to join the destroyed room
+	// Reconnect with the same player identity.
 	ws2, _, _ := websocket.DefaultDialer.Dial(wsURL, nil)
 	defer ws2.Close()
-	ws2.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomID, PlayerName: "Bob", PlayerID: "p2"})
+	ws2.WriteJSON(ClientMessage{Type: "JOIN_ROOM", RoomID: roomID, PlayerName: "Alice Again", PlayerID: "p1"})
 	ws2.SetReadDeadline(time.Now().Add(2 * time.Second))
 	_, raw, err := ws2.ReadMessage()
 	if err != nil {
 		t.Fatalf("failed to read response: %v", err)
 	}
 
-	var errResp ServerMessage
-	json.Unmarshal(raw, &errResp)
+	var stateResp ServerMessage
+	json.Unmarshal(raw, &stateResp)
 
-	if errResp.Type != "ERROR" {
-		t.Errorf("expected ERROR after room destroyed, got %s", errResp.Type)
+	if stateResp.Type != "ROOM_STATE" {
+		t.Errorf("expected ROOM_STATE after reconnect, got %s", stateResp.Type)
+	}
+	if stateResp.RoomID != roomID {
+		t.Errorf("expected room %s after reconnect, got %s", roomID, stateResp.RoomID)
+	}
+}
+
+func TestWebSocketCompleteMVPGameFlow(t *testing.T) {
+	hub := NewHub()
+	server := httptest.NewServer(http.HandlerFunc(hub.HandleWebSocket))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+
+	storyteller := dialTestWebSocket(t, wsURL)
+	defer storyteller.Close()
+
+	storyteller.WriteJSON(ClientMessage{
+		Type:       "CREATE_ROOM",
+		PlayerName: "Storyteller",
+		PlayerID:   "storyteller",
+		MaxPlayers: 5,
+	})
+	createResp := readNextServerMessage(t, storyteller)
+	if createResp.Type != "ROOM_STATE" || createResp.RoomID == "" {
+		t.Fatalf("expected initial ROOM_STATE with room id, got %#v", createResp)
+	}
+	roomID := createResp.RoomID
+
+	playerSockets := map[string]*websocket.Conn{}
+	for _, playerID := range []string{"p1", "p2", "p3", "p4", "p5"} {
+		conn := dialTestWebSocket(t, wsURL)
+		defer conn.Close()
+		playerSockets[playerID] = conn
+		conn.WriteJSON(ClientMessage{
+			Type:       "JOIN_ROOM",
+			RoomID:     roomID,
+			PlayerName: playerID,
+			PlayerID:   playerID,
+		})
+		joinResp := readNextServerMessage(t, conn)
+		if joinResp.Type != "ROOM_STATE" || joinResp.RoomID != roomID {
+			t.Fatalf("expected %s to receive room state, got %#v", playerID, joinResp)
+		}
+	}
+
+	storyteller.WriteJSON(ClientMessage{
+		Type:           "SET_STORYTELLER",
+		TargetPlayerID: "storyteller",
+	})
+	stateMsg := readUntilServerMessage(t, storyteller, func(msg ServerMessage) bool {
+		return msg.Type == "ROOM_STATE" &&
+			msg.State != nil &&
+			msg.State.StorytellerID == "storyteller" &&
+			len(msg.State.Players) == 5
+	})
+	if stateMsg.State == nil {
+		t.Fatal("expected storyteller room state after setting storyteller")
+	}
+
+	storyteller.WriteJSON(ClientMessage{
+		Type: "ASSIGN_CHARACTERS",
+		Assignments: map[string]string{
+			"p1": "washerwoman",
+			"p2": "librarian",
+			"p3": "investigator",
+			"p4": "poisoner",
+			"p5": "imp",
+		},
+	})
+	stateMsg = readUntilServerMessage(t, storyteller, func(msg ServerMessage) bool {
+		return msg.Type == "ROOM_STATE" && msg.State != nil && allPlayersHaveCharacters(msg.State)
+	})
+	if stateMsg.State == nil {
+		t.Fatal("expected character assignment snapshot")
+	}
+
+	storyteller.WriteJSON(ClientMessage{Type: "START_GAME"})
+	stateMsg = readUntilServerMessage(t, storyteller, func(msg ServerMessage) bool {
+		return msg.Type == "ROOM_STATE" && msg.State != nil && msg.State.Phase == game.GamePhaseNight
+	})
+	if stateMsg.State == nil || stateMsg.State.Phase != game.GamePhaseNight {
+		t.Fatalf("expected night phase after start, got %#v", stateMsg)
+	}
+
+	writeStorytellerFirstNightActions(t, storyteller)
+
+	storyteller.WriteJSON(ClientMessage{Type: "RESOLVE_NIGHT"})
+	stateMsg = readUntilServerMessage(t, storyteller, func(msg ServerMessage) bool {
+		return msg.Type == "ROOM_STATE" &&
+			msg.State != nil &&
+			msg.State.Phase == game.GamePhaseDay &&
+			!playerAliveInState(msg.State, "p1")
+	})
+	if stateMsg.State == nil || stateMsg.State.Winner != nil {
+		t.Fatalf("expected game to continue after first night death, got %#v", stateMsg.State)
+	}
+	if !containsString(stateMsg.State.GhostVotesRemaining, "p1") {
+		t.Fatalf("expected p1 ghost vote after night death, got %#v", stateMsg.State.GhostVotesRemaining)
+	}
+
+	playerSockets["p2"].WriteJSON(ClientMessage{
+		Type:      "NOMINATE",
+		NomineeID: "p5",
+	})
+	stateMsg = readUntilServerMessage(t, storyteller, func(msg ServerMessage) bool {
+		return msg.Type == "ROOM_STATE" &&
+			msg.State != nil &&
+			msg.State.Phase == game.GamePhaseVoting &&
+			msg.State.Nomination != nil &&
+			msg.State.Nomination.NomineeID == "p5"
+	})
+	if stateMsg.State == nil || stateMsg.State.Nomination == nil {
+		t.Fatalf("expected active nomination snapshot, got %#v", stateMsg)
+	}
+
+	for _, voterID := range []string{"p1", "p2", "p3"} {
+		yes := true
+		playerSockets[voterID].WriteJSON(ClientMessage{
+			Type:     "CAST_VOTE",
+			Decision: &yes,
+		})
+	}
+	stateMsg = readUntilServerMessage(t, storyteller, func(msg ServerMessage) bool {
+		return msg.Type == "ROOM_STATE" &&
+			msg.State != nil &&
+			msg.State.Nomination != nil &&
+			len(msg.State.Nomination.Votes) == 3
+	})
+	if stateMsg.State == nil || stateMsg.State.Nomination == nil {
+		t.Fatalf("expected three recorded votes before resolving nomination, got %#v", stateMsg)
+	}
+
+	storyteller.WriteJSON(ClientMessage{Type: "RESOLVE_NOMINATION"})
+	stateMsg = readUntilServerMessage(t, storyteller, func(msg ServerMessage) bool {
+		return msg.Type == "ROOM_STATE" &&
+			msg.State != nil &&
+			msg.State.Phase == game.GamePhaseFinished &&
+			msg.State.Winner != nil
+	})
+	if stateMsg.State == nil || stateMsg.State.Winner == nil {
+		t.Fatalf("expected finished game snapshot, got %#v", stateMsg)
+	}
+	if stateMsg.State.Winner.Winner != game.TeamGood || stateMsg.State.Winner.Reason != game.WinReasonImpExecuted {
+		t.Fatalf("expected good win by Imp execution, got %#v", stateMsg.State.Winner)
+	}
+	if playerAliveInState(stateMsg.State, "p5") {
+		t.Fatal("expected p5 Imp to be dead after execution")
+	}
+	if containsString(stateMsg.State.GhostVotesRemaining, "p1") {
+		t.Fatalf("expected p1 ghost vote to be spent, got %#v", stateMsg.State.GhostVotesRemaining)
 	}
 }
 
@@ -776,4 +926,89 @@ func TestNonStorytellerCannotAssignCharacters(t *testing.T) {
 	if errResp.Type != "ERROR" {
 		t.Errorf("expected ERROR for non-storyteller, got %s", errResp.Type)
 	}
+}
+
+func dialTestWebSocket(t *testing.T, wsURL string) *websocket.Conn {
+	t.Helper()
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to connect websocket: %v", err)
+	}
+	return conn
+}
+
+func readNextServerMessage(t *testing.T, conn *websocket.Conn) ServerMessage {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("failed to read websocket message: %v", err)
+	}
+
+	var msg ServerMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		t.Fatalf("failed to unmarshal server message %s: %v", string(raw), err)
+	}
+	return msg
+}
+
+func readUntilServerMessage(t *testing.T, conn *websocket.Conn, matches func(ServerMessage) bool) ServerMessage {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	conn.SetReadDeadline(deadline)
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("timed out waiting for matching server message: %v", err)
+		}
+
+		var msg ServerMessage
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			t.Fatalf("failed to unmarshal server message %s: %v", string(raw), err)
+		}
+		if matches(msg) {
+			return msg
+		}
+	}
+}
+
+func writeStorytellerFirstNightActions(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+
+	actions := []ClientMessage{
+		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionPoison), TargetIDs: []string{"p2"}},
+		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
+		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnOutsider)},
+		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnMinion), TargetIDs: []string{"p4", "p5"}},
+		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionKill), TargetIDs: []string{"p1"}},
+	}
+	for _, action := range actions {
+		if err := conn.WriteJSON(action); err != nil {
+			t.Fatalf("failed to write night action %s: %v", action.ActionType, err)
+		}
+	}
+}
+
+func allPlayersHaveCharacters(state *RoomState) bool {
+	if state == nil || len(state.Players) == 0 {
+		return false
+	}
+	for _, player := range state.Players {
+		if player.Character == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func playerAliveInState(state *RoomState, playerID string) bool {
+	if state == nil {
+		return false
+	}
+	for _, player := range state.Players {
+		if player.ID == playerID {
+			return player.IsAlive
+		}
+	}
+	return false
 }

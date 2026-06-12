@@ -838,6 +838,7 @@ func (h *Hub) handleSubmitNightAction(conn Connection, msg ClientMessage) {
 		SenderID:   senderID,
 		ActionType: msg.ActionType,
 		TargetIDs:  msg.TargetIDs,
+		Result:     msg.Result,
 	})
 	if err != nil {
 		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})

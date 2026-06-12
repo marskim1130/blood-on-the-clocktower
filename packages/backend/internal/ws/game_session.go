@@ -61,6 +61,7 @@ type SubmitNightActionCmd struct {
 	SenderID   string
 	ActionType string
 	TargetIDs  []string
+	Result     string
 }
 
 type ResolveNightCmd struct {
@@ -965,6 +966,7 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 		ActorID:    cmd.SenderID,
 		ActionType: game.NightActionType(cmd.ActionType),
 		TargetIDs:  cmd.TargetIDs,
+		Result:     strings.TrimSpace(cmd.Result),
 	}
 	gs.nightActions = append(gs.nightActions, action)
 	if cmd.SenderID == gs.storytellerID {
@@ -976,10 +978,18 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 			ActorID:    cmd.SenderID,
 			ActionType: game.NightActionType(cmd.ActionType),
 			TargetIDs:  cmd.TargetIDs,
+			Result:     optionalString(action.Result),
 		}},
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // ────────────────────────────────────────────────

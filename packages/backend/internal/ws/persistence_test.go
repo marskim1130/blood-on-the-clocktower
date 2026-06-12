@@ -81,6 +81,9 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 				Deaths: []game.DeathRecord{
 					{PlayerID: "p1", Cause: game.DeathCauseNightKill, DayNumber: 1},
 				},
+				NightActions: []game.NightAction{
+					{ActorID: "storyteller", ActionType: game.NightActionCheckDemon, TargetIDs: []string{"p1", "p2"}, Result: "yes"},
+				},
 			},
 		},
 	}
@@ -111,6 +114,9 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 	}
 	if len(session.Deaths) != 1 || session.Deaths[0].PlayerID != "p1" {
 		t.Fatalf("expected restored death record, got %#v", session.Deaths)
+	}
+	if len(session.NightActions) != 1 || session.NightActions[0].Result != "yes" {
+		t.Fatalf("expected restored night action result, got %#v", session.NightActions)
 	}
 }
 

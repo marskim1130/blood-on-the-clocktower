@@ -53,13 +53,22 @@ func TestSubmitNightActionOnlyNotifiesActorAndStoryteller(t *testing.T) {
 		Type:       MsgSubmitNightAction,
 		ActionType: string(game.NightActionKill),
 		TargetIDs:  []string{"p2"},
+		Result:     "P2 is marked by the actor.",
 	})
 
 	if countNightActionSubmitted(storytellerConn.Messages()) != 1 {
 		t.Fatalf("expected storyteller to receive night action, got %#v", storytellerConn.Messages())
 	}
+	storytellerAction := lastNightActionSubmitted(t, storytellerConn.Messages())
+	if storytellerAction.Result == nil || *storytellerAction.Result != "P2 is marked by the actor." {
+		t.Fatalf("expected storyteller to receive night action result, got %#v", storytellerAction)
+	}
 	if countNightActionSubmitted(playerConns["p1"].Messages()) != 1 {
 		t.Fatalf("expected actor to receive night action, got %#v", playerConns["p1"].Messages())
+	}
+	actorAction := lastNightActionSubmitted(t, playerConns["p1"].Messages())
+	if actorAction.Result == nil || *actorAction.Result != "P2 is marked by the actor." {
+		t.Fatalf("expected actor to receive night action result, got %#v", actorAction)
 	}
 	for _, playerID := range []string{"p2", "p3", "p4", "p5"} {
 		if count := countNightActionSubmitted(playerConns[playerID].Messages()); count != 0 {
@@ -1213,6 +1222,19 @@ func countNightActionSubmitted(messages []any) int {
 		count++
 	}
 	return count
+}
+
+func lastNightActionSubmitted(t *testing.T, messages []any) *game.NightActionEvent {
+	t.Helper()
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, ok := messages[i].(ServerMessage)
+		if !ok || msg.Event == nil || msg.Event.NightActionSubmitted == nil {
+			continue
+		}
+		return msg.Event.NightActionSubmitted
+	}
+	t.Fatalf("expected night action submitted event in %#v", messages)
+	return nil
 }
 
 func assertNoErrorMessages(t *testing.T, messages []any) {

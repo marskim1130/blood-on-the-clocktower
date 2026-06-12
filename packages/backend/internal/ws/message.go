@@ -52,6 +52,7 @@ type ClientMessage struct {
 	Cause           ClientDeathCause  `json:"cause,omitempty"`       // KILL_PLAYER death cause
 	ActionType      string            `json:"actionType,omitempty"`  // SUBMIT_NIGHT_ACTION type
 	TargetIDs       []string          `json:"targetIds,omitempty"`   // SUBMIT_NIGHT_ACTION targets
+	Result          string            `json:"result,omitempty"`      // SUBMIT_NIGHT_ACTION adjudicated result
 }
 
 // ClientGamePhase accepts both the numeric protocol enum and the current

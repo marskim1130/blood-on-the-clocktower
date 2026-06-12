@@ -484,6 +484,33 @@ func TestGameSessionResolveNightDoesNotKillSoldier(t *testing.T) {
 	}
 }
 
+func TestGameSessionSubmitNightActionStoresResult(t *testing.T) {
+	gs := nightProtectionSession(t)
+	gs.nightWakeIndex = 1
+
+	result, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionKill),
+		TargetIDs:  []string{"p1"},
+		Result:     "P1 dies at dawn.",
+	})
+	if err != nil {
+		t.Fatalf("unexpected night action error: %v", err)
+	}
+	if len(gs.nightActions) != 1 {
+		t.Fatalf("expected one stored night action, got %#v", gs.nightActions)
+	}
+	if gs.nightActions[0].Result != "P1 dies at dawn." {
+		t.Fatalf("expected stored result, got %q", gs.nightActions[0].Result)
+	}
+	if len(result.Events) != 1 ||
+		result.Events[0].NightActionSubmitted == nil ||
+		result.Events[0].NightActionSubmitted.Result == nil ||
+		*result.Events[0].NightActionSubmitted.Result != "P1 dies at dawn." {
+		t.Fatalf("expected night action submitted result event, got %#v", result.Events)
+	}
+}
+
 func TestGameSessionSlayerAbilityKillsDemon(t *testing.T) {
 	gs := slayerSession(t)
 

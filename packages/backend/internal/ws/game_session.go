@@ -143,6 +143,7 @@ type GameSession struct {
 	nominatorsToday   map[string]bool      // playerID -> whether they nominated today
 	nomineesToday     map[string]bool      // playerID -> whether they were nominated today
 	virginAbilityUsed map[string]bool      // playerID -> whether Virgin ability was checked
+	butlerMasters     map[string]string    // butler playerID -> selected master playerID
 	winner            *game.GameEndedEvent // set when game ends
 }
 
@@ -159,6 +160,7 @@ func NewGameSession(scriptIDs ...string) *GameSession {
 		nominatorsToday:   make(map[string]bool),
 		nomineesToday:     make(map[string]bool),
 		virginAbilityUsed: make(map[string]bool),
+		butlerMasters:     make(map[string]string),
 		scriptID:          scriptID,
 	}
 }
@@ -581,7 +583,7 @@ func (gs *GameSession) playerIsPoisonedLocked(playerIdx int) bool {
 		return false
 	}
 	poisonedUntil := gs.players[playerIdx].PoisonedUntil
-	return poisonedUntil != nil && *poisonedUntil > gs.dayNumber
+	return poisonedUntil != nil && *poisonedUntil >= gs.dayNumber
 }
 
 func (gs *GameSession) characterCanAutoResolveLocked(characterID string) (int, bool) {
@@ -712,6 +714,20 @@ func (gs *GameSession) computeRavenkeeperResultLocked(ravenkeeperCharID string, 
 		return "unknown"
 	}
 	return gs.players[targetIdx].Character.Name
+}
+
+func (gs *GameSession) applyButlerMasterSelectionLocked(butlerCharID string, targetIDs []string) {
+	if butlerCharID != "butler" || len(targetIDs) == 0 {
+		return
+	}
+	butlerIdx := gs.findLivingCharacterIndexLocked(butlerCharID)
+	if butlerIdx == -1 {
+		return
+	}
+	if gs.butlerMasters == nil {
+		gs.butlerMasters = make(map[string]string)
+	}
+	gs.butlerMasters[gs.players[butlerIdx].ID] = targetIDs[0]
 }
 
 func (gs *GameSession) ravenkeeperDiesTonightLocked(ravenkeeperIdx int) bool {
@@ -1022,6 +1038,9 @@ func (gs *GameSession) applyCastVote(cmd CastVoteCmd) (ApplyResult, error) {
 	if _, already := gs.nomination.Votes[cmd.SenderID]; already {
 		return ApplyResult{}, fmt.Errorf("player %s has already voted", cmd.SenderID)
 	}
+	if err := gs.validateButlerVoteLocked(voterIdx, cmd.Decision); err != nil {
+		return ApplyResult{}, err
+	}
 
 	gs.nomination.Votes[cmd.SenderID] = cmd.Decision
 
@@ -1033,6 +1052,27 @@ func (gs *GameSession) applyCastVote(cmd CastVoteCmd) (ApplyResult, error) {
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+func (gs *GameSession) validateButlerVoteLocked(voterIdx int, decision bool) error {
+	if !decision || voterIdx < 0 || voterIdx >= len(gs.players) {
+		return nil
+	}
+	voter := gs.players[voterIdx]
+	if !voter.IsAlive || voter.Character == nil || voter.Character.ID != "butler" {
+		return nil
+	}
+	if gs.playerIsPoisonedLocked(voterIdx) {
+		return nil
+	}
+	masterID := gs.butlerMasters[voter.ID]
+	if masterID == "" {
+		return fmt.Errorf("butler %s has not chosen a master", voter.ID)
+	}
+	if !gs.nomination.Votes[masterID] {
+		return fmt.Errorf("butler %s cannot vote until master %s votes yes", voter.ID, masterID)
+	}
+	return nil
 }
 
 // ────────────────────────────────────────────────
@@ -1263,6 +1303,11 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 		}
 	}
 
+	actorCharID := ""
+	if cmd.SenderID == gs.storytellerID {
+		actorCharID = gs.currentWakeCharacterIDLocked()
+	}
+
 	action := game.NightAction{
 		ActorID:    cmd.SenderID,
 		ActionType: game.NightActionType(cmd.ActionType),
@@ -1272,7 +1317,7 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 
 	// Auto-compute ability results for information roles (if not poisoned)
 	if cmd.SenderID == gs.storytellerID && action.Result == "" {
-		if actorCharID := gs.currentWakeCharacterIDLocked(); actorCharID != "" {
+		if actorCharID != "" {
 			switch action.ActionType {
 			case game.NightActionLearnTownsfolk:
 				action.Result = gs.computeWasherwomanResultLocked(actorCharID, action.TargetIDs)
@@ -1300,6 +1345,9 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 		// Apply poison effect immediately when storyteller submits poison action
 		if action.ActionType == game.NightActionPoison {
 			gs.applyPoisonEffectLocked(action.TargetIDs)
+		}
+		if action.ActionType == game.NightActionLearnMaster {
+			gs.applyButlerMasterSelectionLocked(actorCharID, action.TargetIDs)
 		}
 	}
 

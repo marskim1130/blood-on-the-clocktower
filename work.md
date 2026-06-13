@@ -669,3 +669,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 14:48:21 +08:00 --- 发现 Trouble Brewing 首夜主要信息角色 [First-night Information Roles] 中 Washerwoman、Librarian、Investigator 仍只记录说书人 [Storyteller] 手动结果，缺少按目标玩家角色类型 [Character Type] 自动结算，导致最小可玩后端 [Minimum Playable Backend] 的首夜信息链路不完整 --- 新增通用角色类型提示结算 [Character Type Hint Resolution]：存活且未中毒 [Living and Unpoisoned] 时，从两个候选目标 [Candidate Targets] 中返回对应 Townsfolk/Outsider/Minion 的角色名；Librarian 在无 Outsider 在场时返回 `none`；无可判定目标返回 `unknown`；手动结果优先，中毒时不自动结算；新增测试覆盖 Washerwoman、Librarian、Investigator 的正常结果、无 Outsider、中毒抑制和手动覆盖 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/first_night_information_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/first_night_information_test.go`。
+
+---
+
+2026-06-13 14:54:43 +08:00 --- 发现 Butler 规则 [Butler Rule] 尚未落地：夜晚 `learn_master` 只记录行动，没有把选择的主人 [Master] 带到白天投票 [Day Voting]；同时中毒状态 [Poisoned State] 在白天 `PoisonedUntil == dayNumber` 时被视为已失效，早于黄昏 [Dusk] 清理时机 --- 新增 `butlerMasters` 会话状态 [Session State]，在 Butler 夜晚行动中记录主人并纳入快照保存/恢复 [Snapshot Save/Restore]；投票时若存活且未中毒的 Butler 要投赞成票 [Yes Vote]，必须等待主人已投赞成；反对票 [No Vote] 不受限制；将中毒判断改为持续到 `PoisonedUntil >= dayNumber`，与黄昏清理保持一致；新增测试覆盖主人未赞成拦截、主人赞成后放行、反对票放行、中毒 Butler 放行、缺少主人错误和快照恢复 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、packages/backend/internal/ws/butler_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/persistence.go packages/backend/internal/ws/persistence_test.go work.md`，并删除 `packages/backend/internal/ws/butler_test.go`。

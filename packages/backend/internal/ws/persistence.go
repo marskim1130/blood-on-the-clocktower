@@ -55,6 +55,7 @@ type gameSessionSnapshot struct {
 	NominatorsToday   map[string]bool      `json:"nominatorsToday,omitempty"`
 	NomineesToday     map[string]bool      `json:"nomineesToday,omitempty"`
 	VirginAbilityUsed map[string]bool      `json:"virginAbilityUsed,omitempty"`
+	ButlerMasters     map[string]string    `json:"butlerMasters,omitempty"`
 	Winner            *game.GameEndedEvent `json:"winner,omitempty"`
 }
 
@@ -393,6 +394,7 @@ func (gs *GameSession) snapshot() gameSessionSnapshot {
 		NominatorsToday:   cloneGhostVotesUsed(gs.nominatorsToday),
 		NomineesToday:     cloneGhostVotesUsed(gs.nomineesToday),
 		VirginAbilityUsed: cloneGhostVotesUsed(gs.virginAbilityUsed),
+		ButlerMasters:     cloneStringMap(gs.butlerMasters),
 		Winner:            cloneWinner(gs.winner),
 	}
 }
@@ -422,6 +424,10 @@ func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
 	if virginAbilityUsed == nil {
 		virginAbilityUsed = make(map[string]bool)
 	}
+	butlerMasters := cloneStringMap(snapshot.ButlerMasters)
+	if butlerMasters == nil {
+		butlerMasters = make(map[string]string)
+	}
 
 	return &GameSession{
 		players:           clonePlayers(snapshot.Players),
@@ -440,6 +446,7 @@ func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
 		nominatorsToday:   nominatorsToday,
 		nomineesToday:     nomineesToday,
 		virginAbilityUsed: virginAbilityUsed,
+		butlerMasters:     butlerMasters,
 		winner:            cloneWinner(snapshot.Winner),
 	}
 }
@@ -492,6 +499,17 @@ func cloneGhostVotesUsed(ghostVotesUsed map[string]bool) map[string]bool {
 	result := make(map[string]bool, len(ghostVotesUsed))
 	for playerID, used := range ghostVotesUsed {
 		result[playerID] = used
+	}
+	return result
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	result := make(map[string]string, len(values))
+	for key, value := range values {
+		result[key] = value
 	}
 	return result
 }

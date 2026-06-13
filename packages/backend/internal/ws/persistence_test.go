@@ -84,6 +84,7 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 				NominatorsToday:   map[string]bool{"p2": true},
 				NomineesToday:     map[string]bool{"p3": true},
 				VirginAbilityUsed: map[string]bool{"p4": true},
+				ButlerMasters:     map[string]string{"p2": "p1"},
 				Deaths: []game.DeathRecord{
 					{PlayerID: "p1", Cause: game.DeathCauseNightKill, DayNumber: 1},
 				},
@@ -123,6 +124,9 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 	}
 	if !session.VirginAbilityUsed["p4"] {
 		t.Fatalf("expected restored Virgin ability usage, got %#v", session.VirginAbilityUsed)
+	}
+	if session.ButlerMasters["p2"] != "p1" {
+		t.Fatalf("expected restored Butler master p2->p1, got %#v", session.ButlerMasters)
 	}
 	if len(session.Deaths) != 1 || session.Deaths[0].PlayerID != "p1" {
 		t.Fatalf("expected restored death record, got %#v", session.Deaths)

@@ -687,3 +687,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 15:04:50 +08:00 --- 发现 Imp 自杀传魔 [Imp Self-kill Starpass] 缺失：夜晚 Imp 选择击杀自己时，后端会把它当成普通恶魔死亡 [Demon Death]，若没有 Scarlet Woman 接魔路径就直接判善良胜利，导致最小可玩局 [Minimum Playable Game] 的关键恶魔规则不完整 --- 在夜晚击杀结算 [Night Kill Resolution] 中识别目标为当前 Imp 的自杀击杀；若存在存活爪牙 [Living Minion]，将第一个存活爪牙转换为新的 Imp，并阻止本次恶魔死亡触发善良胜利；若没有存活爪牙，则保留原有恶魔死亡胜利；新增测试覆盖有爪牙传魔继续游戏、无爪牙时善良胜利 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/endgame_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/endgame_test.go work.md`。
+
+---
+
+2026-06-13 15:12:24 +08:00 --- 发现 Spy 视野规则 [Spy Grimoire View] 尚未实现：非说书人 [Non-storyteller] 房间快照 [Room Snapshot] 永远只显示自己角色，导致 Spy 夜晚无法看到魔典 [Grimoire]，邪恶方信息体验不完整 --- 将房间快照的全量可见性判断 [Full Visibility Check] 收敛到 `recipientCanSeeAllLocked`，在夜晚阶段 [Night Phase] 允许存活且未中毒 [Alive and Unpoisoned] 的 Spy 查看全员角色与状态；白天或中毒时继续按普通玩家隐私隐藏其他角色；新增测试覆盖 Spy 夜晚全量可见、白天不可见、中毒夜晚不可见 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go work.md`。

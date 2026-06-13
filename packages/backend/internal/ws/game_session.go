@@ -1764,7 +1764,7 @@ func (gs *GameSession) StateForRoom(roomID string) *RoomState {
 }
 
 // StateForRoomForRecipient builds a recipient-specific RoomState snapshot.
-// Storyteller sees all character assignments; players only see their own.
+// Storyteller sees all character assignments; players usually only see their own.
 func (gs *GameSession) StateForRoomForRecipient(roomID, recipientID string) *RoomState {
 	return gs.stateForRoom(roomID, false, recipientID)
 }
@@ -1773,10 +1773,7 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
-	canSeeAll := forceSeeAll ||
-		(gs.storytellerID != "" && recipientID == gs.storytellerID) ||
-		gs.phase == game.GamePhaseFinished ||
-		gs.winner != nil
+	canSeeAll := gs.recipientCanSeeAllLocked(forceSeeAll, recipientID)
 	players := make([]game.Player, len(gs.players))
 	for i, player := range gs.players {
 		players[i] = player
@@ -1834,4 +1831,21 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 		CurrentNightWakeStep:  currentNightWakeStep,
 		Winner:                cloneWinner(gs.winner),
 	}
+}
+
+func (gs *GameSession) recipientCanSeeAllLocked(forceSeeAll bool, recipientID string) bool {
+	if forceSeeAll ||
+		(gs.storytellerID != "" && recipientID == gs.storytellerID) ||
+		gs.phase == game.GamePhaseFinished ||
+		gs.winner != nil {
+		return true
+	}
+	if gs.phase != game.GamePhaseNight {
+		return false
+	}
+	playerIdx := gs.findPlayerIndex(recipientID)
+	if playerIdx == -1 || !gs.players[playerIdx].IsAlive || gs.players[playerIdx].Character == nil {
+		return false
+	}
+	return gs.players[playerIdx].Character.ID == "spy" && !gs.playerIsPoisonedLocked(playerIdx)
 }

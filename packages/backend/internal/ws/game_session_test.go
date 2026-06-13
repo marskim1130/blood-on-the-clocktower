@@ -855,6 +855,51 @@ func TestGameSessionFinishedStateRevealsCharactersToPlayers(t *testing.T) {
 	}
 }
 
+func TestGameSessionSpySeesAllCharactersAtNight(t *testing.T) {
+	gs := spyVisibilitySession(t)
+
+	state := gs.StateForRoomForRecipient("room-1", "spy")
+
+	for _, player := range state.Players {
+		if player.Character == nil {
+			t.Fatalf("expected Spy to see %s character at night", player.ID)
+		}
+	}
+}
+
+func TestGameSessionSpyDoesNotSeeAllCharactersDuringDay(t *testing.T) {
+	gs := spyVisibilitySession(t)
+	gs.phase = game.GamePhaseDay
+
+	state := gs.StateForRoomForRecipient("room-1", "spy")
+
+	visible := findPlayerInState(t, state, "spy")
+	if visible.Character == nil || visible.Character.ID != "spy" {
+		t.Fatalf("expected Spy to see their own character during day, got %#v", visible.Character)
+	}
+	hidden := findPlayerInState(t, state, "imp")
+	if hidden.Character != nil {
+		t.Fatalf("expected Spy not to see other characters during day, got %#v", hidden.Character)
+	}
+}
+
+func TestGameSessionPoisonedSpyDoesNotSeeAllCharactersAtNight(t *testing.T) {
+	gs := spyVisibilitySession(t)
+	poisonedUntil := gs.dayNumber
+	gs.players[0].PoisonedUntil = &poisonedUntil
+
+	state := gs.StateForRoomForRecipient("room-1", "spy")
+
+	visible := findPlayerInState(t, state, "spy")
+	if visible.Character == nil || visible.Character.ID != "spy" {
+		t.Fatalf("expected poisoned Spy to see their own character, got %#v", visible.Character)
+	}
+	hidden := findPlayerInState(t, state, "imp")
+	if hidden.Character != nil {
+		t.Fatalf("expected poisoned Spy not to see other characters, got %#v", hidden.Character)
+	}
+}
+
 func TestGameSessionStateForRoomReturnsImmutableSnapshot(t *testing.T) {
 	gs := NewGameSession()
 	gs.players = []game.Player{
@@ -921,6 +966,29 @@ func testCharacter(t *testing.T, characterID string) *game.Character {
 		Name:    character.Name,
 		Team:    character.Team,
 		Ability: character.Ability,
+	}
+}
+
+func spyVisibilitySession(t *testing.T) *GameSession {
+	t.Helper()
+	return &GameSession{
+		players: []game.Player{
+			{ID: "spy", Name: "Spy", IsAlive: true, Character: testCharacter(t, "spy")},
+			{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+			{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "chef")},
+			{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+		},
+		storytellerID:     "storyteller",
+		scriptID:          game.TroubleBrewingScriptID,
+		phase:             game.GamePhaseNight,
+		dayNumber:         1,
+		nightNumber:       1,
+		ghostVotesUsed:    map[string]bool{},
+		slayerUsed:        map[string]bool{},
+		nominatorsToday:   map[string]bool{},
+		nomineesToday:     map[string]bool{},
+		virginAbilityUsed: map[string]bool{},
+		butlerMasters:     map[string]string{},
 	}
 }
 

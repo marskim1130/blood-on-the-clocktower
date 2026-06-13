@@ -118,6 +118,10 @@ func (h *Hub) handleCreateRoom(conn Connection, msg ClientMessage) {
 	}
 
 	room := h.rm.CreateRoom(msg.PlayerID, msg.MaxPlayers, scriptID)
+	if room == nil {
+		conn.SendJSON(ServerMessage{Type: "ERROR", Error: "room ID space exhausted"})
+		return
+	}
 
 	room.mu.Lock()
 	room.addClient(conn, msg.PlayerID)

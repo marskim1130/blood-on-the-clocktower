@@ -22,6 +22,10 @@ func TestCreateRoomConcurrentUniqueness(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			room := rm.CreateRoom("player", 10)
+			if room == nil {
+				t.Errorf("expected room for goroutine %d, got nil", id)
+				return
+			}
 			rooms <- room.id
 		}(i)
 	}
@@ -42,9 +46,9 @@ func TestCreateRoomConcurrentUniqueness(t *testing.T) {
 	}
 }
 
-// TestGenerateRoomIDExhaustionPanics verifies that room ID generation
-// fails fast instead of looping forever when the 6-digit ID space is exhausted.
-func TestGenerateRoomIDExhaustionPanics(t *testing.T) {
+// TestGenerateRoomIDExhaustionReturnsError verifies that room ID generation
+// fails without panicking when the 6-digit ID space is exhausted.
+func TestGenerateRoomIDExhaustionReturnsError(t *testing.T) {
 	rm := NewRoomManager()
 
 	rm.mu.Lock()
@@ -54,11 +58,23 @@ func TestGenerateRoomIDExhaustionPanics(t *testing.T) {
 	}
 
 	defer rm.mu.Unlock()
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic when room ID space is exhausted")
-		}
-	}()
 
-	rm.generateRoomIDUnlocked()
+	if _, err := rm.generateRoomIDUnlocked(); err == nil {
+		t.Fatal("expected room ID space exhaustion error")
+	}
+}
+
+func TestCreateRoomReturnsNilWhenRoomIDSpaceIsExhausted(t *testing.T) {
+	rm := NewRoomManager()
+
+	rm.mu.Lock()
+	for i := 0; i < 1000000; i++ {
+		id := fmt.Sprintf("%06d", i)
+		rm.rooms[id] = &Room{id: id, clients: make(map[string]*Client)}
+	}
+	rm.mu.Unlock()
+
+	if room := rm.CreateRoom("player", 10); room != nil {
+		t.Fatalf("expected nil room when room ID space is exhausted, got %#v", room)
+	}
 }

@@ -52,7 +52,11 @@ func (rm *RoomManager) CreateRoom(creatorID string, maxPlayers int, scriptIDs ..
 	}
 
 	rm.mu.Lock()
-	roomID := rm.generateRoomIDUnlocked()
+	roomID, err := rm.generateRoomIDUnlocked()
+	if err != nil {
+		rm.mu.Unlock()
+		return nil
+	}
 	room := &Room{
 		id:         roomID,
 		clients:    make(map[string]*Client),
@@ -307,13 +311,13 @@ func (rm *RoomManager) PlayerCount(roomID string) int {
 
 // generateRoomIDUnlocked generates a unique 6-digit room ID.
 // Must be called while holding rm.mu (Lock or RLock).
-func (rm *RoomManager) generateRoomIDUnlocked() string {
+func (rm *RoomManager) generateRoomIDUnlocked() (string, error) {
 	const maxAttempts = 1000000
 	for i := 0; i < maxAttempts; i++ {
 		id := fmt.Sprintf("%06d", rand.Intn(1000000))
 		if _, exists := rm.rooms[id]; !exists {
-			return id
+			return id, nil
 		}
 	}
-	panic("room ID space exhausted")
+	return "", fmt.Errorf("room ID space exhausted")
 }

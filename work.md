@@ -693,3 +693,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 15:12:24 +08:00 --- 发现 Spy 视野规则 [Spy Grimoire View] 尚未实现：非说书人 [Non-storyteller] 房间快照 [Room Snapshot] 永远只显示自己角色，导致 Spy 夜晚无法看到魔典 [Grimoire]，邪恶方信息体验不完整 --- 将房间快照的全量可见性判断 [Full Visibility Check] 收敛到 `recipientCanSeeAllLocked`，在夜晚阶段 [Night Phase] 允许存活且未中毒 [Alive and Unpoisoned] 的 Spy 查看全员角色与状态；白天或中毒时继续按普通玩家隐私隐藏其他角色；新增测试覆盖 Spy 夜晚全量可见、白天不可见、中毒夜晚不可见 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go work.md`。
+
+---
+
+2026-06-13 15:16:00 +08:00 --- 发现房间号生成 [Room ID Generation] 在 6 位房间号空间耗尽 [ID Space Exhaustion] 时会直接 `panic`，属于生产后端 [Production Backend] 的硬崩溃点 [Hard Crash]；Hub 创建房间 [Create Room] 路径也没有可恢复错误分支 --- 将 `generateRoomIDUnlocked` 改为返回错误 [Error Return]，`CreateRoom` 在耗尽时返回 `nil`，Hub 将其转换为 `ERROR` 消息而不是让进程崩溃；更新原 panic 测试为错误返回测试，并新增 `CreateRoom` 耗尽返回 nil 的回归测试 [Regression Test] --- 修改了 packages/backend/internal/ws/room_manager.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/room_manager_race_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/room_manager.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/room_manager_race_test.go work.md`。

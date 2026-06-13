@@ -410,9 +410,10 @@ func (h *Hub) handleAssignCharacters(conn Connection, msg ClientMessage) {
 	}
 
 	result, err := gs.Apply(AssignCharactersCmd{
-		SenderID:        senderID,
-		Assignments:     msg.Assignments,
-		ShownCharacters: msg.ShownCharacters,
+		SenderID:                  senderID,
+		Assignments:               msg.Assignments,
+		ShownCharacters:           msg.ShownCharacters,
+		FortuneTellerRedHerringID: msg.FortuneTellerRedHerringID,
 	})
 	if err != nil {
 		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})

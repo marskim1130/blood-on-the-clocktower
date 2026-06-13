@@ -15,9 +15,10 @@ type SetStorytellerCmd struct {
 }
 
 type AssignCharactersCmd struct {
-	SenderID        string
-	Assignments     map[string]string // playerID -> characterID
-	ShownCharacters map[string]string // playerID -> townsfolk characterID shown to the Drunk
+	SenderID                  string
+	Assignments               map[string]string // playerID -> characterID
+	ShownCharacters           map[string]string // playerID -> townsfolk characterID shown to the Drunk
+	FortuneTellerRedHerringID string
 }
 
 type SubmitEventCmd struct {
@@ -132,20 +133,21 @@ type GameSession struct {
 	scriptID        string
 
 	// Game state fields (populated after game starts)
-	phase             game.GamePhase
-	dayNumber         int32
-	nightNumber       int32
-	nightWakeIndex    int
-	nomination        *game.Nomination
-	nightActions      []game.NightAction
-	deaths            []game.DeathRecord
-	ghostVotesUsed    map[string]bool      // playerID -> whether ghost vote was used
-	slayerUsed        map[string]bool      // playerID -> whether Slayer ability was used
-	nominatorsToday   map[string]bool      // playerID -> whether they nominated today
-	nomineesToday     map[string]bool      // playerID -> whether they were nominated today
-	virginAbilityUsed map[string]bool      // playerID -> whether Virgin ability was checked
-	butlerMasters     map[string]string    // butler playerID -> selected master playerID
-	winner            *game.GameEndedEvent // set when game ends
+	phase                     game.GamePhase
+	dayNumber                 int32
+	nightNumber               int32
+	nightWakeIndex            int
+	nomination                *game.Nomination
+	nightActions              []game.NightAction
+	deaths                    []game.DeathRecord
+	ghostVotesUsed            map[string]bool   // playerID -> whether ghost vote was used
+	slayerUsed                map[string]bool   // playerID -> whether Slayer ability was used
+	nominatorsToday           map[string]bool   // playerID -> whether they nominated today
+	nomineesToday             map[string]bool   // playerID -> whether they were nominated today
+	virginAbilityUsed         map[string]bool   // playerID -> whether Virgin ability was checked
+	butlerMasters             map[string]string // butler playerID -> selected master playerID
+	fortuneTellerRedHerringID string
+	winner                    *game.GameEndedEvent // set when game ends
 }
 
 func NewGameSession(scriptIDs ...string) *GameSession {
@@ -402,6 +404,11 @@ func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResu
 	if err := validateShownCharacters(gs.scriptID, cmd.Assignments, cmd.ShownCharacters); err != nil {
 		return ApplyResult{}, err
 	}
+	redHerringID := strings.TrimSpace(cmd.FortuneTellerRedHerringID)
+	if err := validateFortuneTellerRedHerring(gs.scriptID, cmd.Assignments, redHerringID); err != nil {
+		return ApplyResult{}, err
+	}
+	gs.fortuneTellerRedHerringID = redHerringID
 
 	// Assign characters
 	for playerID, charID := range cmd.Assignments {
@@ -497,6 +504,38 @@ func validateShownCharacters(scriptID string, assignments map[string]string, sho
 		}
 	}
 
+	return nil
+}
+
+func validateFortuneTellerRedHerring(scriptID string, assignments map[string]string, redHerringID string) error {
+	hasFortuneTeller := false
+	for _, characterID := range assignments {
+		if characterID == "fortuneteller" {
+			hasFortuneTeller = true
+			break
+		}
+	}
+	if redHerringID == "" {
+		return nil
+	}
+	if !hasFortuneTeller {
+		return fmt.Errorf("Fortune Teller red herring requires Fortune Teller in play")
+	}
+
+	characterID, ok := assignments[redHerringID]
+	if !ok {
+		return fmt.Errorf("Fortune Teller red herring player %s not found in assignments", redHerringID)
+	}
+	if characterID == "fortuneteller" {
+		return fmt.Errorf("Fortune Teller cannot be their own red herring")
+	}
+	charDef := game.GetScriptCharacterByID(scriptID, characterID)
+	if charDef == nil {
+		return fmt.Errorf("Fortune Teller red herring character %s not found in script", characterID)
+	}
+	if charDef.Team != game.TeamGood {
+		return fmt.Errorf("Fortune Teller red herring must be a good player")
+	}
 	return nil
 }
 
@@ -794,6 +833,14 @@ func (gs *GameSession) computeFortuneTellerResultLocked(fortuneTellerCharID stri
 			return "yes"
 		}
 	}
+	if gs.fortuneTellerRedHerringID == "" {
+		return ""
+	}
+	for _, targetID := range targetIDs {
+		if targetID == gs.fortuneTellerRedHerringID {
+			return "yes"
+		}
+	}
 	if gs.targetsIncludeAmbiguousRegistrationLocked(targetIDs) {
 		return ""
 	}
@@ -1008,6 +1055,9 @@ func (gs *GameSession) applyStartGame(cmd StartGameCmd) (ApplyResult, error) {
 		}
 	}
 	if err := validateShownCharacters(gs.scriptID, assignments, shownCharacters); err != nil {
+		return ApplyResult{}, err
+	}
+	if err := validateFortuneTellerRedHerring(gs.scriptID, assignments, gs.fortuneTellerRedHerringID); err != nil {
 		return ApplyResult{}, err
 	}
 

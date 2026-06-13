@@ -217,6 +217,20 @@ function buildSampleAssignments(players: RoomState['players']): Record<string, s
   return buildDefaultScriptAssignments(players, DEFAULT_SCRIPT_ID);
 }
 
+function chooseFortuneTellerRedHerring(assignments: Record<string, string>): string | undefined {
+  if (!Object.values(assignments).includes('fortuneteller')) {
+    return undefined;
+  }
+  const charactersByID = new Map(TROUBLE_BREWING_SCRIPT.characters.map((character) => [character.id, character]));
+  for (const [playerID, characterID] of Object.entries(assignments)) {
+    const character = charactersByID.get(characterID);
+    if (characterID !== 'fortuneteller' && character?.team === 'good') {
+      return playerID;
+    }
+  }
+  return undefined;
+}
+
 export default function IndexPage() {
   const clientRef = useRef<GameWebSocketClient | null>(null);
   const [wsUrl, setWsUrl] = useState(DEFAULT_WS_URL);
@@ -804,7 +818,8 @@ export default function IndexPage() {
 
     try {
       const assignments = buildSampleAssignments(roomState.players);
-      client.assignCharacters(assignments);
+      const fortuneTellerRedHerringId = chooseFortuneTellerRedHerring(assignments);
+      client.assignCharacters(assignments, undefined, fortuneTellerRedHerringId);
       appendLog(`已发送角色分配请求，共 ${Object.keys(assignments).length} 人`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '生成示例分配失败');

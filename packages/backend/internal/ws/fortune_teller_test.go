@@ -32,7 +32,7 @@ func TestFortuneTellerAutoComputesNoWhenTargetsExcludeDemon(t *testing.T) {
 	result, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
 		ActionType: string(game.NightActionCheckDemon),
-		TargetIDs:  []string{"p2", "p3"},
+		TargetIDs:  []string{"p3", "p4"},
 	})
 	if err != nil {
 		t.Fatalf("SubmitNightAction failed: %v", err)
@@ -41,6 +41,88 @@ func TestFortuneTellerAutoComputesNoWhenTargetsExcludeDemon(t *testing.T) {
 	event := result.Events[0].NightActionSubmitted
 	if event.Result == nil || *event.Result != "no" {
 		t.Fatalf("expected Fortune Teller result 'no', got %v", event.Result)
+	}
+}
+
+func TestFortuneTellerAutoComputesYesWhenTargetIncludesRedHerring(t *testing.T) {
+	gs := newStartedFortuneTellerGame(t)
+	skipFortuneTellerGameToCharacter(t, gs, "fortuneteller")
+
+	result, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionCheckDemon),
+		TargetIDs:  []string{"p2", "p3"},
+	})
+	if err != nil {
+		t.Fatalf("SubmitNightAction failed: %v", err)
+	}
+
+	event := result.Events[0].NightActionSubmitted
+	if event.Result == nil || *event.Result != "yes" {
+		t.Fatalf("expected Fortune Teller red herring result 'yes', got %v", event.Result)
+	}
+}
+
+func TestFortuneTellerWithoutRedHerringDoesNotAutoComputeNo(t *testing.T) {
+	gs := newStartedFortuneTellerGameWithoutRedHerring(t)
+	skipFortuneTellerGameToCharacter(t, gs, "fortuneteller")
+
+	result, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionCheckDemon),
+		TargetIDs:  []string{"p3", "p4"},
+	})
+	if err != nil {
+		t.Fatalf("SubmitNightAction failed: %v", err)
+	}
+
+	event := result.Events[0].NightActionSubmitted
+	if event.Result != nil {
+		t.Fatalf("expected Fortune Teller without red herring to need manual result, got %v", event.Result)
+	}
+}
+
+func TestAssignCharactersRejectsRedHerringWithoutFortuneTeller(t *testing.T) {
+	gs := newFortuneTellerAssignmentSession(t)
+
+	_, err := gs.Apply(AssignCharactersCmd{
+		SenderID: "storyteller",
+		Assignments: map[string]string{
+			"p1": "washerwoman",
+			"p2": "librarian",
+			"p3": "chef",
+			"p4": "poisoner",
+			"p5": "imp",
+		},
+		FortuneTellerRedHerringID: "p1",
+	})
+	if err == nil {
+		t.Fatal("expected red herring without Fortune Teller to be rejected")
+	}
+	if err.Error() != "Fortune Teller red herring requires Fortune Teller in play" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAssignCharactersRejectsEvilRedHerring(t *testing.T) {
+	gs := newFortuneTellerAssignmentSession(t)
+
+	_, err := gs.Apply(AssignCharactersCmd{
+		SenderID: "storyteller",
+		Assignments: map[string]string{
+			"p1": "fortuneteller",
+			"p2": "washerwoman",
+			"p3": "chef",
+			"p4": "poisoner",
+			"p5": "imp",
+		},
+		FortuneTellerRedHerringID: "p4",
+	})
+	if err == nil {
+		t.Fatal("expected evil red herring to be rejected")
+	}
+	if err.Error() != "Fortune Teller red herring must be a good player" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -96,6 +178,42 @@ func TestFortuneTellerManualResultOverridesAutoCompute(t *testing.T) {
 func newStartedFortuneTellerGame(t *testing.T) *GameSession {
 	t.Helper()
 
+	return newStartedFortuneTellerGameWithRedHerring(t, "p2")
+}
+
+func newStartedFortuneTellerGameWithoutRedHerring(t *testing.T) *GameSession {
+	t.Helper()
+
+	return newStartedFortuneTellerGameWithRedHerring(t, "")
+}
+
+func newStartedFortuneTellerGameWithRedHerring(t *testing.T, redHerringID string) *GameSession {
+	t.Helper()
+
+	gs := newFortuneTellerAssignmentSession(t)
+	if _, err := gs.Apply(AssignCharactersCmd{
+		SenderID: "storyteller",
+		Assignments: map[string]string{
+			"p1": "fortuneteller",
+			"p2": "washerwoman",
+			"p3": "chef",
+			"p4": "poisoner",
+			"p5": "imp",
+		},
+		FortuneTellerRedHerringID: redHerringID,
+	}); err != nil {
+		t.Fatalf("AssignCharacters failed: %v", err)
+	}
+	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("StartGame failed: %v", err)
+	}
+
+	return gs
+}
+
+func newFortuneTellerAssignmentSession(t *testing.T) *GameSession {
+	t.Helper()
+
 	gs := NewGameSession()
 	gs.SetPlayers([]game.Player{
 		{ID: "storyteller", Name: "Storyteller", IsAlive: true},
@@ -109,22 +227,6 @@ func newStartedFortuneTellerGame(t *testing.T) *GameSession {
 	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
-	if _, err := gs.Apply(AssignCharactersCmd{
-		SenderID: "storyteller",
-		Assignments: map[string]string{
-			"p1": "fortuneteller",
-			"p2": "washerwoman",
-			"p3": "chef",
-			"p4": "poisoner",
-			"p5": "imp",
-		},
-	}); err != nil {
-		t.Fatalf("AssignCharacters failed: %v", err)
-	}
-	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
-		t.Fatalf("StartGame failed: %v", err)
-	}
-
 	return gs
 }
 

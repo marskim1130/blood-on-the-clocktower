@@ -33,27 +33,28 @@ const (
 
 // ClientMessage represents a message from client to server
 type ClientMessage struct {
-	Type            string            `json:"type"`
-	RoomID          string            `json:"roomId,omitempty"`
-	PlayerName      string            `json:"playerName,omitempty"`
-	PlayerID        string            `json:"playerId,omitempty"`
-	TargetPlayerID  string            `json:"targetPlayerId,omitempty"`
-	ExecutePlayerID string            `json:"executePlayerId,omitempty"`
-	MaxPlayers      int               `json:"maxPlayers,omitempty"`
-	ScriptID        string            `json:"scriptId,omitempty"`
-	Assignments     map[string]string `json:"assignments,omitempty"`     // playerID -> characterID
-	ShownCharacters map[string]string `json:"shownCharacters,omitempty"` // playerID -> Townsfolk shown to the Drunk
-	Event           *game.GameEvent   `json:"event,omitempty"`
-	NomineeID       string            `json:"nomineeId,omitempty"`   // NOMINATE target
-	Decision        *bool             `json:"decision,omitempty"`    // CAST_VOTE value
-	Phase           ClientGamePhase   `json:"phase,omitempty"`       // CHANGE_PHASE target
-	Winner          ClientTeam        `json:"winner,omitempty"`      // END_GAME winning team
-	Reason          string            `json:"reason,omitempty"`      // END_GAME reason
-	Description     string            `json:"description,omitempty"` // END_GAME description
-	Cause           ClientDeathCause  `json:"cause,omitempty"`       // KILL_PLAYER death cause
-	ActionType      string            `json:"actionType,omitempty"`  // SUBMIT_NIGHT_ACTION type
-	TargetIDs       []string          `json:"targetIds,omitempty"`   // SUBMIT_NIGHT_ACTION targets
-	Result          string            `json:"result,omitempty"`      // SUBMIT_NIGHT_ACTION adjudicated result
+	Type                      string            `json:"type"`
+	RoomID                    string            `json:"roomId,omitempty"`
+	PlayerName                string            `json:"playerName,omitempty"`
+	PlayerID                  string            `json:"playerId,omitempty"`
+	TargetPlayerID            string            `json:"targetPlayerId,omitempty"`
+	ExecutePlayerID           string            `json:"executePlayerId,omitempty"`
+	MaxPlayers                int               `json:"maxPlayers,omitempty"`
+	ScriptID                  string            `json:"scriptId,omitempty"`
+	Assignments               map[string]string `json:"assignments,omitempty"`               // playerID -> characterID
+	ShownCharacters           map[string]string `json:"shownCharacters,omitempty"`           // playerID -> Townsfolk shown to the Drunk
+	FortuneTellerRedHerringID string            `json:"fortuneTellerRedHerringId,omitempty"` // good player registering as Demon
+	Event                     *game.GameEvent   `json:"event,omitempty"`
+	NomineeID                 string            `json:"nomineeId,omitempty"`   // NOMINATE target
+	Decision                  *bool             `json:"decision,omitempty"`    // CAST_VOTE value
+	Phase                     ClientGamePhase   `json:"phase,omitempty"`       // CHANGE_PHASE target
+	Winner                    ClientTeam        `json:"winner,omitempty"`      // END_GAME winning team
+	Reason                    string            `json:"reason,omitempty"`      // END_GAME reason
+	Description               string            `json:"description,omitempty"` // END_GAME description
+	Cause                     ClientDeathCause  `json:"cause,omitempty"`       // KILL_PLAYER death cause
+	ActionType                string            `json:"actionType,omitempty"`  // SUBMIT_NIGHT_ACTION type
+	TargetIDs                 []string          `json:"targetIds,omitempty"`   // SUBMIT_NIGHT_ACTION targets
+	Result                    string            `json:"result,omitempty"`      // SUBMIT_NIGHT_ACTION adjudicated result
 }
 
 // ClientGamePhase accepts both the numeric protocol enum and the current

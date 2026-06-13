@@ -75,16 +75,17 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 					{ID: "p1", Name: "Alice", IsAlive: false},
 					{ID: "p2", Name: "Bob", IsAlive: true, PoisonedUntil: &poisonedUntil},
 				},
-				StorytellerID:     "storyteller",
-				ScriptID:          game.TroubleBrewingScriptID,
-				Phase:             game.GamePhaseDay,
-				DayNumber:         2,
-				GhostVotesUsed:    map[string]bool{"p1": true},
-				SlayerUsed:        map[string]bool{"p2": true},
-				NominatorsToday:   map[string]bool{"p2": true},
-				NomineesToday:     map[string]bool{"p3": true},
-				VirginAbilityUsed: map[string]bool{"p4": true},
-				ButlerMasters:     map[string]string{"p2": "p1"},
+				StorytellerID:             "storyteller",
+				ScriptID:                  game.TroubleBrewingScriptID,
+				Phase:                     game.GamePhaseDay,
+				DayNumber:                 2,
+				GhostVotesUsed:            map[string]bool{"p1": true},
+				SlayerUsed:                map[string]bool{"p2": true},
+				NominatorsToday:           map[string]bool{"p2": true},
+				NomineesToday:             map[string]bool{"p3": true},
+				VirginAbilityUsed:         map[string]bool{"p4": true},
+				ButlerMasters:             map[string]string{"p2": "p1"},
+				FortuneTellerRedHerringID: "p2",
 				Deaths: []game.DeathRecord{
 					{PlayerID: "p1", Cause: game.DeathCauseNightKill, DayNumber: 1},
 				},
@@ -127,6 +128,9 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 	}
 	if session.ButlerMasters["p2"] != "p1" {
 		t.Fatalf("expected restored Butler master p2->p1, got %#v", session.ButlerMasters)
+	}
+	if session.FortuneTellerRedHerringID != "p2" {
+		t.Fatalf("expected restored Fortune Teller red herring p2, got %q", session.FortuneTellerRedHerringID)
 	}
 	if len(session.Deaths) != 1 || session.Deaths[0].PlayerID != "p1" {
 		t.Fatalf("expected restored death record, got %#v", session.Deaths)

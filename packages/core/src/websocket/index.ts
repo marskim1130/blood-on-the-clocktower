@@ -28,6 +28,7 @@ export interface ClientMessage {
   readonly scriptId?: string;
   readonly assignments?: Record<string, string>;
   readonly shownCharacters?: Record<string, string>;
+  readonly fortuneTellerRedHerringId?: string;
   readonly event?: Record<string, unknown>;
   /** Phase name for CHANGE_PHASE (e.g. 'day', 'night', 'voting'). */
   readonly phase?: string;
@@ -381,11 +382,16 @@ export class GameWebSocketClient {
     this.send({ type: 'SET_STORYTELLER', targetPlayerId });
   }
 
-  assignCharacters(assignments: Record<string, string>, shownCharacters?: Record<string, string>): void {
+  assignCharacters(
+    assignments: Record<string, string>,
+    shownCharacters?: Record<string, string>,
+    fortuneTellerRedHerringId?: string,
+  ): void {
     this.send({
       type: 'ASSIGN_CHARACTERS',
       assignments,
       ...(shownCharacters && Object.keys(shownCharacters).length > 0 ? { shownCharacters } : {}),
+      ...(fortuneTellerRedHerringId ? { fortuneTellerRedHerringId } : {}),
     });
   }
 

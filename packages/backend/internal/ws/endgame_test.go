@@ -120,6 +120,49 @@ func TestSaintExecutionWinsForEvil(t *testing.T) {
 	}
 }
 
+func TestImpSelfKillMakesLivingMinionTheImp(t *testing.T) {
+	gs := impSelfKillSession(t, true)
+
+	result, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"})
+	if err != nil {
+		t.Fatalf("ResolveNight failed: %v", err)
+	}
+	for _, event := range result.Events {
+		if event.GameEnded != nil {
+			t.Fatalf("expected game to continue after Imp self-kill starpass, got %#v", event.GameEnded)
+		}
+	}
+
+	state := gs.StateForRoom("room-1")
+	oldImp := findPlayerInState(t, state, "imp")
+	if oldImp.IsAlive {
+		t.Fatal("expected original Imp to be dead after self-kill")
+	}
+	newImp := findPlayerInState(t, state, "minion")
+	if newImp.Character == nil || newImp.Character.ID != "imp" {
+		t.Fatalf("expected living minion to become Imp, got %#v", newImp.Character)
+	}
+	if state.Winner != nil {
+		t.Fatalf("expected no winner after Imp self-kill starpass, got %#v", state.Winner)
+	}
+}
+
+func TestImpSelfKillWithoutLivingMinionWinsForGood(t *testing.T) {
+	gs := impSelfKillSession(t, false)
+
+	result, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"})
+	if err != nil {
+		t.Fatalf("ResolveNight failed: %v", err)
+	}
+	if len(result.Events) == 0 || result.Events[len(result.Events)-1].GameEnded == nil {
+		t.Fatalf("expected good win when Imp self-kills without minion, got %#v", result.Events)
+	}
+	ended := result.Events[len(result.Events)-1].GameEnded
+	if ended.Winner != game.TeamGood || ended.Reason != game.WinReasonImpExecuted {
+		t.Fatalf("expected good demon-dead win without minion, got %#v", ended)
+	}
+}
+
 func mayorEndgameSession(t *testing.T) *GameSession {
 	t.Helper()
 
@@ -132,6 +175,32 @@ func mayorEndgameSession(t *testing.T) *GameSession {
 		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "washerwoman")},
 		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
 		{ID: "p4", Name: "P4", IsAlive: false, Character: testCharacter(t, "poisoner")},
+	}
+	return gs
+}
+
+func impSelfKillSession(t *testing.T, withMinion bool) *GameSession {
+	t.Helper()
+
+	players := []game.Player{
+		{ID: "townsfolk1", Name: "Townsfolk 1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+		{ID: "townsfolk2", Name: "Townsfolk 2", IsAlive: true, Character: testCharacter(t, "chef")},
+		{ID: "townsfolk3", Name: "Townsfolk 3", IsAlive: true, Character: testCharacter(t, "empath")},
+		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+	}
+	if withMinion {
+		players = append(players, game.Player{ID: "minion", Name: "Minion", IsAlive: true, Character: testCharacter(t, "poisoner")})
+	}
+
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.phase = game.GamePhaseNight
+	gs.dayNumber = 1
+	gs.nightNumber = 1
+	gs.players = players
+	gs.nightWakeIndex = len(gs.activeNightWakeStepsLocked())
+	gs.nightActions = []game.NightAction{
+		{ActorID: "storyteller", ActionType: game.NightActionKill, TargetIDs: []string{"imp"}},
 	}
 	return gs
 }

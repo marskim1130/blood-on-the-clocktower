@@ -1404,6 +1404,7 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 						continue
 					}
 					aliveBeforeDeath := gs.alivePlayerCountLocked()
+					impSelfKill := gs.playerIsImpLocked(tIdx)
 					if aliveAtDemonDeath := gs.demonDeathAliveCountLocked(tIdx, aliveBeforeDeath); aliveAtDemonDeath > demonDeathAliveCount {
 						demonDeathAliveCount = aliveAtDemonDeath
 					}
@@ -1421,6 +1422,9 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 							DayNumber: gs.dayNumber,
 						},
 					})
+					if impSelfKill && gs.applyImpSelfStarpassLocked(tIdx) {
+						demonDeathAliveCount = 0
+					}
 				}
 			}
 		}
@@ -1686,6 +1690,33 @@ func (gs *GameSession) playerIsDemonLocked(playerIndex int) bool {
 	}
 	charDef := game.GetCharacterByID(gs.players[playerIndex].Character.ID)
 	return charDef != nil && charDef.Type == game.CharacterTypeDemon
+}
+
+func (gs *GameSession) playerIsImpLocked(playerIndex int) bool {
+	return playerIndex >= 0 &&
+		playerIndex < len(gs.players) &&
+		gs.players[playerIndex].Character != nil &&
+		gs.players[playerIndex].Character.ID == "imp"
+}
+
+func (gs *GameSession) applyImpSelfStarpassLocked(deadImpIndex int) bool {
+	imp := game.GetCharacterByID("imp")
+	if imp == nil {
+		return false
+	}
+	for i := range gs.players {
+		if i == deadImpIndex || !gs.players[i].IsAlive || !gs.playerHasCharacterTypeLocked(i, game.CharacterTypeMinion) {
+			continue
+		}
+		gs.players[i].Character = &game.Character{
+			ID:      imp.ID,
+			Name:    imp.Name,
+			Team:    imp.Team,
+			Ability: imp.Ability,
+		}
+		return true
+	}
+	return false
 }
 
 func (gs *GameSession) applyScarletWomanStarpassLocked(demonDeathAliveCount int) bool {

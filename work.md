@@ -681,3 +681,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 14:59:29 +08:00 --- 发现 Mayor 终局 [Mayor Endgame] 的触发点不够准确：通用胜负检查 [Generic Win-condition Check] 会在夜杀后刚剩 3 人且 Mayor 存活时过早判定善良胜利，但规则语义应是白天结束且没有处决 [No Execution] 时触发；同时 Saint 被处决邪恶胜利 [Saint Executed Evil Win] 缺少明确回归测试 --- 将 Mayor 胜利移动到 Day→Night 阶段转换 [Phase Transition] 前检查，只有 3 人存活、Mayor 存活、未中毒 [Unpoisoned] 且当天没有处决死亡时才结束游戏；从通用死亡后胜负检查中移除 Mayor 早触发；新增测试覆盖白天结束 Mayor 胜利、夜杀到 3 人不立即胜利、当天有处决时 Mayor 不胜利、中毒 Mayor 不胜利，以及 Saint 被处决时邪恶胜利 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/endgame_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/endgame_test.go`。
+
+---
+
+2026-06-13 15:04:50 +08:00 --- 发现 Imp 自杀传魔 [Imp Self-kill Starpass] 缺失：夜晚 Imp 选择击杀自己时，后端会把它当成普通恶魔死亡 [Demon Death]，若没有 Scarlet Woman 接魔路径就直接判善良胜利，导致最小可玩局 [Minimum Playable Game] 的关键恶魔规则不完整 --- 在夜晚击杀结算 [Night Kill Resolution] 中识别目标为当前 Imp 的自杀击杀；若存在存活爪牙 [Living Minion]，将第一个存活爪牙转换为新的 Imp，并阻止本次恶魔死亡触发善良胜利；若没有存活爪牙，则保留原有恶魔死亡胜利；新增测试覆盖有爪牙传魔继续游戏、无爪牙时善良胜利 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/endgame_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/endgame_test.go work.md`。

@@ -663,3 +663,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 14:32:44 +08:00 --- 发现信息能力自动结算 [Information Ability Auto-resolution] 中 Chef、Empath、Fortune Teller、Undertaker、Ravenkeeper 都重复实现了“找到存活角色 [Living Character] 并判断是否中毒 [Poisoned]”逻辑，后续继续补角色时容易出现不一致 --- 提取 `findLivingCharacterIndexLocked`、`playerIsPoisonedLocked` 与 `characterCanAutoResolveLocked` 三个辅助函数 [Helper Functions]，让现有自动结算函数复用同一角色可结算判断 [Auto-resolve Eligibility Check]，不改变外部行为 [External Behavior] --- 修改了 packages/backend/internal/ws/game_session.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`。
+
+---
+
+2026-06-13 14:48:21 +08:00 --- 发现 Trouble Brewing 首夜主要信息角色 [First-night Information Roles] 中 Washerwoman、Librarian、Investigator 仍只记录说书人 [Storyteller] 手动结果，缺少按目标玩家角色类型 [Character Type] 自动结算，导致最小可玩后端 [Minimum Playable Backend] 的首夜信息链路不完整 --- 新增通用角色类型提示结算 [Character Type Hint Resolution]：存活且未中毒 [Living and Unpoisoned] 时，从两个候选目标 [Candidate Targets] 中返回对应 Townsfolk/Outsider/Minion 的角色名；Librarian 在无 Outsider 在场时返回 `none`；无可判定目标返回 `unknown`；手动结果优先，中毒时不自动结算；新增测试覆盖 Washerwoman、Librarian、Investigator 的正常结果、无 Outsider、中毒抑制和手动覆盖 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/first_night_information_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/first_night_information_test.go`。

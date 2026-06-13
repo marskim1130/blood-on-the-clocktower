@@ -592,6 +592,35 @@ func (gs *GameSession) characterCanAutoResolveLocked(characterID string) (int, b
 	return playerIdx, true
 }
 
+func (gs *GameSession) computeWasherwomanResultLocked(washerwomanCharID string, targetIDs []string) string {
+	return gs.computeCharacterTypeHintResultLocked(washerwomanCharID, targetIDs, game.CharacterTypeTownsfolk, false)
+}
+
+func (gs *GameSession) computeLibrarianResultLocked(librarianCharID string, targetIDs []string) string {
+	return gs.computeCharacterTypeHintResultLocked(librarianCharID, targetIDs, game.CharacterTypeOutsider, true)
+}
+
+func (gs *GameSession) computeInvestigatorResultLocked(investigatorCharID string, targetIDs []string) string {
+	return gs.computeCharacterTypeHintResultLocked(investigatorCharID, targetIDs, game.CharacterTypeMinion, false)
+}
+
+func (gs *GameSession) computeCharacterTypeHintResultLocked(characterID string, targetIDs []string, characterType game.CharacterType, allowNone bool) string {
+	if _, ok := gs.characterCanAutoResolveLocked(characterID); !ok {
+		return ""
+	}
+
+	for _, targetID := range targetIDs {
+		targetIdx := gs.findPlayerIndex(targetID)
+		if gs.playerHasCharacterTypeLocked(targetIdx, characterType) {
+			return gs.players[targetIdx].Character.Name
+		}
+	}
+	if allowNone && !gs.characterTypeInPlayLocked(characterType) {
+		return "none"
+	}
+	return "unknown"
+}
+
 func (gs *GameSession) computeEmpathResultLocked(empathCharID string) string {
 	empathIdx, ok := gs.characterCanAutoResolveLocked(empathCharID)
 	if !ok {
@@ -711,6 +740,15 @@ func (gs *GameSession) isPlayerEvilLocked(playerIdx int) bool {
 	}
 	charDef := game.GetCharacterByID(player.Character.ID)
 	return charDef != nil && charDef.Team == game.TeamEvil
+}
+
+func (gs *GameSession) characterTypeInPlayLocked(characterType game.CharacterType) bool {
+	for i := range gs.players {
+		if gs.playerHasCharacterTypeLocked(i, characterType) {
+			return true
+		}
+	}
+	return false
 }
 
 func (gs *GameSession) activeNightWakeStepsLocked() []game.NightWakeStep {
@@ -1236,6 +1274,12 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 	if cmd.SenderID == gs.storytellerID && action.Result == "" {
 		if actorCharID := gs.currentWakeCharacterIDLocked(); actorCharID != "" {
 			switch action.ActionType {
+			case game.NightActionLearnTownsfolk:
+				action.Result = gs.computeWasherwomanResultLocked(actorCharID, action.TargetIDs)
+			case game.NightActionLearnOutsider:
+				action.Result = gs.computeLibrarianResultLocked(actorCharID, action.TargetIDs)
+			case game.NightActionLearnMinion:
+				action.Result = gs.computeInvestigatorResultLocked(actorCharID, action.TargetIDs)
 			case game.NightActionLearnEvilPairs:
 				action.Result = gs.computeChefResultLocked(actorCharID)
 			case game.NightActionLearnEvilNeighbors:

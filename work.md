@@ -471,6 +471,12 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/cmd/server/main.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/hub_game_flow_test.go work.md`，并删除 `packages/backend/internal/ws/persistence.go`。
 
+
+---
+
+2026-06-13 16:06:54 +08:00 --- 发现开始游戏 [Start Game] 命令只校验“现有玩家都有角色”，没有在进入夜晚前重新校验玩家人数 [Player Count] 与角色分布 [Role Distribution]；若后端状态绕过正式分配 API [Assignment API]，可能出现 0 人局或非法角色组合仍能开局 --- 在 `applyStartGame` 中从当前玩家角色重建分配表 [Assignment Map]，调用 `ValidateScriptAssignment` 重新校验剧本人数规则 [Script Setup Rules]；新增回归测试 [Regression Tests] 覆盖无实际玩家与非法手工角色分布都不能开局 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、work.md
+
+撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go`，并从 `work.md` 删除本条记录；提交后使用 `git revert <commit>` 撤回整个切片。
 ---
 
 2026-06-12 10:00:34 +08:00 --- 发现文件快照 [File Snapshot] 只能覆盖单机/本地恢复，生产部署 [Production Deployment] 或多实例 [Multi-instance] 场景缺少集中式快照后端；同时 `github.com/redis/go-redis/v9@latest` 会提升 `go` 指令 [Go Directive] 到 1.24，不符合当前后端 `go 1.22` 约束 --- 使用 Context7 查询 go-redis 官方用法，固定 `github.com/redis/go-redis/v9 v9.17.3`；新增 Redis 快照存储 [Redis Snapshot Store]，通过 `CLOCKTOWER_REDIS_URL` 与 `CLOCKTOWER_REDIS_KEY` 配置，缺失键返回空快照，读写使用超时上下文 [Timeout Context]，Redis 优先于文件快照；补充 fake Redis 单元测试 [Unit Tests] 覆盖缺失键、保存/读取、默认 key、关闭客户端和非法 URL；更新后端上下文文档 [Context Documentation]，并通过 `go test ./...`、`go test -race ./internal/ws`、`pnpm test`、`pnpm typecheck`、`pnpm build:frontend`、`pnpm build:core` --- 修改了 packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、packages/backend/cmd/server/main.go、packages/backend/go.mod、packages/backend/go.sum、packages/backend/CONTEXT.md、work.md

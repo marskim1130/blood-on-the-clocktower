@@ -894,10 +894,15 @@ func (gs *GameSession) applyStartGame(cmd StartGameCmd) (ApplyResult, error) {
 	}
 
 	// Verify all players have characters assigned
+	assignments := make(map[string]string, len(gs.players))
 	for _, p := range gs.players {
 		if p.Character == nil {
 			return ApplyResult{}, fmt.Errorf("player %s has no character assigned", p.ID)
 		}
+		assignments[p.ID] = p.Character.ID
+	}
+	if !game.ValidateScriptAssignment(gs.scriptID, assignments, len(gs.players)) {
+		return ApplyResult{}, fmt.Errorf("invalid character assignment for player count")
 	}
 
 	gs.phase = game.GamePhaseNight

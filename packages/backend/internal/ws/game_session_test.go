@@ -157,6 +157,53 @@ func TestGameSessionAssignCharactersBogusPlayerIDs(t *testing.T) {
 	}
 }
 
+func TestStartGameRejectsNoActualPlayers(t *testing.T) {
+	gs := NewGameSession()
+	gs.AddPlayer(game.Player{ID: "storyteller", Name: "Storyteller", IsAlive: true})
+
+	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
+		t.Fatalf("SetStoryteller failed: %v", err)
+	}
+
+	result, err := gs.Apply(StartGameCmd{SenderID: "storyteller"})
+	if err == nil {
+		t.Fatal("expected start game with no actual players to be rejected")
+	}
+	if err.Error() != "invalid character assignment for player count" {
+		t.Fatalf("expected invalid assignment error, got %q", err.Error())
+	}
+	if result.Updated {
+		t.Fatalf("expected rejected start to make no changes, got %#v", result)
+	}
+	if phase := gs.Phase(); phase != game.GamePhaseSetup {
+		t.Fatalf("expected phase to remain setup, got %d", phase)
+	}
+}
+
+func TestStartGameRevalidatesAssignedRoleDistribution(t *testing.T) {
+	gs := NewGameSession()
+	gs.SetPlayers([]game.Player{
+		{ID: "storyteller", Name: "Storyteller", IsAlive: true},
+		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
+		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
+		{ID: "p4", Name: "P4", IsAlive: true, Character: testCharacter(t, "chef")},
+		{ID: "p5", Name: "P5", IsAlive: true, Character: testCharacter(t, "imp")},
+	})
+
+	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
+		t.Fatalf("SetStoryteller failed: %v", err)
+	}
+
+	_, err := gs.Apply(StartGameCmd{SenderID: "storyteller"})
+	if err == nil {
+		t.Fatal("expected invalid manual role distribution to be rejected")
+	}
+	if err.Error() != "invalid character assignment for player count" {
+		t.Fatalf("expected invalid assignment error, got %q", err.Error())
+	}
+}
+
 func TestGameSessionRejectsRawSubmittedEvents(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})

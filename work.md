@@ -699,3 +699,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 15:16:00 +08:00 --- 发现房间号生成 [Room ID Generation] 在 6 位房间号空间耗尽 [ID Space Exhaustion] 时会直接 `panic`，属于生产后端 [Production Backend] 的硬崩溃点 [Hard Crash]；Hub 创建房间 [Create Room] 路径也没有可恢复错误分支 --- 将 `generateRoomIDUnlocked` 改为返回错误 [Error Return]，`CreateRoom` 在耗尽时返回 `nil`，Hub 将其转换为 `ERROR` 消息而不是让进程崩溃；更新原 panic 测试为错误返回测试，并新增 `CreateRoom` 耗尽返回 nil 的回归测试 [Regression Test] --- 修改了 packages/backend/internal/ws/room_manager.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/room_manager_race_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/room_manager.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/room_manager_race_test.go work.md`。
+
+---
+
+2026-06-13 15:20:25 +08:00 --- 发现特殊登记角色 [Special Registration Roles] 的自动信息结算存在不确定性：Recluse 可能被登记为邪恶/爪牙/恶魔，Spy 可能被登记为善良/镇民/外来者；若后端自动给出确定结果，会替说书人 [Storyteller] 做规则裁定并可能产生错误信息 --- 新增特殊登记保护 [Registration Guard]：当 Washerwoman/Librarian/Investigator 的候选目标、Fortune Teller 的目标、Chef 的在场玩家或 Empath 的相邻玩家包含未中毒的 Spy/Recluse 时，不自动生成结果，返回空结果交给说书人手动填写；中毒的 Spy/Recluse 不触发登记不确定性；新增测试覆盖 Spy/Recluse 影响各类信息结算、以及中毒 Spy 不阻塞自动结果 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/registration_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/registration_test.go`。

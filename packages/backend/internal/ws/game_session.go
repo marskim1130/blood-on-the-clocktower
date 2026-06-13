@@ -610,6 +610,9 @@ func (gs *GameSession) computeCharacterTypeHintResultLocked(characterID string, 
 	if _, ok := gs.characterCanAutoResolveLocked(characterID); !ok {
 		return ""
 	}
+	if gs.targetsIncludeAmbiguousRegistrationLocked(targetIDs) {
+		return ""
+	}
 
 	for _, targetID := range targetIDs {
 		targetIdx := gs.findPlayerIndex(targetID)
@@ -631,6 +634,10 @@ func (gs *GameSession) computeEmpathResultLocked(empathCharID string) string {
 
 	leftIdx := (empathIdx - 1 + len(gs.players)) % len(gs.players)
 	rightIdx := (empathIdx + 1) % len(gs.players)
+	if (gs.players[leftIdx].IsAlive && gs.playerHasAmbiguousRegistrationLocked(leftIdx)) ||
+		(gs.players[rightIdx].IsAlive && gs.playerHasAmbiguousRegistrationLocked(rightIdx)) {
+		return ""
+	}
 
 	evilCount := 0
 	if gs.players[leftIdx].IsAlive && gs.isPlayerEvilLocked(leftIdx) {
@@ -649,6 +656,9 @@ func (gs *GameSession) computeChefResultLocked(chefCharID string) string {
 	}
 	if len(gs.players) < 2 {
 		return "0"
+	}
+	if gs.anyAliveAmbiguousRegistrationLocked() {
+		return ""
 	}
 
 	evilPairs := 0
@@ -672,6 +682,9 @@ func (gs *GameSession) computeFortuneTellerResultLocked(fortuneTellerCharID stri
 		if gs.playerIsDemonLocked(targetIdx) {
 			return "yes"
 		}
+	}
+	if gs.targetsIncludeAmbiguousRegistrationLocked(targetIDs) {
+		return ""
 	}
 
 	return "no"
@@ -756,6 +769,39 @@ func (gs *GameSession) isPlayerEvilLocked(playerIdx int) bool {
 	}
 	charDef := game.GetCharacterByID(player.Character.ID)
 	return charDef != nil && charDef.Team == game.TeamEvil
+}
+
+func (gs *GameSession) targetsIncludeAmbiguousRegistrationLocked(targetIDs []string) bool {
+	for _, targetID := range targetIDs {
+		if gs.playerHasAmbiguousRegistrationLocked(gs.findPlayerIndex(targetID)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (gs *GameSession) anyAliveAmbiguousRegistrationLocked() bool {
+	for i := range gs.players {
+		if gs.players[i].IsAlive && gs.playerHasAmbiguousRegistrationLocked(i) {
+			return true
+		}
+	}
+	return false
+}
+
+func (gs *GameSession) playerHasAmbiguousRegistrationLocked(playerIdx int) bool {
+	if playerIdx < 0 || playerIdx >= len(gs.players) || gs.players[playerIdx].Character == nil {
+		return false
+	}
+	if gs.playerIsPoisonedLocked(playerIdx) {
+		return false
+	}
+	switch gs.players[playerIdx].Character.ID {
+	case "recluse", "spy":
+		return true
+	default:
+		return false
+	}
 }
 
 func (gs *GameSession) characterTypeInPlayLocked(characterType game.CharacterType) bool {

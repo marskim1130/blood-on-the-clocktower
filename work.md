@@ -732,3 +732,8 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 16:55:52 +08:00 --- 发现一次性/被动胜负能力 [Passive Win/Loss Abilities] 的能力失效 [Ability Malfunction] 处理不完整：中毒圣女 [Poisoned Virgin] 第一次被提名不会消耗“第一次”条件，中毒圣徒 [Poisoned Saint] 被处决仍可能让邪恶胜利，且中毒猩红女郎 [Poisoned Scarlet Woman] 仍会在恶魔死亡时接魔 --- 调整提名流程 [Nomination Flow]，圣女第一次被提名总会记录能力已检查，但只有未失效且提名者为镇民 [Townsfolk] 时才处决；胜负检查 [Win Check] 只在处决当天且圣徒能力未失效时触发邪恶胜利，避免毒性过期后追溯触发；猩红女郎接魔前检查自身能力未失效；新增回归测试 [Regression Tests] 覆盖三种中毒场景 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/endgame_test.go、work.md
 
 撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/endgame_test.go work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+---
+
+2026-06-13 17:00:22 +08:00 --- 发现夜晚恶魔击杀 [Demon Night Kill] 没有检查小恶魔 [Imp] 是否中毒或能力失效 [Ability Malfunction]；毒药师 [Poisoner] 当晚先毒小恶魔后，后端仍会在结算夜晚 [Resolve Night] 时杀死目标，破坏 5 人局核心夜晚规则 --- 在夜晚击杀结算前新增 `nightDemonCanKillLocked`，只有存活且能力未失效的小恶魔才能造成夜晚击杀；保留说书人提交动作 [Submitted Action] 记录，但不产生死亡事件 [Death Event] 或死亡记录 [Death Record]；新增回归测试覆盖毒小恶魔后击杀目标不死亡 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/poison_test.go、work.md
+
+撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/poison_test.go work.md`；提交后使用 `git revert <commit>` 撤回整个切片。

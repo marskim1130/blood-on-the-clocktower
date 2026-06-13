@@ -1632,6 +1632,9 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 	protectedTargets := gs.nightProtectedTargetsLocked()
 	for _, action := range gs.nightActions {
 		if action.ActorID == gs.storytellerID && action.ActionType == game.NightActionKill {
+			if !gs.nightDemonCanKillLocked() {
+				continue
+			}
 			for _, targetID := range action.TargetIDs {
 				tIdx := gs.findPlayerIndex(targetID)
 				if tIdx != -1 && gs.players[tIdx].IsAlive {
@@ -1681,6 +1684,11 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+func (gs *GameSession) nightDemonCanKillLocked() bool {
+	impIdx := gs.findLivingCharacterIndexLocked("imp")
+	return impIdx != -1 && !gs.playerAbilityMalfunctioningLocked(impIdx)
 }
 
 func (gs *GameSession) nightProtectedTargetsLocked() map[string]bool {

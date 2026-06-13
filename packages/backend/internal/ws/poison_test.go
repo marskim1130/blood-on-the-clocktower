@@ -84,6 +84,72 @@ func TestPoisonPlayerSetsPoisonedUntil(t *testing.T) {
 	}
 }
 
+func TestPoisonedImpNightKillDoesNotKillTarget(t *testing.T) {
+	gs := NewGameSession()
+	gs.SetPlayers([]game.Player{
+		{ID: "storyteller", Name: "Storyteller", IsAlive: true},
+		{ID: "p1", Name: "P1", IsAlive: true},
+		{ID: "p2", Name: "P2", IsAlive: true},
+		{ID: "p3", Name: "P3", IsAlive: true},
+		{ID: "p4", Name: "P4", IsAlive: true},
+		{ID: "p5", Name: "P5", IsAlive: true},
+	})
+
+	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
+		t.Fatalf("SetStoryteller failed: %v", err)
+	}
+	if _, err := gs.Apply(AssignCharactersCmd{
+		SenderID: "storyteller",
+		Assignments: map[string]string{
+			"p1": "washerwoman",
+			"p2": "librarian",
+			"p3": "investigator",
+			"p4": "poisoner",
+			"p5": "imp",
+		},
+	}); err != nil {
+		t.Fatalf("AssignCharacters failed: %v", err)
+	}
+	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("StartGame failed: %v", err)
+	}
+
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
+	if _, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionPoison),
+		TargetIDs:  []string{"p5"},
+	}); err != nil {
+		t.Fatalf("Poison Imp failed: %v", err)
+	}
+
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionKill)
+	if _, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionKill),
+		TargetIDs:  []string{"p1"},
+	}); err != nil {
+		t.Fatalf("Imp kill failed: %v", err)
+	}
+
+	result, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"})
+	if err != nil {
+		t.Fatalf("ResolveNight failed: %v", err)
+	}
+	for _, event := range result.Events {
+		if event.PlayerDied != nil {
+			t.Fatalf("expected poisoned Imp kill not to kill anyone, got %#v", event.PlayerDied)
+		}
+	}
+	p1 := findPlayerInState(t, gs.StateForRoom("room-1"), "p1")
+	if !p1.IsAlive {
+		t.Fatal("expected target to survive poisoned Imp kill")
+	}
+	if deaths := gs.Deaths(); len(deaths) != 0 {
+		t.Fatalf("expected no death records from poisoned Imp kill, got %#v", deaths)
+	}
+}
+
 // TestPoisonExpiresAtDusk verifies that poison status clears at dusk (Day→Night transition)
 func TestPoisonExpiresAtDusk(t *testing.T) {
 	gs := setupPoisonedGameSession(t)

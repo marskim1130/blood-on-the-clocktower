@@ -71,6 +71,25 @@ func TestButlerMasterSurvivesSnapshotRestore(t *testing.T) {
 	}
 }
 
+func TestButlerCannotChooseThemselfAsMaster(t *testing.T) {
+	gs := newStartedTypeHintGame(t, "butler", "washerwoman", "librarian", "chef", "poisoner", "imp")
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
+	submitTypeHintNightAction(t, gs, game.NightActionPoison, []string{"p3"}, "")
+	skipTypeHintGameToCharacter(t, gs, "butler")
+
+	_, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionLearnMaster),
+		TargetIDs:  []string{"p1"},
+	})
+	if err == nil {
+		t.Fatal("expected Butler self-master choice to be rejected")
+	}
+	if err.Error() != "butler cannot choose themself as master" {
+		t.Fatalf("expected Butler self-master error, got %q", err.Error())
+	}
+}
+
 func preparedButlerDay(t *testing.T, poisonButler bool) *GameSession {
 	t.Helper()
 
@@ -83,7 +102,6 @@ func preparedButlerDay(t *testing.T, poisonButler bool) *GameSession {
 	submitTypeHintNightAction(t, gs, game.NightActionPoison, []string{poisonTargetID}, "")
 	skipTypeHintGameToCharacter(t, gs, "butler")
 	submitTypeHintNightAction(t, gs, game.NightActionLearnMaster, []string{"p2"}, "")
-	submitTypeHintNightAction(t, gs, game.NightActionKill, []string{"p4"}, "")
 
 	if _, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("ResolveNight failed: %v", err)

@@ -494,13 +494,13 @@ func TestWebSocketCompleteMVPGameFlow(t *testing.T) {
 		return msg.Type == "ROOM_STATE" &&
 			msg.State != nil &&
 			msg.State.Phase == game.GamePhaseDay &&
-			!playerAliveInState(msg.State, "p1")
+			playerAliveInState(msg.State, "p1")
 	})
 	if stateMsg.State == nil || stateMsg.State.Winner != nil {
-		t.Fatalf("expected game to continue after first night death, got %#v", stateMsg.State)
+		t.Fatalf("expected game to continue after first night, got %#v", stateMsg.State)
 	}
-	if !containsString(stateMsg.State.GhostVotesRemaining, "p1") {
-		t.Fatalf("expected p1 ghost vote after night death, got %#v", stateMsg.State.GhostVotesRemaining)
+	if containsString(stateMsg.State.GhostVotesRemaining, "p1") {
+		t.Fatalf("expected no p1 ghost vote while alive, got %#v", stateMsg.State.GhostVotesRemaining)
 	}
 
 	playerSockets["p2"].WriteJSON(ClientMessage{
@@ -982,7 +982,6 @@ func writeStorytellerFirstNightActions(t *testing.T, conn *websocket.Conn) {
 		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
 		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnOutsider)},
 		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnMinion), TargetIDs: []string{"p4", "p5"}},
-		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionKill), TargetIDs: []string{"p1"}},
 	}
 	for _, action := range actions {
 		if err := conn.WriteJSON(action); err != nil {

@@ -32,7 +32,7 @@ func TestStartGameRejectsNonStoryteller(t *testing.T) {
 }
 
 func TestExecutePlayerAcceptsLegacyExecutePlayerID(t *testing.T) {
-	h, storytellerConn, _, roomID := setupStartedRoom(t)
+	h, storytellerConn, _, roomID := setupDayAfterFirstNight(t)
 
 	h.handleMessage(storytellerConn, ClientMessage{
 		Type:            MsgExecutePlayer,
@@ -46,34 +46,160 @@ func TestExecutePlayerAcceptsLegacyExecutePlayerID(t *testing.T) {
 	}
 }
 
+func TestChangePhaseRejectsNightToDayBypass(t *testing.T) {
+	h, storytellerConn, _, roomID := setupStartedRoom(t)
+
+	h.handleMessage(storytellerConn, ClientMessage{
+		Type:  MsgChangePhase,
+		Phase: ClientGamePhase(game.GamePhaseDay),
+	})
+
+	msgs := storytellerConn.Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected error response")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "night phase must be resolved with RESOLVE_NIGHT" {
+		t.Fatalf("expected resolve-night error, got %q", errMsg.Error)
+	}
+	if phase := h.sessions[roomID].Phase(); phase != game.GamePhaseNight {
+		t.Fatalf("expected phase to remain night, got %d", phase)
+	}
+}
+
+func TestExecutePlayerRejectsNightPhase(t *testing.T) {
+	h, storytellerConn, _, roomID := setupStartedRoom(t)
+
+	h.handleMessage(storytellerConn, ClientMessage{
+		Type:           MsgExecutePlayer,
+		TargetPlayerID: "p1",
+	})
+
+	msgs := storytellerConn.Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected error response")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "players can only be executed during the day phase" {
+		t.Fatalf("expected night execution error, got %q", errMsg.Error)
+	}
+	p1 := findPlayerInState(t, h.buildRoomStateForRecipient(roomID, "storyteller"), "p1")
+	if !p1.IsAlive {
+		t.Fatal("expected p1 to remain alive after rejected night execution")
+	}
+}
+
 func TestSubmitNightActionOnlyNotifiesActorAndStoryteller(t *testing.T) {
 	h, storytellerConn, playerConns, _ := setupStartedRoom(t)
 
-	h.handleMessage(playerConns["p1"], ClientMessage{
+	h.handleMessage(playerConns["p4"], ClientMessage{
 		Type:       MsgSubmitNightAction,
-		ActionType: string(game.NightActionKill),
-		TargetIDs:  []string{"p2"},
-		Result:     "P2 is marked by the actor.",
+		ActionType: string(game.NightActionLearnDemon),
+		Result:     "Demon: p5",
 	})
 
 	if countNightActionSubmitted(storytellerConn.Messages()) != 1 {
 		t.Fatalf("expected storyteller to receive night action, got %#v", storytellerConn.Messages())
 	}
 	storytellerAction := lastNightActionSubmitted(t, storytellerConn.Messages())
-	if storytellerAction.Result == nil || *storytellerAction.Result != "P2 is marked by the actor." {
+	if storytellerAction.Result == nil || *storytellerAction.Result != "Demon: p5" {
 		t.Fatalf("expected storyteller to receive night action result, got %#v", storytellerAction)
 	}
-	if countNightActionSubmitted(playerConns["p1"].Messages()) != 1 {
-		t.Fatalf("expected actor to receive night action, got %#v", playerConns["p1"].Messages())
+	if countNightActionSubmitted(playerConns["p4"].Messages()) != 1 {
+		t.Fatalf("expected actor to receive night action, got %#v", playerConns["p4"].Messages())
 	}
-	actorAction := lastNightActionSubmitted(t, playerConns["p1"].Messages())
-	if actorAction.Result == nil || *actorAction.Result != "P2 is marked by the actor." {
+	actorAction := lastNightActionSubmitted(t, playerConns["p4"].Messages())
+	if actorAction.Result == nil || *actorAction.Result != "Demon: p5" {
 		t.Fatalf("expected actor to receive night action result, got %#v", actorAction)
 	}
-	for _, playerID := range []string{"p2", "p3", "p4", "p5"} {
+	for _, playerID := range []string{"p1", "p2", "p3", "p5"} {
 		if count := countNightActionSubmitted(playerConns[playerID].Messages()); count != 0 {
 			t.Fatalf("expected %s not to receive night action details, got %d in %#v", playerID, count, playerConns[playerID].Messages())
 		}
+	}
+}
+
+func TestPlayerNightActionRejectsPlayerOutsideCurrentWakeStep(t *testing.T) {
+	h, storytellerConn, playerConns, roomID := setupStartedRoom(t)
+
+	h.handleMessage(playerConns["p1"], ClientMessage{
+		Type:       MsgSubmitNightAction,
+		ActionType: string(game.NightActionLearnDemon),
+	})
+
+	msgs := playerConns["p1"].Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected error response")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "player p1 cannot act during night action learn_demon" {
+		t.Fatalf("expected player wake step error, got %q", errMsg.Error)
+	}
+	if len(h.sessions[roomID].nightActions) != 0 {
+		t.Fatalf("expected rejected player action not to be stored, got %#v", h.sessions[roomID].nightActions)
+	}
+	if countNightActionSubmitted(storytellerConn.Messages()) != 0 {
+		t.Fatalf("expected storyteller not to receive rejected action, got %#v", storytellerConn.Messages())
+	}
+}
+
+func TestPlayerNightActionMustMatchCurrentWakeStepActionType(t *testing.T) {
+	h, _, playerConns, roomID := setupStartedRoom(t)
+
+	h.handleMessage(playerConns["p4"], ClientMessage{
+		Type:       MsgSubmitNightAction,
+		ActionType: string(game.NightActionPoison),
+		TargetIDs:  []string{"p1"},
+	})
+
+	msgs := playerConns["p4"].Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected error response")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "expected night action learn_demon, got poison" {
+		t.Fatalf("expected action type error, got %q", errMsg.Error)
+	}
+	if len(h.sessions[roomID].nightActions) != 0 {
+		t.Fatalf("expected rejected player action not to be stored, got %#v", h.sessions[roomID].nightActions)
+	}
+}
+
+func TestPlayerNightActionValidatesTargets(t *testing.T) {
+	h, storytellerConn, playerConns, roomID := setupStartedRoom(t)
+	submitStorytellerEvilTeamInfo(t, h, storytellerConn)
+	clearAllMessages(storytellerConn, playerConns)
+
+	h.handleMessage(playerConns["p4"], ClientMessage{
+		Type:       MsgSubmitNightAction,
+		ActionType: string(game.NightActionPoison),
+	})
+
+	msgs := playerConns["p4"].Messages()
+	if len(msgs) == 0 {
+		t.Fatal("expected error response")
+	}
+	errMsg, ok := msgs[0].(ServerMessage)
+	if !ok || errMsg.Type != "ERROR" {
+		t.Fatalf("expected ERROR message, got %#v", msgs[0])
+	}
+	if errMsg.Error != "night action poison requires at least 1 target(s)" {
+		t.Fatalf("expected player target count error, got %q", errMsg.Error)
+	}
+	if len(h.sessions[roomID].nightActions) != 2 {
+		t.Fatalf("expected only storyteller evil info actions to be stored, got %#v", h.sessions[roomID].nightActions)
 	}
 }
 
@@ -411,8 +537,9 @@ func TestDisconnectReconnectPreservesPlayerSnapshot(t *testing.T) {
 	h, storytellerConn, playerConns, roomID := setupStartedRoom(t)
 
 	h.handleMessage(storytellerConn, ClientMessage{
-		Type:           MsgExecutePlayer,
+		Type:           MsgKillPlayer,
 		TargetPlayerID: "p1",
+		Cause:          ClientDeathCause(game.DeathCauseAbility),
 	})
 	assertNoErrorMessages(t, storytellerConn.Messages())
 	clearAllMessages(storytellerConn, playerConns)
@@ -526,8 +653,8 @@ func TestCompleteMVPGameFlowFromFirstNightToGoodWin(t *testing.T) {
 		t.Fatalf("expected game to start at night, got %d", phase)
 	}
 	stateAtNight := h.buildRoomStateForRecipient(roomID, "storyteller")
-	if len(stateAtNight.NightWakeSteps) != 7 {
-		t.Fatalf("expected 7 active first-night wake steps, got %#v", stateAtNight.NightWakeSteps)
+	if len(stateAtNight.NightWakeSteps) != 6 {
+		t.Fatalf("expected 6 active first-night wake steps, got %#v", stateAtNight.NightWakeSteps)
 	}
 	if stateAtNight.CurrentNightWakeStep == nil || stateAtNight.CurrentNightWakeStep.ActionType != game.NightActionLearnDemon {
 		t.Fatalf("expected Minion information to be current wake step, got %#v", stateAtNight.CurrentNightWakeStep)
@@ -544,19 +671,17 @@ func TestCompleteMVPGameFlowFromFirstNightToGoodWin(t *testing.T) {
 		t.Fatalf("expected day phase after resolving night, got %d", stateAfterNight.Phase)
 	}
 	if stateAfterNight.Winner != nil {
-		t.Fatalf("expected game to continue after first night death, got winner %#v", stateAfterNight.Winner)
+		t.Fatalf("expected game to continue after first night, got winner %#v", stateAfterNight.Winner)
 	}
 	p1 := findPlayerInState(t, stateAfterNight, "p1")
-	if p1.IsAlive {
-		t.Fatal("expected p1 to be dead after storyteller night kill")
+	if !p1.IsAlive {
+		t.Fatal("expected p1 to remain alive because Imp does not kill on the first night")
 	}
-	if len(stateAfterNight.Deaths) != 1 ||
-		stateAfterNight.Deaths[0].PlayerID != "p1" ||
-		stateAfterNight.Deaths[0].Cause != game.DeathCauseNightKill {
-		t.Fatalf("expected p1 night-kill death record, got %#v", stateAfterNight.Deaths)
+	if len(stateAfterNight.Deaths) != 0 {
+		t.Fatalf("expected no deaths on the first night, got %#v", stateAfterNight.Deaths)
 	}
-	if !containsString(stateAfterNight.GhostVotesRemaining, "p1") {
-		t.Fatalf("expected p1 to have a ghost vote after death, got %#v", stateAfterNight.GhostVotesRemaining)
+	if containsString(stateAfterNight.GhostVotesRemaining, "p1") {
+		t.Fatalf("expected p1 not to have a ghost vote while alive, got %#v", stateAfterNight.GhostVotesRemaining)
 	}
 	clearAllMessages(storytellerConn, playerConns)
 
@@ -606,10 +731,8 @@ func TestUseSlayerAbilityUsesConnectionIdentity(t *testing.T) {
 
 	h.handleMessage(storytellerConn, ClientMessage{Type: MsgStartGame})
 	assertNoErrorMessages(t, storytellerConn.Messages())
-	h.handleMessage(storytellerConn, ClientMessage{
-		Type:  MsgChangePhase,
-		Phase: ClientGamePhase(game.GamePhaseDay),
-	})
+	submitStorytellerSlayerFirstNightActions(t, h, storytellerConn)
+	h.handleMessage(storytellerConn, ClientMessage{Type: MsgResolveNight})
 	assertNoErrorMessages(t, storytellerConn.Messages())
 	clearAllMessages(storytellerConn, playerConns)
 
@@ -697,7 +820,7 @@ func TestResolveNightRejectsRemainingWakeSteps(t *testing.T) {
 	if !ok || errMsg.Type != "ERROR" {
 		t.Fatalf("expected ERROR message, got %#v", msgs[0])
 	}
-	if errMsg.Error != "cannot resolve night with 7 wake step(s) remaining" {
+	if errMsg.Error != "cannot resolve night with 6 wake step(s) remaining" {
 		t.Fatalf("expected remaining wake steps error, got %q", errMsg.Error)
 	}
 }
@@ -731,8 +854,8 @@ func TestResolveNominationUsesAliveMajorityThreshold(t *testing.T) {
 	}
 
 	resolved := lastNominationResolved(t, storytellerConn.Messages())
-	if resolved.RequiredVotes != 2 {
-		t.Fatalf("expected 2 required votes with 4 alive, got %d", resolved.RequiredVotes)
+	if resolved.RequiredVotes != 3 {
+		t.Fatalf("expected 3 required votes with 5 alive, got %d", resolved.RequiredVotes)
 	}
 	if resolved.Executed {
 		t.Fatalf("expected nominee to be spared below threshold, got %#v", resolved)
@@ -749,7 +872,7 @@ func TestExecutionByNominationEndsDayAndStartsNight(t *testing.T) {
 	assertNoErrorMessages(t, playerConns["p3"].Messages())
 
 	yes := true
-	for _, voterID := range []string{"p1", "p3"} {
+	for _, voterID := range []string{"p1", "p3", "p4"} {
 		h.handleMessage(playerConns[voterID], ClientMessage{
 			Type:     MsgCastVote,
 			Decision: &yes,
@@ -773,8 +896,8 @@ func TestExecutionByNominationEndsDayAndStartsNight(t *testing.T) {
 	}
 
 	resolved := lastNominationResolved(t, storytellerConn.Messages())
-	if !resolved.Executed || resolved.RequiredVotes != 2 {
-		t.Fatalf("expected executed nomination at threshold 2, got %#v", resolved)
+	if !resolved.Executed || resolved.RequiredVotes != 3 {
+		t.Fatalf("expected executed nomination at threshold 3, got %#v", resolved)
 	}
 }
 
@@ -948,6 +1071,12 @@ func TestPersistentHubRestoresGameAfterRestart(t *testing.T) {
 	h.handleMessage(storytellerConn, ClientMessage{Type: MsgStartGame})
 	submitStorytellerFirstNightActions(t, h, storytellerConn)
 	h.handleMessage(storytellerConn, ClientMessage{Type: MsgResolveNight})
+	assertNoErrorMessages(t, storytellerConn.Messages())
+	h.handleMessage(storytellerConn, ClientMessage{
+		Type:           MsgKillPlayer,
+		TargetPlayerID: "p1",
+		Cause:          ClientDeathCause(game.DeathCauseNightKill),
+	})
 	assertNoErrorMessages(t, storytellerConn.Messages())
 
 	restored, err := NewHubWithSnapshotStore(store)
@@ -1205,7 +1334,6 @@ func submitStorytellerFirstNightActions(t *testing.T, h *Hub, storytellerConn *F
 		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
 		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnOutsider)},
 		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnMinion), TargetIDs: []string{"p4", "p5"}},
-		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionKill), TargetIDs: []string{"p1"}},
 	}
 
 	for _, action := range actions {
@@ -1213,6 +1341,24 @@ func submitStorytellerFirstNightActions(t *testing.T, h *Hub, storytellerConn *F
 		h.handleMessage(storytellerConn, action)
 		assertNoErrorMessages(t, storytellerConn.Messages())
 	}
+}
+
+func submitStorytellerSlayerFirstNightActions(t *testing.T, h *Hub, storytellerConn *FakeConnection) {
+	t.Helper()
+
+	actions := []ClientMessage{
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnDemon)},
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnMinion)},
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionPoison), TargetIDs: []string{"p2"}},
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnOutsider)},
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnMinion), TargetIDs: []string{"p4", "p5"}},
+	}
+	for _, action := range actions {
+		storytellerConn.ClearMessages()
+		h.handleMessage(storytellerConn, action)
+		assertNoErrorMessages(t, storytellerConn.Messages())
+	}
+	storytellerConn.ClearMessages()
 }
 
 func submitStorytellerEvilTeamInfo(t *testing.T, h *Hub, storytellerConn *FakeConnection) {

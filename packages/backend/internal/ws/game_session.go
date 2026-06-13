@@ -1002,7 +1002,56 @@ func (gs *GameSession) validateNightTargetsLocked(step game.NightWakeStep, targe
 			return fmt.Errorf("night action target %s not found", targetID)
 		}
 	}
+	if err := gs.validateNightSelfTargetLocked(step, targetIDs); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (gs *GameSession) validateNightSelfTargetLocked(step game.NightWakeStep, targetIDs []string) error {
+	if len(targetIDs) == 0 || step.CharacterID == "" {
+		return nil
+	}
+	actorIdx := gs.findLivingVisibleCharacterIndexLocked(step.CharacterID)
+	if actorIdx == -1 || targetIDs[0] != gs.players[actorIdx].ID {
+		return nil
+	}
+
+	switch step.ActionType {
+	case game.NightActionProtect:
+		if step.CharacterID == "monk" {
+			return fmt.Errorf("monk cannot protect themself")
+		}
+	case game.NightActionLearnMaster:
+		if step.CharacterID == "butler" {
+			return fmt.Errorf("butler cannot choose themself as master")
+		}
+	}
+	return nil
+}
+
+func (gs *GameSession) playerMatchesNightWakeStepLocked(playerIdx int, step game.NightWakeStep) bool {
+	if step.CharacterID != "" {
+		return gs.playerCanUseVisibleCharacterLocked(playerIdx, step.CharacterID)
+	}
+
+	switch step.CharacterType {
+	case game.NightWakeCharacterTypeMinion:
+		return gs.playerHasCharacterTypeLocked(playerIdx, game.CharacterTypeMinion)
+	case game.NightWakeCharacterTypeDemon:
+		return gs.playerHasCharacterTypeLocked(playerIdx, game.CharacterTypeDemon)
+	default:
+		return false
+	}
+}
+
+func (gs *GameSession) findLivingVisibleCharacterIndexLocked(characterID string) int {
+	for i := range gs.players {
+		if gs.players[i].IsAlive && gs.playerCanUseVisibleCharacterLocked(i, characterID) {
+			return i
+		}
+	}
+	return -1
 }
 
 func (gs *GameSession) alivePlayerCountLocked() int {
@@ -1084,23 +1133,13 @@ func (gs *GameSession) applyChangePhase(cmd ChangePhaseCmd) (ApplyResult, error)
 		return ApplyResult{}, fmt.Errorf("cannot change phase from %d", gs.phase)
 	}
 
-	// Validate transition: Night<->Day (storyteller-initiated)
-	valid := false
-	switch {
-	case gs.phase == game.GamePhaseNight && cmd.Phase == game.GamePhaseDay:
-		valid = true
-	case gs.phase == game.GamePhaseDay && cmd.Phase == game.GamePhaseNight:
-		valid = true
+	if gs.phase == game.GamePhaseNight && cmd.Phase == game.GamePhaseDay {
+		return ApplyResult{}, fmt.Errorf("night phase must be resolved with RESOLVE_NIGHT")
 	}
-
-	if !valid {
+	if !(gs.phase == game.GamePhaseDay && cmd.Phase == game.GamePhaseNight) {
 		return ApplyResult{}, fmt.Errorf("invalid phase transition from %d to %d", gs.phase, cmd.Phase)
 	}
 
-	if cmd.Phase == game.GamePhaseDay {
-		gs.dayNumber++
-		gs.resetDailyNominationLimitsLocked()
-	}
 	if cmd.Phase == game.GamePhaseNight {
 		if won := gs.mayorEndgameWinnerLocked(); won != nil {
 			gs.winner = won
@@ -1390,8 +1429,8 @@ func (gs *GameSession) applyExecutePlayer(cmd ExecutePlayerCmd) (ApplyResult, er
 	if cmd.SenderID != gs.storytellerID {
 		return ApplyResult{}, fmt.Errorf("only the storyteller can execute a player")
 	}
-	if gs.phase == game.GamePhaseSetup || gs.phase == game.GamePhaseFinished {
-		return ApplyResult{}, fmt.Errorf("cannot execute player in phase %d", gs.phase)
+	if gs.phase != game.GamePhaseDay {
+		return ApplyResult{}, fmt.Errorf("players can only be executed during the day phase")
 	}
 
 	pIdx := gs.findPlayerIndex(cmd.PlayerID)
@@ -1512,6 +1551,7 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 		return ApplyResult{}, fmt.Errorf("night actions can only be submitted during the night phase")
 	}
 
+	actionType := game.NightActionType(cmd.ActionType)
 	var step *game.NightWakeStep
 	if cmd.SenderID != gs.storytellerID {
 		actorIdx := gs.findPlayerIndex(cmd.SenderID)
@@ -1521,12 +1561,24 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 		if !gs.players[actorIdx].IsAlive {
 			return ApplyResult{}, fmt.Errorf("dead players cannot submit night actions")
 		}
+		step = gs.currentNightWakeStepLocked()
+		if step == nil {
+			return ApplyResult{}, fmt.Errorf("no remaining night wake steps")
+		}
+		if actionType != step.ActionType {
+			return ApplyResult{}, fmt.Errorf("expected night action %s, got %s", step.ActionType, actionType)
+		}
+		if !gs.playerMatchesNightWakeStepLocked(actorIdx, *step) {
+			return ApplyResult{}, fmt.Errorf("player %s cannot act during night action %s", cmd.SenderID, step.ActionType)
+		}
+		if err := gs.validateNightTargetsLocked(*step, cmd.TargetIDs); err != nil {
+			return ApplyResult{}, err
+		}
 	} else {
 		step = gs.currentNightWakeStepLocked()
 		if step == nil {
 			return ApplyResult{}, fmt.Errorf("no remaining night wake steps")
 		}
-		actionType := game.NightActionType(cmd.ActionType)
 		if actionType != step.ActionType {
 			return ApplyResult{}, fmt.Errorf("expected night action %s, got %s", step.ActionType, actionType)
 		}
@@ -1544,7 +1596,7 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 
 	action := game.NightAction{
 		ActorID:    cmd.SenderID,
-		ActionType: game.NightActionType(cmd.ActionType),
+		ActionType: actionType,
 		TargetIDs:  cmd.TargetIDs,
 		Result:     strings.TrimSpace(cmd.Result),
 	}
@@ -1711,6 +1763,11 @@ func (gs *GameSession) nightProtectedTargetsLocked() map[string]bool {
 func (gs *GameSession) nightKillPreventedLocked(targetIndex int, protectedTargets map[string]bool) bool {
 	target := gs.players[targetIndex]
 	if protectedTargets[target.ID] {
+		return true
+	}
+	if target.Character != nil &&
+		target.Character.ID == "mayor" &&
+		!gs.playerAbilityMalfunctioningLocked(targetIndex) {
 		return true
 	}
 	return target.Character != nil &&

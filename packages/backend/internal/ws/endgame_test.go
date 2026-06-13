@@ -95,6 +95,83 @@ func TestPoisonedMayorDoesNotWinWhenDayEndsWithThreeAlive(t *testing.T) {
 	}
 }
 
+func TestMayorTargetedByDemonNightKillSurvivesForStorytellerRedirection(t *testing.T) {
+	gs := mayorNightKillSession(t, false)
+
+	result, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"})
+	if err != nil {
+		t.Fatalf("ResolveNight failed: %v", err)
+	}
+	for _, event := range result.Events {
+		if event.PlayerDied != nil {
+			t.Fatalf("expected Mayor night kill redirection to prevent automatic death, got %#v", event.PlayerDied)
+		}
+	}
+
+	mayor := findPlayerInState(t, gs.StateForRoom("room-1"), "mayor")
+	if !mayor.IsAlive {
+		t.Fatal("expected Mayor to survive automatic demon night kill")
+	}
+	if deaths := gs.Deaths(); len(deaths) != 0 {
+		t.Fatalf("expected no death record before storyteller redirects Mayor death, got %#v", deaths)
+	}
+}
+
+func TestPoisonedMayorTargetedByDemonNightKillDies(t *testing.T) {
+	gs := mayorNightKillSession(t, true)
+
+	result, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"})
+	if err != nil {
+		t.Fatalf("ResolveNight failed: %v", err)
+	}
+	if len(result.Events) == 0 ||
+		result.Events[0].PlayerDied == nil ||
+		result.Events[0].PlayerDied.PlayerID != "mayor" ||
+		result.Events[0].PlayerDied.Cause != game.DeathCauseNightKill {
+		t.Fatalf("expected poisoned Mayor night kill death event, got %#v", result.Events)
+	}
+
+	mayor := findPlayerInState(t, gs.StateForRoom("room-1"), "mayor")
+	if mayor.IsAlive {
+		t.Fatal("expected poisoned Mayor to die from demon night kill")
+	}
+	if deaths := gs.Deaths(); len(deaths) != 1 || deaths[0].PlayerID != "mayor" || deaths[0].Cause != game.DeathCauseNightKill {
+		t.Fatalf("expected poisoned Mayor death record, got %#v", deaths)
+	}
+}
+
+func TestStorytellerCanRedirectMayorNightKillWithManualDeath(t *testing.T) {
+	gs := mayorNightKillSession(t, false)
+
+	if _, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("ResolveNight failed: %v", err)
+	}
+	result, err := gs.Apply(KillPlayerCmd{
+		SenderID: "storyteller",
+		PlayerID: "p2",
+		Cause:    game.DeathCauseNightKill,
+	})
+	if err != nil {
+		t.Fatalf("KillPlayer failed: %v", err)
+	}
+	if len(result.Events) != 1 ||
+		result.Events[0].PlayerDied == nil ||
+		result.Events[0].PlayerDied.PlayerID != "p2" ||
+		result.Events[0].PlayerDied.Cause != game.DeathCauseNightKill {
+		t.Fatalf("expected redirected night kill death event, got %#v", result.Events)
+	}
+
+	state := gs.StateForRoom("room-1")
+	mayor := findPlayerInState(t, state, "mayor")
+	if !mayor.IsAlive {
+		t.Fatal("expected Mayor to remain alive after redirected death")
+	}
+	p2 := findPlayerInState(t, state, "p2")
+	if p2.IsAlive {
+		t.Fatal("expected redirected target to be dead")
+	}
+}
+
 func TestSaintExecutionWinsForEvil(t *testing.T) {
 	gs := NewGameSession()
 	gs.storytellerID = "storyteller"
@@ -205,6 +282,32 @@ func mayorEndgameSession(t *testing.T) *GameSession {
 		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "washerwoman")},
 		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
 		{ID: "p4", Name: "P4", IsAlive: false, Character: testCharacter(t, "poisoner")},
+	}
+	return gs
+}
+
+func mayorNightKillSession(t *testing.T, poisonedMayor bool) *GameSession {
+	t.Helper()
+
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.phase = game.GamePhaseNight
+	gs.dayNumber = 1
+	gs.nightNumber = 1
+	gs.players = []game.Player{
+		{ID: "mayor", Name: "Mayor", IsAlive: true, Character: testCharacter(t, "mayor")},
+		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "chef")},
+		{ID: "poisoner", Name: "Poisoner", IsAlive: true, Character: testCharacter(t, "poisoner")},
+		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+	}
+	if poisonedMayor {
+		poisonedUntil := gs.dayNumber
+		gs.players[0].PoisonedUntil = &poisonedUntil
+	}
+	gs.nightWakeIndex = len(gs.activeNightWakeStepsLocked())
+	gs.nightActions = []game.NightAction{
+		{ActorID: "storyteller", ActionType: game.NightActionKill, TargetIDs: []string{"mayor"}},
 	}
 	return gs
 }

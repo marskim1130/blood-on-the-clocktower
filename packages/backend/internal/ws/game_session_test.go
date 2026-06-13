@@ -536,6 +536,23 @@ func TestGameSessionResolveNightDoesNotKillMonkProtectedTarget(t *testing.T) {
 	}
 }
 
+func TestGameSessionRejectsMonkSelfProtection(t *testing.T) {
+	gs := nightProtectionSession(t)
+	gs.nightWakeIndex = 0
+
+	_, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionProtect),
+		TargetIDs:  []string{"monk"},
+	})
+	if err == nil {
+		t.Fatal("expected Monk self-protection to be rejected")
+	}
+	if err.Error() != "monk cannot protect themself" {
+		t.Fatalf("expected Monk self-protection error, got %q", err.Error())
+	}
+}
+
 func TestGameSessionResolveNightDoesNotKillSoldier(t *testing.T) {
 	gs := nightProtectionSession(t)
 	gs.nightActions = []game.NightAction{

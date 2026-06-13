@@ -212,7 +212,7 @@ export const TROUBLE_BREWING_SCRIPT: ScriptDefinition = {
       name: '小恶魔',
       type: 'demon',
       team: 'evil',
-      ability: '每个夜晚，选择一名玩家：他死亡。如果你用这种方式杀死自己，一名爪牙变成小恶魔。',
+      ability: '除首夜外的每个夜晚，选择一名玩家：他死亡。如果你用这种方式杀死自己，一名爪牙变成小恶魔。',
     },
   ],
 };
@@ -313,14 +313,6 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
     order: 10,
     actionType: 'learn_master',
     prompt: '管家选择明天的主人。',
-    minTargets: 1,
-    maxTargets: 1,
-  },
-  {
-    characterId: 'imp',
-    order: 11,
-    actionType: 'kill',
-    prompt: '小恶魔选择一名玩家死亡。',
     minTargets: 1,
     maxTargets: 1,
   },

@@ -1,5 +1,10 @@
 # Work Log
 
+## 2026-06-13 16:00:42 +08:00 --- 发现 txt 中指定的 vless/tuic 节点尚未加入目标 yaml --- 通过追加两个代理节点 [Proxy Nodes] 并更新策略组 [Proxy Groups] 引用解决 --- 修改了 `C:\Users\Qilia\Desktop\2625_updated_manual_select_no_old_racknerd(1).yaml`、`C:\Users\Qilia\Desktop\blood-on-the-clocktower\work.md`
+
+### 撤回方式 [Rollback Strategy]
+从目标 yaml 删除 `vless-reality-vision-ecs-Slbca` 和 `tuic5-ecs-Slbca` 两个 `proxies` 块，并删除它们在 `自动选择` 锚点列表 [Anchor List] 与 `🌍选择代理节点` 列表中的引用；同时删除本日志条目。
+
 ## 2026-06-11 09:41 — MVP 前后端集成完成
 
 ### 问题
@@ -477,6 +482,7 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 16:06:54 +08:00 --- 发现开始游戏 [Start Game] 命令只校验“现有玩家都有角色”，没有在进入夜晚前重新校验玩家人数 [Player Count] 与角色分布 [Role Distribution]；若后端状态绕过正式分配 API [Assignment API]，可能出现 0 人局或非法角色组合仍能开局 --- 在 `applyStartGame` 中从当前玩家角色重建分配表 [Assignment Map]，调用 `ValidateScriptAssignment` 重新校验剧本人数规则 [Script Setup Rules]；新增回归测试 [Regression Tests] 覆盖无实际玩家与非法手工角色分布都不能开局 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、work.md
 
 撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go`，并从 `work.md` 删除本条记录；提交后使用 `git revert <commit>` 撤回整个切片。
+
 ---
 
 2026-06-12 10:00:34 +08:00 --- 发现文件快照 [File Snapshot] 只能覆盖单机/本地恢复，生产部署 [Production Deployment] 或多实例 [Multi-instance] 场景缺少集中式快照后端；同时 `github.com/redis/go-redis/v9@latest` 会提升 `go` 指令 [Go Directive] 到 1.24，不符合当前后端 `go 1.22` 约束 --- 使用 Context7 查询 go-redis 官方用法，固定 `github.com/redis/go-redis/v9 v9.17.3`；新增 Redis 快照存储 [Redis Snapshot Store]，通过 `CLOCKTOWER_REDIS_URL` 与 `CLOCKTOWER_REDIS_KEY` 配置，缺失键返回空快照，读写使用超时上下文 [Timeout Context]，Redis 优先于文件快照；补充 fake Redis 单元测试 [Unit Tests] 覆盖缺失键、保存/读取、默认 key、关闭客户端和非法 URL；更新后端上下文文档 [Context Documentation]，并通过 `go test ./...`、`go test -race ./internal/ws`、`pnpm test`、`pnpm typecheck`、`pnpm build:frontend`、`pnpm build:core` --- 修改了 packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、packages/backend/cmd/server/main.go、packages/backend/go.mod、packages/backend/go.sum、packages/backend/CONTEXT.md、work.md
@@ -717,23 +723,162 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 15:55:20 +08:00 --- 发现首夜流程 [First Night Flow] 缺少邪恶阵营信息 [Evil Team Information]：5 人局中爪牙 [Minion] 与恶魔 [Demon] 无法通过后端夜晚步骤互知身份，导致最小可玩局 [Minimum Playable Game] 的邪恶方基础信息不完整；现有夜晚步骤 [Night Wake Step] 只能按具体角色 ID 激活，无法表达“所有爪牙/恶魔”这种群体唤醒 [Group Wake Step] --- 为 `NightWakeStep` 增加可选角色类型 [Character Type] 字段，首夜新增“爪牙得知恶魔”和“恶魔得知爪牙”两个群体步骤；后端自动结算 `learn_demon` 与恶魔侧 `learn_minion` 的身份名单；同步核心脚本 [Core Script]、夜晚状态机 [Night State Machine]、前端唤醒列表 [Wake Order UI] 与行动按钮 [Action Selector]；迁移旧测试助手，新增邪恶互知回归测试 [Regression Test] --- 修改了 packages/backend/internal/game/game.go、packages/backend/internal/game/characters.go、packages/backend/internal/game/characters_test.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/evil_team_information_test.go、packages/backend/internal/ws/night_wake_test_helpers_test.go、packages/backend/internal/ws/butler_test.go、packages/backend/internal/ws/chef_test.go、packages/backend/internal/ws/empath_test.go、packages/backend/internal/ws/first_night_information_test.go、packages/backend/internal/ws/fortune_teller_test.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/backend/internal/ws/poison_test.go、packages/backend/internal/ws/ravenkeeper_test.go、packages/backend/internal/ws/undertaker_test.go、packages/backend/internal/ws/ws_test.go、packages/core/src/night-phase/index.ts、packages/core/src/night-phase/__tests__/night-phase.test.ts、packages/core/src/scripts/index.ts、packages/core/src/websocket/index.ts、packages/core/tsconfig.tsbuildinfo、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/scripts/index.tsx、packages/frontend/src/pages/scripts/utils.test.ts、work.md
 
 撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/game/game.go packages/backend/internal/game/characters.go packages/backend/internal/game/characters_test.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/butler_test.go packages/backend/internal/ws/chef_test.go packages/backend/internal/ws/empath_test.go packages/backend/internal/ws/first_night_information_test.go packages/backend/internal/ws/fortune_teller_test.go packages/backend/internal/ws/hub_game_flow_test.go packages/backend/internal/ws/poison_test.go packages/backend/internal/ws/ravenkeeper_test.go packages/backend/internal/ws/undertaker_test.go packages/backend/internal/ws/ws_test.go packages/core/src/night-phase/index.ts packages/core/src/night-phase/__tests__/night-phase.test.ts packages/core/src/scripts/index.ts packages/core/src/websocket/index.ts packages/core/tsconfig.tsbuildinfo packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/scripts/index.tsx packages/frontend/src/pages/scripts/utils.test.ts work.md`，并删除 `packages/backend/internal/ws/evil_team_information_test.go` 与 `packages/backend/internal/ws/night_wake_test_helpers_test.go`；提交后使用 `git revert <commit>` 撤回整个切片。
+
+---
+
+2026-06-13 16:00:29 +08:00 --- 发现桌面 txt 中明确要求将 vless 与 tuic 节点 [Proxy Nodes] 加入 `2625_updated_manual_select_no_old_racknerd(1).yaml`，目标 yaml 已有 `自动选择` 锚点 [Anchor] 与 `手动选择` 别名 [Alias] 结构，需要同步更新代理定义和选择列表 --- 从 txt 中提取 `vless-reality-vision-ecs-Slbca` 与 `tuic5-ecs-Slbca` 两个节点，新增到目标 yaml 的 `proxies`，并加入 `自动选择` 与 `🌍选择代理节点` 列表；未导入 txt 中的 vmess、hysteria2、anytls 节点 --- 修改了 C:/Users/Qilia/Desktop/2625_updated_manual_select_no_old_racknerd(1).yaml、work.md
+
+撤回方式 [Rollback Strategy]：从 `C:/Users/Qilia/Desktop/2625_updated_manual_select_no_old_racknerd(1).yaml` 删除本次新增的 `vless-reality-vision-ecs-Slbca` 与 `tuic5-ecs-Slbca` 两个 `proxies` 条目，并从 `自动选择`、`🌍选择代理节点` 两个列表删除同名列表项；若只撤回审计记录 [Audit Log]，执行 `git checkout -- work.md`。
+
 ---
 
 2026-06-13 16:31:35 +08:00 --- 发现酒鬼 [Drunk] 只有角色定义 [Character Definition]，后端无法同时表达真实身份 [Actual Character] 与玩家看到的身份 [Shown Character]；夜晚唤醒 [Night Wake] 不会为酒鬼展示的镇民 [Shown Townsfolk] 创建步骤，自动信息结算 [Auto-resolution] 也没有统一的能力失效 [Ability Malfunction] 抽象；另外僧侣 [Monk] 中毒后仍可能通过保护动作生效 --- 为玩家状态 [Player State] 与角色分配事件 [Character Assignment Event] 增加 `shownCharacter`，角色分配命令 [Assignment Command] 增加 `shownCharacters` 并校验酒鬼必须展示未实际分配的镇民；房间视图 [Room View] 对说书人展示真实与展示身份，对酒鬼本人只展示假身份；夜晚步骤把酒鬼展示的镇民纳入唤醒，但自动结果保持为空；新增统一能力失效判断，覆盖信息角色、圣女 [Virgin]、管家 [Butler]、杀手 [Slayer]、僧侣 [Monk]、士兵 [Soldier]、市长 [Mayor]；同步 ProtoBuf、core WebSocket 类型、前端显示与生成类型 --- 修改了 packages/backend/internal/game/game.go、packages/backend/internal/game/characters.go、packages/backend/internal/game/characters_test.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/drunk_test.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/message.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/ravenkeeper_test.go、proto/game.proto、scripts/generate-types.mjs、packages/core/src/types/index.ts、packages/core/src/types/generated/index.ts、packages/core/src/state-machine/index.ts、packages/core/src/websocket/index.ts、packages/core/tsconfig.tsbuildinfo、packages/frontend/src/pages/index/index.tsx、work.md
 
 撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/game/game.go packages/backend/internal/game/characters.go packages/backend/internal/game/characters_test.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/message.go packages/backend/internal/ws/persistence.go packages/backend/internal/ws/ravenkeeper_test.go proto/game.proto scripts/generate-types.mjs packages/core/src/types/index.ts packages/core/src/types/generated/index.ts packages/core/src/state-machine/index.ts packages/core/src/websocket/index.ts packages/core/tsconfig.tsbuildinfo packages/frontend/src/pages/index/index.tsx work.md`，并删除 `packages/backend/internal/ws/drunk_test.go`；提交后使用 `git revert <commit>` 撤回整个切片。
+
 ---
 
 2026-06-13 16:47:37 +08:00 --- 发现占卜师 [Fortune Teller] 自动信息结算 [Auto-resolution] 没有红鲱鱼 [Red Herring] 模型：目标不含恶魔 [Demon] 时会直接返回 `no`，但规则要求一个善良玩家 [Good Player] 对占卜师登记为恶魔，缺少该配置会让后端给出错误确定信息 --- 为角色分配命令 [Assignment Command] 增加 `fortuneTellerRedHerringId`，校验红鲱鱼只能在占卜师在场时指定，且必须是非占卜师的善良玩家；会话快照 [Session Snapshot] 持久化红鲱鱼；占卜师自动结算在目标包含恶魔或红鲱鱼时返回 `yes`，若未配置红鲱鱼且目标不含恶魔则返回空结果交给说书人 [Storyteller] 手动裁定；前端示例分配 [Sample Assignment] 在含占卜师时自动选择一个合法红鲱鱼 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/fortune_teller_test.go、packages/backend/internal/ws/hub.go、packages/backend/internal/ws/message.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、packages/core/src/websocket/index.ts、packages/frontend/src/pages/index/index.tsx、work.md
 
 撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/fortune_teller_test.go packages/backend/internal/ws/hub.go packages/backend/internal/ws/message.go packages/backend/internal/ws/persistence.go packages/backend/internal/ws/persistence_test.go packages/core/src/websocket/index.ts packages/frontend/src/pages/index/index.tsx work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+
 ---
 
 2026-06-13 16:55:52 +08:00 --- 发现一次性/被动胜负能力 [Passive Win/Loss Abilities] 的能力失效 [Ability Malfunction] 处理不完整：中毒圣女 [Poisoned Virgin] 第一次被提名不会消耗“第一次”条件，中毒圣徒 [Poisoned Saint] 被处决仍可能让邪恶胜利，且中毒猩红女郎 [Poisoned Scarlet Woman] 仍会在恶魔死亡时接魔 --- 调整提名流程 [Nomination Flow]，圣女第一次被提名总会记录能力已检查，但只有未失效且提名者为镇民 [Townsfolk] 时才处决；胜负检查 [Win Check] 只在处决当天且圣徒能力未失效时触发邪恶胜利，避免毒性过期后追溯触发；猩红女郎接魔前检查自身能力未失效；新增回归测试 [Regression Tests] 覆盖三种中毒场景 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/endgame_test.go、work.md
 
 撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/endgame_test.go work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+
 ---
 
 2026-06-13 17:00:22 +08:00 --- 发现夜晚恶魔击杀 [Demon Night Kill] 没有检查小恶魔 [Imp] 是否中毒或能力失效 [Ability Malfunction]；毒药师 [Poisoner] 当晚先毒小恶魔后，后端仍会在结算夜晚 [Resolve Night] 时杀死目标，破坏 5 人局核心夜晚规则 --- 在夜晚击杀结算前新增 `nightDemonCanKillLocked`，只有存活且能力未失效的小恶魔才能造成夜晚击杀；保留说书人提交动作 [Submitted Action] 记录，但不产生死亡事件 [Death Event] 或死亡记录 [Death Record]；新增回归测试覆盖毒小恶魔后击杀目标不死亡 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/poison_test.go、work.md
 
 撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/poison_test.go work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+
+---
+
+2026-06-13 17:10:40 +08:00 --- 发现市长 [Mayor] 被恶魔夜晚击杀 [Demon Night Kill] 时，后端会像普通玩家一样自动死亡，缺少规则中的死亡可能转移 [Death Redirection] 裁定路径；同时需要证明中毒/失效市长 [Poisoned or Malfunctioning Mayor] 不应阻止死亡 --- 在夜晚击杀阻止逻辑 [Night Kill Prevention] 中将未失效市长视为自动夜杀被阻止，把实际死亡留给说书人 [Storyteller] 通过手动死亡命令 [Manual Kill Command] 裁定；新增回归测试 [Regression Tests] 覆盖市长自动夜杀不死、中毒市长会死、说书人可手动把夜杀转移到其他目标；已通过 `go test ./...` 与 `go test -race ./internal/ws` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/endgame_test.go、work.md
+
+撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/endgame_test.go work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+
+---
+
+2026-06-13 17:16:33 +08:00 --- 发现夜晚动作输入校验 [Night Action Input Validation] 只检查目标数量 [Target Count]、重复目标 [Duplicate Targets] 与目标存在性 [Target Existence]，没有阻止僧侣 [Monk] 保护自己或管家 [Butler] 选择自己为主人，导致非法规则动作可进入生产会话状态 [Production Session State] --- 在 `validateNightTargetsLocked` 后增加自选目标校验 [Self-target Validation]，通过可见角色 [Visible Character] 找到当前唤醒角色，拒绝 `monk cannot protect themself` 与 `butler cannot choose themself as master`；新增回归测试 [Regression Tests] 覆盖两类非法动作，并修正 Ravenkeeper 测试夹具 [Test Fixture] 中过去用于跳步的非法僧侣自保动作；已通过 `go test ./...` 与 `go test -race ./internal/ws` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/butler_test.go、packages/backend/internal/ws/ravenkeeper_test.go、work.md
+
+撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/butler_test.go packages/backend/internal/ws/ravenkeeper_test.go work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+
+---
+
+2026-06-13 17:26:54 +08:00 --- 发现 Trouble Brewing 首夜顺序 [First-night Wake Order] 错误包含小恶魔 [Imp] 击杀步骤，导致最小 5 人局 [Five-player Game] 首夜会自动进入死亡/幽灵票 [Ghost Vote] 状态，偏离“小恶魔除首夜外每晚杀人”的核心规则；后端、core 与前端脚本视图 [Script View] 使用平行脚本定义，需要同步修正 --- 从后端 `TroubleBrewingFirstNightOrder` 与 core `TROUBLE_BREWING_FIRST_NIGHT_ORDER` 移除 Imp 首夜 `kill` 步骤，更新 Imp 能力文案 [Ability Text]；调整 Hub/WebSocket/角色测试与测试夹具 [Test Fixtures]，让首夜只结算信息，真正夜杀场景进入第二夜 [Second Night]；持久化恢复测试改为首夜后由说书人 [Storyteller] 手动制造死亡以继续覆盖死亡快照 [Death Snapshot]；已通过 `go test ./...`、`go test -race ./internal/ws`、`pnpm test`、`pnpm typecheck` --- 修改了 packages/backend/internal/game/characters.go、packages/backend/internal/game/characters_test.go、packages/backend/internal/ws/hub_game_flow_test.go、packages/backend/internal/ws/ws_test.go、packages/backend/internal/ws/poison_test.go、packages/backend/internal/ws/undertaker_test.go、packages/backend/internal/ws/ravenkeeper_test.go、packages/core/src/scripts/index.ts、packages/core/src/night-phase/__tests__/night-phase.test.ts、packages/core/tsconfig.tsbuildinfo、work.md
+
+撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/game/characters.go packages/backend/internal/game/characters_test.go packages/backend/internal/ws/hub_game_flow_test.go packages/backend/internal/ws/ws_test.go packages/backend/internal/ws/poison_test.go packages/backend/internal/ws/undertaker_test.go packages/backend/internal/ws/ravenkeeper_test.go packages/core/src/scripts/index.ts packages/core/src/night-phase/__tests__/night-phase.test.ts packages/core/tsconfig.tsbuildinfo work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+
+---
+
+2026-06-13 17:34:28 +08:00 --- 发现非说书人 [Non-storyteller] 提交夜晚动作 [Night Action] 时只校验玩家存在与存活，未校验当前唤醒步骤 [Current Wake Step]、动作类型 [Action Type]、目标数量 [Target Count] 与目标合法性 [Target Validity]，导致任意存活玩家可以提交 `kill` 等非法私密动作并广播给说书人，污染会话状态 [Session State] --- 将玩家提交动作也绑定到当前夜晚唤醒步骤：动作类型必须匹配当前步骤，提交者必须匹配该步骤的角色或阵营类型 [Character or Character Type]，并复用目标校验 [Target Validation]；保留合法私密动作只通知提交者与说书人的隐私边界 [Privacy Boundary]；新增 Hub 回归测试 [Regression Tests] 覆盖非当前角色提交、错误动作类型、缺失目标三类拒绝场景；已通过 `go test ./...` 与 `go test -race ./internal/ws` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub_game_flow_test.go、work.md
+
+撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub_game_flow_test.go work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+
+---
+
+2026-06-13 17:38:04 +08:00 --- 发现 `EXECUTE_PLAYER` 处决命令 [Execution Command] 可以在夜晚 [Night Phase] 直接执行，绕过白天提名/投票流程 [Day Nomination/Vote Flow]；项目已有 `KILL_PLAYER` 手动死亡命令 [Manual Death Command] 可承载说书人裁定死亡，夜晚处决会混淆死亡原因 [Death Cause] 与阶段规则 [Phase Rules] --- 将 `ExecutePlayerCmd` 收紧为只能在白天阶段 [Day Phase] 使用，夜晚或其他阶段返回 `players can only be executed during the day phase`；遗留 `executePlayerId` 测试先切换到白天再验证兼容字段，断线重连死亡快照 [Reconnect Death Snapshot] 改用 `KILL_PLAYER`；新增夜晚处决拒绝回归测试 [Regression Test]；已通过 `go test ./...` 与 `go test -race ./internal/ws` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/hub_game_flow_test.go、work.md
+
+撤回方式 [Rollback Strategy]：提交前可执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/hub_game_flow_test.go work.md`；提交后使用 `git revert <commit>` 撤回整个切片。
+
+---
+
+## 2026-06-13 18:30 — 前端页面设计方案评审 [Frontend Page Design Review]
+
+### 问题
+发现当前前端 `index.tsx` 单页面 1517 行代码，所有游戏状态（setup/day/voting/night/finished）通过条件渲染切换，缺少清晰的页面架构、导航机制、状态管理和组件复用策略，导致代码可维护性差、团队协作困难、UI 一致性弱。
+
+### 解决方案
+通过 `/grill-me` 技能 [Skill] 深度拷问前端页面设计的 10 个核心问题，确定最终架构方案：
+
+#### 1. 页面架构 [Page Architecture]
+- **多页面架构 [Multi-Page Architecture]**：4 个核心页面 + 1 个辅助页面
+  - `/pages/lobby` — 大厅（连接服务、创建/加入房间）
+  - `/pages/game-setup` — 游戏准备（设置说书人、分配角色）
+  - `/pages/game-play` — 游戏进行（day/voting/night 组件切换）
+  - `/pages/game-over` — 游戏结束（结果展示、角色揭示）
+  - `/pages/scripts` — 剧本查看（已存在）
+
+#### 2. 导航机制 [Navigation Mechanism]
+- **混合模式 [Hybrid Mode]**：
+  - 页面入口校验 + 降级 UI（状态不匹配时显示 ErrorState 组件）
+  - WebSocket 关键事件自动跳转（gameOver → game-over 页面）
+  - 用户操作乐观跳转（点击"开始游戏"后立即跳转）
+
+#### 3. 状态管理 [State Management]
+- **Zustand 全局 Store**：
+  - 全局状态：client、connectionStatus、roomState、gamePhase、isStoryteller、myCharacter
+  - 页面本地状态：UI 临时数据（输入框值、错误提示、日志）
+  - 状态分层设计避免过度全局化
+
+#### 4. game-play 页面内部结构 [Game-Play Internal Structure]
+- **子组件拆分 [Component Splitting]**：
+  - 主容器 `index.tsx`（150 行）
+  - `components/PhaseIndicator.tsx` — 阶段指示器
+  - `components/PlayerList/` — 玩家列表变体（Setup/Game/Storyteller/GameOver）
+  - `components/DayPhase/` — 白天阶段组件
+  - `components/VotingPhase/` — 投票阶段组件
+  - `components/NightPhase/` — 夜间阶段组件（说书人/玩家）
+
+#### 5. 说书人控制面板布局 [Storyteller Panel Layout]
+- **固定栏 + 抽屉混合 [Fixed Bar + Drawer]**：
+  - 固定顶栏：阶段切换按钮（始终可见）
+  - 滚动区域：玩家列表、唤醒顺序、行动选择器
+  - 固定底栏：当前阶段主操作（提交行动/结束夜晚）+ 更多按钮
+  - 抽屉：低频操作（宣告死亡、结束游戏、房间设置）
+
+#### 6. 夜间唤醒顺序交互 [Night Wake Order Interaction]
+- **折叠列表 + 自动聚焦 [Collapsible List + Auto-focus]**：
+  - 已完成步骤折叠、当前步骤高亮、下一步预览、剩余步骤折叠
+  - 智能过滤"未在场"步骤
+  - 快捷跳过功能（角色未使用能力时）
+  - 自动滚动到当前步骤
+
+#### 7. 玩家列表展示层级 [Player List Display Hierarchy]
+- **基础组件 + 变体组件 [Base + Variants]**：
+  - `PlayerItem.tsx` — 基础组件（昵称、ID、存活状态）
+  - `PlayerListSetup.tsx` — Setup 阶段（说书人标记、踢出按钮）
+  - `PlayerListGame.tsx` — 游戏中（普通玩家视角）
+  - `PlayerListStoryteller.tsx` — 游戏中（说书人视角，显示所有信息）
+  - `PlayerListGameOver.tsx` — 结束阶段（揭示所有角色）
+  - 提取共享逻辑到自定义 hooks（usePlayerInfo）
+
+#### 8. 状态同步与容错 [State Sync & Fault Tolerance]
+- **降级显示 + 部分自动跳转 [Graceful Degradation + Partial Auto-navigation]**：
+  - 统一 ErrorState 组件（icon、message、hint、redirectUrl）
+  - 页面入口校验（未加入房间、状态不匹配、连接断开）
+  - 关键事件自动跳转，异常情况手动引导
+  - WebSocket 消息处理器直接触发导航
+
+#### 9. 基础组件库 [Base Component Library]
+- **CSS 变量 + 组件封装 [CSS Variables + Component Wrapper]**：
+  - **优先级 P0**：Button、Card、ErrorState、Tag
+  - **优先级 P1**：Input、Loading、Divider
+  - CSS 变量系统：`--color-*`、`--spacing-*`、`--radius-*`、`--shadow-*`
+  - 统一样式、类型安全、行为封装
+
+#### 10. 关键设计原则 [Key Design Principles]
+1. ✅ 多页面架构 — 职责分离、心智清晰
+2. ✅ Zustand 全局状态 — WebSocket 连接跨页面持久化
+3. ✅ 组件化拆分 — 单文件 200-300 行，易于维护
+4. ✅ 混合导航 — 关键事件自动跳转，异常情况降级 UI
+5. ✅ 说书人 UX 优化 — 固定栏 + 抽屉 + 折叠列表
+6. ✅ 基础组件库 — 统一样式、类型安全、便于复用
+7. ✅ 智能过滤与快捷操作 — 减少说书人操作负担
+8. ✅ 防御性编程 — 页面入口校验，容错机制完善
+
+### 文件估算 [File Estimation]
+- **页面**：5 个（lobby、game-setup、game-play、game-over、scripts）
+- **页面组件**：~15 个（game-play 拆分出的子组件）
+- **基础组件**：~8 个（Button、Card、ErrorState、Tag、Input、Loading、Divider、Badge）
+- **Hooks**：~5 个（usePlayerInfo、useGameActions、useNavigationGuard 等）
+- **总文件数**：~40 个（包括 .tsx + .css）
+
+### 修改文件
+- `work.md` — 新增前端页面设计方案评审记录
+
+### 撤回方式 [Rollback Strategy]
+执行 `git checkout -- work.md` 并从 work.md 中删除本条 2026-06-13 18:30 记录；前端页面设计方案尚未实施，暂无代码变更需要回滚。

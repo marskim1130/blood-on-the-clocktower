@@ -9,7 +9,7 @@ import (
 func TestRavenkeeperAutoComputesChosenPlayerCharacterWhenKilledTonight(t *testing.T) {
 	gs := newStartedRavenkeeperGame(t)
 	enterRavenkeeperSecondNight(t, gs)
-	submitRavenkeeperNightPrefix(t, gs, "p2", "p2")
+	submitRavenkeeperNightPrefix(t, gs, "p2", "p4")
 	submitRavenkeeperImpKill(t, gs, "p1")
 
 	result, err := gs.Apply(SubmitNightActionCmd{
@@ -93,7 +93,7 @@ func TestPoisonedMonkDoesNotProtectRavenkeeper(t *testing.T) {
 func TestPoisonedRavenkeeperDoesNotAutoCompute(t *testing.T) {
 	gs := newStartedRavenkeeperGame(t)
 	enterRavenkeeperSecondNight(t, gs)
-	submitRavenkeeperNightPrefix(t, gs, "p1", "p2")
+	submitRavenkeeperNightPrefix(t, gs, "p1", "p4")
 	submitRavenkeeperImpKill(t, gs, "p1")
 
 	result, err := gs.Apply(SubmitNightActionCmd{
@@ -114,7 +114,7 @@ func TestPoisonedRavenkeeperDoesNotAutoCompute(t *testing.T) {
 func TestRavenkeeperManualResultOverridesAutoCompute(t *testing.T) {
 	gs := newStartedRavenkeeperGame(t)
 	enterRavenkeeperSecondNight(t, gs)
-	submitRavenkeeperNightPrefix(t, gs, "p2", "p2")
+	submitRavenkeeperNightPrefix(t, gs, "p2", "p4")
 	submitRavenkeeperImpKill(t, gs, "p1")
 
 	result, err := gs.Apply(SubmitNightActionCmd{
@@ -175,7 +175,6 @@ func enterRavenkeeperSecondNight(t *testing.T, gs *GameSession) {
 	actions := []SubmitNightActionCmd{
 		{SenderID: "storyteller", ActionType: string(game.NightActionPoison), TargetIDs: []string{"p2"}},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnEvilNeighbors)},
-		{SenderID: "storyteller", ActionType: string(game.NightActionKill), TargetIDs: []string{"p3"}},
 	}
 	for _, action := range actions {
 		if _, err := gs.Apply(action); err != nil {
@@ -211,6 +210,12 @@ func submitRavenkeeperImpKill(t *testing.T, gs *GameSession, targetID string) {
 		SenderID:   "storyteller",
 		ActionType: string(game.NightActionKill),
 		TargetIDs:  []string{targetID},
+	}); err != nil {
+		t.Fatalf("SubmitNightAction failed: %v", err)
+	}
+	if _, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionLearnEvilNeighbors),
 	}); err != nil {
 		t.Fatalf("SubmitNightAction failed: %v", err)
 	}

@@ -17,6 +17,13 @@ describe('night phase wake order', () => {
     expect(subsequentNight.some((entry) => entry.characterId === 'fortune_teller')).toBe(false);
   });
 
+  it('does not wake the Imp to kill on the first night', () => {
+    const firstNight = getWakeOrder(1);
+
+    expect(firstNight.some((entry) => entry.characterId === 'imp')).toBe(false);
+    expect(firstNight.some((entry) => entry.actionType === 'kill')).toBe(false);
+  });
+
   it('can find Fortune Teller as the next living character to wake', () => {
     const aliveCharacters = new Map<PlayerId, Character>([
       [

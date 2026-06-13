@@ -141,7 +141,6 @@ func completeUndertakerFirstNight(t *testing.T, gs *GameSession) {
 		{SenderID: "storyteller", ActionType: string(game.NightActionPoison), TargetIDs: []string{"p3"}},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnEvilPairs)},
-		{SenderID: "storyteller", ActionType: string(game.NightActionKill), TargetIDs: []string{"p2"}},
 	}
 	for _, action := range actions {
 		if _, err := gs.Apply(action); err != nil {

@@ -114,6 +114,11 @@ func TestPoisonedImpNightKillDoesNotKillTarget(t *testing.T) {
 		t.Fatalf("StartGame failed: %v", err)
 	}
 
+	completeFullFirstNight(t, gs)
+	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+		t.Fatalf("ChangePhase to second night failed: %v", err)
+	}
+
 	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	if _, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
@@ -147,6 +152,27 @@ func TestPoisonedImpNightKillDoesNotKillTarget(t *testing.T) {
 	}
 	if deaths := gs.Deaths(); len(deaths) != 0 {
 		t.Fatalf("expected no death records from poisoned Imp kill, got %#v", deaths)
+	}
+}
+
+func completeFullFirstNight(t *testing.T, gs *GameSession) {
+	t.Helper()
+
+	actions := []SubmitNightActionCmd{
+		{SenderID: "storyteller", ActionType: string(game.NightActionLearnDemon)},
+		{SenderID: "storyteller", ActionType: string(game.NightActionLearnMinion)},
+		{SenderID: "storyteller", ActionType: string(game.NightActionPoison), TargetIDs: []string{"p1"}},
+		{SenderID: "storyteller", ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
+		{SenderID: "storyteller", ActionType: string(game.NightActionLearnOutsider)},
+		{SenderID: "storyteller", ActionType: string(game.NightActionLearnMinion), TargetIDs: []string{"p4", "p5"}},
+	}
+	for _, action := range actions {
+		if _, err := gs.Apply(action); err != nil {
+			t.Fatalf("SubmitNightAction failed: %v", err)
+		}
+	}
+	if _, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("ResolveNight failed: %v", err)
 	}
 }
 
@@ -318,12 +344,11 @@ func setupPoisonedGameSession(t *testing.T) *GameSession {
 func completeFirstNight(t *testing.T, gs *GameSession) {
 	t.Helper()
 
-	// Remaining first night actions: Washerwoman, Librarian, Investigator, Imp
+	// Remaining first night actions: Washerwoman, Librarian, Investigator
 	actions := []SubmitNightActionCmd{
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnOutsider)},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnMinion), TargetIDs: []string{"p4", "p5"}},
-		{SenderID: "storyteller", ActionType: string(game.NightActionKill), TargetIDs: []string{"p1"}},
 	}
 
 	for _, action := range actions {

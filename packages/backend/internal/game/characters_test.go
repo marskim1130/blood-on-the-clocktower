@@ -148,6 +148,16 @@ func TestGetScriptWakeOrderUsesCanonicalFortuneTellerID(t *testing.T) {
 	}
 }
 
+func TestTroubleBrewingFirstNightDoesNotWakeImpForKill(t *testing.T) {
+	firstNight := GetScriptWakeOrder(TroubleBrewingScriptID, 1)
+
+	for _, step := range firstNight {
+		if step.CharacterID == "imp" || step.ActionType == NightActionKill {
+			t.Fatalf("expected first night to exclude Imp kill, got %#v", step)
+		}
+	}
+}
+
 func TestGetActiveNightWakeStepsFiltersToAliveAssignedCharacters(t *testing.T) {
 	players := []Player{
 		{ID: "p1", IsAlive: true, Character: &Character{ID: "washerwoman", Name: "Washerwoman", Team: TeamGood}},
@@ -156,13 +166,12 @@ func TestGetActiveNightWakeStepsFiltersToAliveAssignedCharacters(t *testing.T) {
 	}
 
 	active := GetActiveNightWakeSteps(TroubleBrewingScriptID, 1, players)
-	if len(active) != 3 {
-		t.Fatalf("expected 3 active wake steps, got %#v", active)
+	if len(active) != 2 {
+		t.Fatalf("expected 2 active wake steps, got %#v", active)
 	}
 	if active[0].CharacterType != NightWakeCharacterTypeDemon ||
-		active[1].CharacterID != "washerwoman" ||
-		active[2].CharacterID != "imp" {
-		t.Fatalf("expected demon info, washerwoman, then imp, got %#v", active)
+		active[1].CharacterID != "washerwoman" {
+		t.Fatalf("expected demon info, then washerwoman, got %#v", active)
 	}
 }
 

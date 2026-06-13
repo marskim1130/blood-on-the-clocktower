@@ -1,0 +1,3 @@
+./characters.go
+./game.go
+./characters_test.go

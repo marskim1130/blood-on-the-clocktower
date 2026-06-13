@@ -85,7 +85,7 @@ var TroubleBrewing = []CharacterDefinition{
 
 	// Demon
 	{ID: "imp", Name: "Imp", Type: CharacterTypeDemon, Team: TeamEvil,
-		Ability: "Each night, choose a player: they die. If you kill yourself this way, a Minion becomes the Imp."},
+		Ability: "Each night except the first, choose a player: they die. If you kill yourself this way, a Minion becomes the Imp."},
 }
 
 // TroubleBrewingScript is the default supported script.
@@ -160,7 +160,6 @@ var TroubleBrewingFirstNightOrder = []NightWakeStep{
 	{CharacterID: "empath", Order: 8, ActionType: NightActionLearnEvilNeighbors, Prompt: "Empath learns how many alive neighbours are evil.", MinTargets: 0, MaxTargets: 0},
 	{CharacterID: "fortuneteller", Order: 9, ActionType: NightActionCheckDemon, Prompt: "Fortune Teller chooses two players and learns if either registers as the Demon.", MinTargets: 2, MaxTargets: 2},
 	{CharacterID: "butler", Order: 10, ActionType: NightActionLearnMaster, Prompt: "Butler chooses their master for tomorrow.", MinTargets: 1, MaxTargets: 1},
-	{CharacterID: "imp", Order: 11, ActionType: NightActionKill, Prompt: "Imp chooses one player to die.", MinTargets: 1, MaxTargets: 1},
 }
 
 // TroubleBrewingSubsequentNightOrder defines the storyteller wake order after night one.

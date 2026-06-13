@@ -109,6 +109,7 @@ export interface ProtoPlayer {
   readonly character?: ProtoCharacter;
   readonly isAlive: boolean;
   readonly votes: number;
+  readonly poisonedUntil?: number;
 }
 
 export interface ProtoCharacter {

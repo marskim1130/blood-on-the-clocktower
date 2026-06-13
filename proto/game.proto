@@ -11,6 +11,7 @@ message Player {
   optional Character character = 3;
   bool is_alive = 4;
   int32 votes = 5;
+  optional int32 poisoned_until = 6;
 }
 
 // Character represents a character role

@@ -338,6 +338,18 @@
   color: #657386;
 }
 
+.poisonStatus {
+  display: inline-block;
+  padding: 6px 10px;
+  margin-top: 8px;
+  border: 1px solid #a855f7;
+  border-radius: 8px;
+  background: #faf5ff;
+  color: #6b21a8;
+  font-size: 19px;
+  font-weight: 600;
+}
+
 .characterName {
   display: block;
   margin-bottom: 8px;

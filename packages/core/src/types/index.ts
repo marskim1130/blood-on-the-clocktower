@@ -8,6 +8,7 @@ export interface Player {
   readonly character: Character | null;
   readonly isAlive: boolean;
   readonly votes: number;
+  readonly poisonedUntil?: number;
 }
 
 export type Character = {

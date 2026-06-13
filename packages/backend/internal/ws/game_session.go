@@ -541,6 +541,178 @@ func (gs *GameSession) resetDailyNominationLimitsLocked() {
 	gs.nomineesToday = make(map[string]bool)
 }
 
+func (gs *GameSession) applyPoisonEffectLocked(targetIDs []string) {
+	expiresAt := gs.dayNumber + 1
+	for _, targetID := range targetIDs {
+		idx := gs.findPlayerIndex(targetID)
+		if idx != -1 {
+			gs.players[idx].PoisonedUntil = &expiresAt
+		}
+	}
+}
+
+func (gs *GameSession) clearExpiredPoisonLocked() {
+	for i := range gs.players {
+		if gs.players[i].PoisonedUntil != nil && *gs.players[i].PoisonedUntil <= gs.dayNumber {
+			gs.players[i].PoisonedUntil = nil
+		}
+	}
+}
+
+func (gs *GameSession) currentWakeCharacterIDLocked() string {
+	step := gs.currentNightWakeStepLocked()
+	if step == nil {
+		return ""
+	}
+	return step.CharacterID
+}
+
+func (gs *GameSession) findLivingCharacterIndexLocked(characterID string) int {
+	for i, p := range gs.players {
+		if p.Character != nil && p.Character.ID == characterID && p.IsAlive {
+			return i
+		}
+	}
+	return -1
+}
+
+func (gs *GameSession) playerIsPoisonedLocked(playerIdx int) bool {
+	if playerIdx < 0 || playerIdx >= len(gs.players) {
+		return false
+	}
+	poisonedUntil := gs.players[playerIdx].PoisonedUntil
+	return poisonedUntil != nil && *poisonedUntil > gs.dayNumber
+}
+
+func (gs *GameSession) characterCanAutoResolveLocked(characterID string) (int, bool) {
+	playerIdx := gs.findLivingCharacterIndexLocked(characterID)
+	if playerIdx == -1 || gs.playerIsPoisonedLocked(playerIdx) {
+		return -1, false
+	}
+	return playerIdx, true
+}
+
+func (gs *GameSession) computeEmpathResultLocked(empathCharID string) string {
+	empathIdx, ok := gs.characterCanAutoResolveLocked(empathCharID)
+	if !ok {
+		return ""
+	}
+
+	leftIdx := (empathIdx - 1 + len(gs.players)) % len(gs.players)
+	rightIdx := (empathIdx + 1) % len(gs.players)
+
+	evilCount := 0
+	if gs.players[leftIdx].IsAlive && gs.isPlayerEvilLocked(leftIdx) {
+		evilCount++
+	}
+	if gs.players[rightIdx].IsAlive && gs.isPlayerEvilLocked(rightIdx) {
+		evilCount++
+	}
+
+	return fmt.Sprintf("%d", evilCount)
+}
+
+func (gs *GameSession) computeChefResultLocked(chefCharID string) string {
+	if _, ok := gs.characterCanAutoResolveLocked(chefCharID); !ok {
+		return ""
+	}
+	if len(gs.players) < 2 {
+		return "0"
+	}
+
+	evilPairs := 0
+	for i := range gs.players {
+		nextIdx := (i + 1) % len(gs.players)
+		if gs.isPlayerEvilLocked(i) && gs.isPlayerEvilLocked(nextIdx) {
+			evilPairs++
+		}
+	}
+
+	return fmt.Sprintf("%d", evilPairs)
+}
+
+func (gs *GameSession) computeFortuneTellerResultLocked(fortuneTellerCharID string, targetIDs []string) string {
+	if _, ok := gs.characterCanAutoResolveLocked(fortuneTellerCharID); !ok {
+		return ""
+	}
+
+	for _, targetID := range targetIDs {
+		targetIdx := gs.findPlayerIndex(targetID)
+		if gs.playerIsDemonLocked(targetIdx) {
+			return "yes"
+		}
+	}
+
+	return "no"
+}
+
+func (gs *GameSession) computeUndertakerResultLocked(undertakerCharID string) string {
+	if _, ok := gs.characterCanAutoResolveLocked(undertakerCharID); !ok {
+		return ""
+	}
+
+	for i := len(gs.deaths) - 1; i >= 0; i-- {
+		death := gs.deaths[i]
+		if death.Cause != game.DeathCauseExecution || death.DayNumber != gs.dayNumber {
+			continue
+		}
+		playerIdx := gs.findPlayerIndex(death.PlayerID)
+		if playerIdx == -1 || gs.players[playerIdx].Character == nil {
+			return "unknown"
+		}
+		return gs.players[playerIdx].Character.Name
+	}
+
+	return "none"
+}
+
+func (gs *GameSession) computeRavenkeeperResultLocked(ravenkeeperCharID string, targetIDs []string) string {
+	ravenkeeperIdx, ok := gs.characterCanAutoResolveLocked(ravenkeeperCharID)
+	if !ok {
+		return ""
+	}
+	if !gs.ravenkeeperDiesTonightLocked(ravenkeeperIdx) {
+		return "none"
+	}
+	if len(targetIDs) == 0 {
+		return ""
+	}
+
+	targetIdx := gs.findPlayerIndex(targetIDs[0])
+	if targetIdx == -1 || gs.players[targetIdx].Character == nil {
+		return "unknown"
+	}
+	return gs.players[targetIdx].Character.Name
+}
+
+func (gs *GameSession) ravenkeeperDiesTonightLocked(ravenkeeperIdx int) bool {
+	protectedTargets := gs.nightProtectedTargetsLocked()
+	ravenkeeper := gs.players[ravenkeeperIdx]
+	for _, action := range gs.nightActions {
+		if action.ActorID != gs.storytellerID || action.ActionType != game.NightActionKill {
+			continue
+		}
+		for _, targetID := range action.TargetIDs {
+			if targetID == ravenkeeper.ID && !gs.nightKillPreventedLocked(ravenkeeperIdx, protectedTargets) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (gs *GameSession) isPlayerEvilLocked(playerIdx int) bool {
+	if playerIdx < 0 || playerIdx >= len(gs.players) {
+		return false
+	}
+	player := gs.players[playerIdx]
+	if player.Character == nil {
+		return false
+	}
+	charDef := game.GetCharacterByID(player.Character.ID)
+	return charDef != nil && charDef.Team == game.TeamEvil
+}
+
 func (gs *GameSession) activeNightWakeStepsLocked() []game.NightWakeStep {
 	return game.GetActiveNightWakeSteps(gs.scriptID, gs.nightNumber, gs.players)
 }
@@ -655,6 +827,8 @@ func (gs *GameSession) applyChangePhase(cmd ChangePhaseCmd) (ApplyResult, error)
 		gs.resetDailyNominationLimitsLocked()
 	}
 	if cmd.Phase == game.GamePhaseNight {
+		// Clear expired poison at dusk (Day→Night transition)
+		gs.clearExpiredPoisonLocked()
 		gs.startNightLocked()
 	}
 
@@ -1057,9 +1231,32 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 		TargetIDs:  cmd.TargetIDs,
 		Result:     strings.TrimSpace(cmd.Result),
 	}
+
+	// Auto-compute ability results for information roles (if not poisoned)
+	if cmd.SenderID == gs.storytellerID && action.Result == "" {
+		if actorCharID := gs.currentWakeCharacterIDLocked(); actorCharID != "" {
+			switch action.ActionType {
+			case game.NightActionLearnEvilPairs:
+				action.Result = gs.computeChefResultLocked(actorCharID)
+			case game.NightActionLearnEvilNeighbors:
+				action.Result = gs.computeEmpathResultLocked(actorCharID)
+			case game.NightActionCheckDemon:
+				action.Result = gs.computeFortuneTellerResultLocked(actorCharID, action.TargetIDs)
+			case game.NightActionLearnExecuted:
+				action.Result = gs.computeUndertakerResultLocked(actorCharID)
+			case game.NightActionLearnDied:
+				action.Result = gs.computeRavenkeeperResultLocked(actorCharID, action.TargetIDs)
+			}
+		}
+	}
+
 	gs.nightActions = append(gs.nightActions, action)
 	if cmd.SenderID == gs.storytellerID {
 		gs.nightWakeIndex++
+		// Apply poison effect immediately when storyteller submits poison action
+		if action.ActionType == game.NightActionPoison {
+			gs.applyPoisonEffectLocked(action.TargetIDs)
+		}
 	}
 
 	events := []game.GameEvent{
@@ -1455,8 +1652,17 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 			character := *player.Character
 			players[i].Character = &character
 		}
+		if player.PoisonedUntil != nil {
+			poisonedUntil := *player.PoisonedUntil
+			players[i].PoisonedUntil = &poisonedUntil
+		}
+		// Hide character from non-storyteller recipients (except own character)
 		if !canSeeAll && player.ID != recipientID {
 			players[i].Character = nil
+		}
+		// Hide PoisonedUntil from all non-storyteller recipients (including the poisoned player)
+		if !canSeeAll {
+			players[i].PoisonedUntil = nil
 		}
 	}
 

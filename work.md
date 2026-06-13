@@ -437,8 +437,6 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css work.md`。
 
----
-
 2026-06-11 15:44:24 +08:00 --- 发现产品版角色/剧本支持 [Script Support] 仍散落在前端硬编码 [Hard-coded] 常量和后端 Trouble Brewing 校验中：核心包缺少统一角色目录 [Character Catalog]，夜晚顺序 [Wake Order] 使用了错误的 `fortune_teller` ID，后端角色分配 [Character Assignment] 没有拒绝重复角色，也没有处理男爵 [Baron] 带来的外来者数量修正，真实 WebSocket 测试 [Transport Test] 还会在投票快照未到达时提前结算 --- 使用核心脚本目录统一 Trouble Brewing 角色、角色分布、默认分配和夜晚唤醒步骤；夜晚阶段复用脚本目录并修正 `fortuneteller` ID；后端新增脚本定义、重复角色拒绝和男爵设置修正；前端改用核心默认分配并为 Storyteller [主持人] 展示夜晚唤醒清单；WebSocket 流程测试在结算前等待 3 张投票进入服务器快照 --- 修改了 packages/core/src/scripts/index.ts、packages/core/src/scripts/__tests__/scripts.test.ts、packages/core/src/night-phase/index.ts、packages/core/src/night-phase/__tests__/night-phase.test.ts、packages/core/src/index.ts、packages/core/package.json、packages/backend/internal/game/characters.go、packages/backend/internal/game/characters_test.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/ws_test.go、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/index/index.css、packages/core/tsconfig.tsbuildinfo、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/core/src/night-phase/index.ts packages/core/src/index.ts packages/core/package.json packages/backend/internal/game/characters.go packages/backend/internal/game/characters_test.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/ws_test.go packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css packages/core/tsconfig.tsbuildinfo work.md`，并删除 `packages/core/src/scripts/index.ts`、`packages/core/src/scripts/__tests__/scripts.test.ts`、`packages/core/src/night-phase/__tests__/night-phase.test.ts`。
@@ -610,3 +608,58 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 10:10:52 +08:00 --- 发现后端 Virgin 首次被提名能力 [Virgin First Nomination Ability] 尚未实现：Virgin 被镇民 [Townsfolk] 首次提名时不会立即处决提名者，且能力使用状态 [Ability Usage State] 在服务器重启后会丢失 --- 在提名流程 [Nomination Flow] 中记录 Virgin 能力使用状态，首次被提名时若提名者为镇民则立即以处决 [Execution] 方式杀死提名者并结束白天进入夜晚；非镇民首次提名只消耗能力并进入正常投票；将 `virginAbilityUsed` 纳入快照保存/恢复 [Snapshot Save/Restore]；补充 Virgin 镇民触发、非镇民消耗、快照恢复测试；通过 `go test ./...`、`git diff --check` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/persistence.go packages/backend/internal/ws/persistence_test.go work.md`。
+
+
+---
+
+2026-06-13 10:55:47 +08:00 --- 发现后端角色能力系统 [Character Ability System] 缺少核心地基：Poisoner 中毒状态 [Poisoned State] 的完整生命周期管理，包括状态设置、过期清理、隐私过滤和持久化支持；当前 Washerwoman/Librarian/Investigator/Chef/Empath/Fortune Teller 等信息类能力尚未实现结算逻辑 [Resolution Logic]，无法验证中毒效果 --- 使用最小垂直切片 [Minimal Vertical Slice] 在 `game.Player` 中新增 `PoisonedUntil *int32` 字段标记中毒到第几天黄昏；在 `applySubmitNightAction` 中检测 `NightActionPoison` 并立即设置目标玩家的 `PoisonedUntil = dayNumber + 1`；在 `applyChangePhase` 的 Day→Night 转换前调用 `clearExpiredPoisonLocked` 清理过期中毒；在 `stateForRoom` 中对所有非说书人接收者隐藏 `PoisonedUntil` 字段（包括被中毒者自己）；新增 6 个测试覆盖中毒设置、过期清理、说书人/玩家隐私、重复中毒和 Redis 快照持久化；通过 `go test ./internal/ws` 与 `go test ./internal/game` --- 修改了 packages/backend/internal/game/game.go、packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/poison_test.go、packages/backend/internal/ws/persistence_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/game/game.go packages/backend/internal/ws/game_session.go packages/backend/internal/ws/persistence_test.go work.md`，并删除 `packages/backend/internal/ws/poison_test.go`。
+---
+
+2026-06-13 11:41:36 +08:00 --- 发现 Poisoner 中毒状态 [Poisoned State] 已写入后端 `game.Player`，但公开协议 [Public Protocol] 与核心 TypeScript 类型 [Core TypeScript Types] 尚未同步，导致说书人客户端 [Storyteller Client] 收到 `poisonedUntil` 后缺少类型契约 [Type Contract]；同时 `work.md` 文件末尾存在空白行导致 `git diff --check` 失败 --- 在 `proto/game.proto` 的 `Player` 消息中新增 `optional int32 poisoned_until = 6`，更新生成脚本 [Generation Script] 的干净接口 [Clean Interfaces]、核心手写 Player/RoomState 类型与 ProtoPlayer 类型测试，并运行 `pnpm proto:generate` 刷新生成类型 [Generated Types]；移除后端字段上的过期 TODO，清理 `work.md` 末尾空白 --- 修改了 proto/game.proto、scripts/generate-types.mjs、packages/core/src/types/generated/index.ts、packages/core/src/types/generated/__tests__/proto-types.test.ts、packages/core/src/types/index.ts、packages/core/src/websocket/index.ts、packages/backend/internal/game/game.go、work.md
+
+撤回方式 [Rollback Strategy]：提交前执行 `git checkout -- proto/game.proto scripts/generate-types.mjs packages/core/src/types/generated/index.ts packages/core/src/types/generated/__tests__/proto-types.test.ts packages/core/src/types/index.ts packages/core/src/websocket/index.ts packages/backend/internal/game/game.go work.md`；若本次提交已成为最新提交，执行 `git revert HEAD`。
+
+
+---
+
+2026-06-13 11:16:32 +08:00 --- 发现后端信息类能力 [Information Abilities] 仍需要说书人手动输入结果 [Manual Result Input]，缺少自动计算 [Auto-computation] 支持；Empath 夜间信息是最简单的示例（统计存活邻居中的邪恶玩家数），可以作为能力自动结算 [Ability Resolution] 的第一个垂直切片 [Vertical Slice] --- 使用自动结算地基 [Auto-resolution Foundation] 在 `applySubmitNightAction` 中检测 `NightActionLearnEvilNeighbors` 且说书人未提供结果时，调用 `computeEmpathResultLocked` 自动计算；新增 `currentWakeCharacterIDLocked` 获取当前唤醒角色、`isPlayerEvilLocked` 判断玩家阵营；Empath 计算逻辑：找到 Empath 玩家索引，检查是否中毒（中毒时返回空结果由说书人提供假信息），计算循环邻居列表 [Circular Neighbor List] 中存活且邪恶的玩家数；新增 5 个测试覆盖正常计算、中毒不计算、手动覆盖、双邻居邪恶和死亡邻居不计数；通过 `go test ./internal/ws` 与 `go test ./internal/game` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/empath_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/empath_test.go`。
+
+---
+
+2026-06-13 12:19:14 +08:00 --- 发现 Poisoner 中毒状态 [Poisoned State] 已经通过后端房间快照 [Room Snapshot] 暴露给说书人客户端 [Storyteller Client]，但 Taro 首页 [Taro Page] 的玩家列表 [Player List] 没有消费 `poisonedUntil`，导致说书人无法在界面确认当前中毒持续到哪一天黄昏 --- 在主玩家列表中仅当当前用户是说书人 [Storyteller] 且玩家快照包含 `poisonedUntil` 时显示“中毒至第 N 天黄昏”状态；新增克制的中毒状态标记样式 [Status Badge]，不改变普通玩家隐私模型 [Privacy Model] --- 修改了 packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/index/index.css、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/index/index.css work.md`。
+
+---
+
+2026-06-13 14:06:47 +08:00 --- 发现后端信息类能力 [Information Abilities] 中 Empath 已支持自动计算 [Auto-computation]，但 Chef 的“邪恶相邻对数”[Adjacent Evil Pair Count] 仍需要说书人 [Storyteller] 手动输入，导致 Trouble Brewing 首夜信息结算 [First Night Information Resolution] 不完整 --- 使用同一自动结算路径 [Auto-resolution Path] 为 `NightActionLearnEvilPairs` 增加 Chef 结果计算：找到存活且未中毒 [Poisoned] 的 Chef，按座位环 [Seating Circle] 统计相邻邪恶玩家对，支持首尾相邻 [Circular Adjacency]；中毒 Chef 不自动给结果，手动输入结果优先；新增 Chef 测试覆盖普通相邻、首尾相邻、中毒抑制和手动覆盖；通过 `go test ./internal/ws`、`go test ./...`、`npm test`、`npm run typecheck` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/chef_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/chef_test.go`。
+
+---
+
+2026-06-13 14:14:39 +08:00 --- 发现 Fortune Teller 恶魔查验 [Demon Check] 仍依赖说书人 [Storyteller] 手动填写 `yes/no` 结果，虽然目标数量校验 [Target Count Validation] 与夜晚行动记录 [Night Action Recording] 已存在，首夜信息自动结算 [First Night Auto-resolution] 还缺少这一核心镇民能力 [Townsfolk Ability] --- 在信息能力自动结算路径 [Information Ability Auto-resolution Path] 中接入 `NightActionCheckDemon`：找到存活且未中毒 [Poisoned] 的 Fortune Teller，检查两个目标中是否有角色类型 [Character Type] 为恶魔 [Demon] 的玩家，有则返回 `yes`，否则返回 `no`；中毒 Fortune Teller 不自动给结果，手动结果优先；新增测试覆盖命中恶魔、未命中恶魔、中毒抑制和手动覆盖；通过 `go test ./internal/ws`、`go test ./...`、`npm test`、`npm run typecheck`、`git diff --check` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/fortune_teller_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/fortune_teller_test.go`。
+
+---
+
+2026-06-13 14:21:20 +08:00 --- 发现 Undertaker 夜晚信息 [Night Information] 仍需要说书人 [Storyteller] 手动填写，后端虽然已记录处决死亡 [Execution Death] 的 `DeathRecord`，但 `NightActionLearnExecuted` 没有自动从当天死亡记录 [Death Records] 中取出被处决玩家的角色 [Character] --- 在信息能力自动结算路径 [Information Ability Auto-resolution Path] 中接入 `NightActionLearnExecuted`：找到存活且未中毒 [Poisoned] 的 Undertaker，从当天 [Current Day] 最近一次处决死亡记录中返回被处决玩家角色名；当天无处决时返回 `none`，角色缺失时返回 `unknown`，手动结果优先；新增测试覆盖处决角色、当天无处决、中毒抑制和手动覆盖；通过 `go test ./internal/ws`、`go test ./...`、`npm test`、`npm run typecheck`、`git diff --check` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/undertaker_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/undertaker_test.go`。
+
+---
+
+2026-06-13 14:26:48 +08:00 --- 发现 Ravenkeeper 夜死触发 [Night-death Trigger] 仍需要说书人 [Storyteller] 手动填写结果，虽然后端夜晚顺序 [Night Wake Order] 已包含 `NightActionLearnDied`，但没有判断 Ravenkeeper 本夜是否真的会被恶魔击杀 [Demon Kill]，也没有自动返回所选玩家角色 [Chosen Player Character] --- 在信息能力自动结算路径 [Information Ability Auto-resolution Path] 中接入 `NightActionLearnDied`：找到存活且未中毒 [Poisoned] 的 Ravenkeeper，检查本夜已记录的击杀行动 [Kill Actions] 是否指向 Ravenkeeper 且没有被 Monk 保护 [Protection] 或 Soldier 免疫 [Immunity] 阻止；若会死亡则返回所选目标角色名，未死亡返回 `none`，目标角色缺失返回 `unknown`，手动结果优先；新增测试覆盖被夜杀自动揭示、未被夜杀、被保护、中毒抑制和手动覆盖；通过 `go test ./internal/ws`、`go test ./...`、`npm test`、`npm run typecheck`、`git diff --check` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/ravenkeeper_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/ravenkeeper_test.go`。
+
+---
+
+2026-06-13 14:32:44 +08:00 --- 发现信息能力自动结算 [Information Ability Auto-resolution] 中 Chef、Empath、Fortune Teller、Undertaker、Ravenkeeper 都重复实现了“找到存活角色 [Living Character] 并判断是否中毒 [Poisoned]”逻辑，后续继续补角色时容易出现不一致 --- 提取 `findLivingCharacterIndexLocked`、`playerIsPoisonedLocked` 与 `characterCanAutoResolveLocked` 三个辅助函数 [Helper Functions]，让现有自动结算函数复用同一角色可结算判断 [Auto-resolve Eligibility Check]，不改变外部行为 [External Behavior] --- 修改了 packages/backend/internal/ws/game_session.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`。

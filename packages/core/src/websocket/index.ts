@@ -68,6 +68,7 @@ export interface RoomState {
     readonly character?: GameCharacter | null;
     readonly isAlive: boolean;
     readonly votes?: number;
+    readonly poisonedUntil?: number;
   }>;
   readonly maxPlayers?: number;
   readonly scriptId?: string;

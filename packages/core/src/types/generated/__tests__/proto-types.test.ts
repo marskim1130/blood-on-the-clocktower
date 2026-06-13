@@ -45,9 +45,11 @@ describe('ProtoBuf generated types', () => {
         name: 'Alice',
         isAlive: true,
         votes: 0,
+        poisonedUntil: 2,
       };
       expect(player.id).toBe('player-1');
       expect(player.isAlive).toBe(true);
+      expect(player.poisonedUntil).toBe(2);
     });
 
     it('supports optional character', () => {

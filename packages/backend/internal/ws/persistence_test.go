@@ -56,6 +56,8 @@ func TestRedisSnapshotStoreReturnsEmptySnapshotForMissingKey(t *testing.T) {
 func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 	client := newFakeRedisSnapshotClient()
 	store := newRedisSnapshotStoreWithClient(client, "clocktower:test")
+
+	poisonedUntil := int32(3)
 	original := &hubSnapshot{
 		Version: snapshotVersion,
 		Rooms: []roomSnapshot{
@@ -71,6 +73,7 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 			"123456": {
 				Players: []game.Player{
 					{ID: "p1", Name: "Alice", IsAlive: false},
+					{ID: "p2", Name: "Bob", IsAlive: true, PoisonedUntil: &poisonedUntil},
 				},
 				StorytellerID:     "storyteller",
 				ScriptID:          game.TroubleBrewingScriptID,
@@ -126,6 +129,26 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 	}
 	if len(session.NightActions) != 1 || session.NightActions[0].Result != "yes" {
 		t.Fatalf("expected restored night action result, got %#v", session.NightActions)
+	}
+	// Verify PoisonedUntil field is persisted correctly
+	if len(session.Players) != 2 {
+		t.Fatalf("expected 2 players, got %d", len(session.Players))
+	}
+	var p2 *game.Player
+	for i := range session.Players {
+		if session.Players[i].ID == "p2" {
+			p2 = &session.Players[i]
+			break
+		}
+	}
+	if p2 == nil {
+		t.Fatal("expected to find player p2 in restored session")
+	}
+	if p2.PoisonedUntil == nil {
+		t.Fatal("expected p2's PoisonedUntil to be restored, got nil")
+	}
+	if *p2.PoisonedUntil != 3 {
+		t.Errorf("expected restored PoisonedUntil=3, got %d", *p2.PoisonedUntil)
 	}
 }
 

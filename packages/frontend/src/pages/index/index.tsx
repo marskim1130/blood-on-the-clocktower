@@ -1096,6 +1096,9 @@ export default function IndexPage() {
         {players.map((player) => {
           const isDead = !player.isAlive;
           const hasGhostVote = ghostVotesRemaining.has(player.id);
+          const poisonedUntil = isStoryteller && typeof player.poisonedUntil === 'number'
+            ? player.poisonedUntil
+            : null;
           return (
             <View className={`player ${isDead ? 'playerDead' : ''}`} key={player.id}>
               <View className='playerInfo'>
@@ -1109,6 +1112,9 @@ export default function IndexPage() {
                   {isDead && hasGhostVote ? ' | 幽灵票可用' : ''}
                   {isDead && !hasGhostVote ? ' | 幽灵票已用' : ''}
                 </Text>
+                {poisonedUntil !== null && (
+                  <Text className='poisonStatus'>中毒至第 {poisonedUntil} 天黄昏</Text>
+                )}
               </View>
               {roomState && !roomState.storytellerId && (
                 <Button className='miniButton' onClick={() => setStoryteller(player.id)}>☆ 设为说书人</Button>

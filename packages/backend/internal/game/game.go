@@ -73,11 +73,12 @@ type Character struct {
 
 // Player represents a player in the game
 type Player struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Character *Character `json:"character,omitempty"`
-	IsAlive   bool       `json:"isAlive"`
-	Votes     int32      `json:"votes"`
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	Character     *Character `json:"character,omitempty"`
+	IsAlive       bool       `json:"isAlive"`
+	Votes         int32      `json:"votes"`
+	PoisonedUntil *int32     `json:"poisonedUntil,omitempty"`
 }
 
 // DeathRecord represents a record of a player's death

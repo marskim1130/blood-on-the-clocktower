@@ -919,14 +919,18 @@ export default function IndexPage() {
   function returnToLobby(): void {
     setGamePhase('setup');
     setDayNumber(0);
+    setRoomState(null);
+    setMyCharacter(null);
     setCurrentNomination(null);
     setLastNominationResult(null);
     setDeathRecords({});
     setGhostVotesRemaining(new Set());
     setDeathAnnouncements([]);
     setNightActions([]);
+    setNightTargetIds([]);
     setGameOver(null);
     setEndGameDescriptionInput('');
+    updateRoomIdInput('');
     appendLog('已返回大厅');
   }
 
@@ -978,9 +982,7 @@ export default function IndexPage() {
           })}
         </View>
 
-        {isStoryteller && (
-          <Button className='button primary' onClick={returnToLobby}>← 返回大厅</Button>
-        )}
+        <Button className='button primary' onClick={returnToLobby}>← 返回大厅</Button>
       </ScrollView>
     );
   }

@@ -358,8 +358,6 @@ func TestGameSessionScarletWomanBecomesImpWhenDemonDiesWithFiveAlive(t *testing.
 		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
 		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
 		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
-		{ID: "p4", Name: "P4", IsAlive: true, Character: testCharacter(t, "chef")},
-		{ID: "p5", Name: "P5", IsAlive: true, Character: testCharacter(t, "empath")},
 		{ID: "scarlet", Name: "Scarlet", IsAlive: true, Character: testCharacter(t, "scarletwoman")},
 		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
 	}
@@ -394,7 +392,7 @@ func TestGameSessionScarletWomanBecomesImpWhenDemonDiesWithFiveAlive(t *testing.
 	}
 }
 
-func TestGameSessionDemonDeathWinsWhenScarletWomanCannotStarpass(t *testing.T) {
+func TestGameSessionDemonDeathWinsWhenScarletWomanCannotStarpassWithFourAlive(t *testing.T) {
 	gs := NewGameSession()
 	gs.storytellerID = "storyteller"
 	gs.phase = game.GamePhaseDay
@@ -402,7 +400,6 @@ func TestGameSessionDemonDeathWinsWhenScarletWomanCannotStarpass(t *testing.T) {
 	gs.players = []game.Player{
 		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
 		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
-		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
 		{ID: "scarlet", Name: "Scarlet", IsAlive: true, Character: testCharacter(t, "scarletwoman")},
 		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
 	}
@@ -645,6 +642,156 @@ func TestGameSessionKillPlayerRequiresDeathCause(t *testing.T) {
 	}
 }
 
+func TestGameSessionRejectsDuplicateNominatorForSameDay(t *testing.T) {
+	gs := nominationLimitSession(t)
+
+	if _, err := gs.Apply(NominateCmd{SenderID: "p1", NomineeID: "p2"}); err != nil {
+		t.Fatalf("unexpected first nomination error: %v", err)
+	}
+	resolveWithoutExecution(t, gs)
+
+	_, err := gs.Apply(NominateCmd{SenderID: "p1", NomineeID: "p3"})
+	if err == nil {
+		t.Fatal("expected duplicate nominator to be rejected")
+	}
+	if err.Error() != "player p1 has already nominated today" {
+		t.Fatalf("expected duplicate nominator error, got %q", err.Error())
+	}
+}
+
+func TestGameSessionRejectsDuplicateNomineeForSameDay(t *testing.T) {
+	gs := nominationLimitSession(t)
+
+	if _, err := gs.Apply(NominateCmd{SenderID: "p1", NomineeID: "p2"}); err != nil {
+		t.Fatalf("unexpected first nomination error: %v", err)
+	}
+	resolveWithoutExecution(t, gs)
+
+	_, err := gs.Apply(NominateCmd{SenderID: "p3", NomineeID: "p2"})
+	if err == nil {
+		t.Fatal("expected duplicate nominee to be rejected")
+	}
+	if err.Error() != "player p2 has already been nominated today" {
+		t.Fatalf("expected duplicate nominee error, got %q", err.Error())
+	}
+}
+
+func TestGameSessionNominationLimitsResetOnNewDay(t *testing.T) {
+	gs := nominationLimitSession(t)
+
+	if _, err := gs.Apply(NominateCmd{SenderID: "p1", NomineeID: "p2"}); err != nil {
+		t.Fatalf("unexpected first nomination error: %v", err)
+	}
+	resolveWithoutExecution(t, gs)
+	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+		t.Fatalf("unexpected change to night error: %v", err)
+	}
+	gs.nightWakeIndex = len(gs.activeNightWakeStepsLocked())
+	if _, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("unexpected resolve night error: %v", err)
+	}
+
+	if _, err := gs.Apply(NominateCmd{SenderID: "p1", NomineeID: "p2"}); err != nil {
+		t.Fatalf("expected nomination to be allowed on a new day, got %v", err)
+	}
+}
+
+func TestGameSessionNominationLimitsSurviveSnapshotRestore(t *testing.T) {
+	gs := nominationLimitSession(t)
+
+	if _, err := gs.Apply(NominateCmd{SenderID: "p1", NomineeID: "p2"}); err != nil {
+		t.Fatalf("unexpected first nomination error: %v", err)
+	}
+	resolveWithoutExecution(t, gs)
+
+	restored := newGameSessionFromSnapshot(gs.snapshot())
+
+	_, err := restored.Apply(NominateCmd{SenderID: "p1", NomineeID: "p3"})
+	if err == nil {
+		t.Fatal("expected restored duplicate nominator to be rejected")
+	}
+	if err.Error() != "player p1 has already nominated today" {
+		t.Fatalf("expected restored duplicate nominator error, got %q", err.Error())
+	}
+}
+
+func TestGameSessionVirginExecutesTownsfolkNominatorOnFirstNomination(t *testing.T) {
+	gs := virginSession(t)
+
+	result, err := gs.Apply(NominateCmd{SenderID: "townsfolk", NomineeID: "virgin"})
+	if err != nil {
+		t.Fatalf("unexpected Virgin nomination error: %v", err)
+	}
+
+	if !eventListContainsPlayerDied(result.Events, "townsfolk", game.DeathCauseExecution) {
+		t.Fatalf("expected Virgin ability to execute townsfolk nominator, got %#v", result.Events)
+	}
+	if phase := gs.Phase(); phase != game.GamePhaseNight {
+		t.Fatalf("expected Virgin execution to end day and enter night, got %d", phase)
+	}
+	if nomination := gs.Nomination(); nomination != nil {
+		t.Fatalf("expected no active voting nomination after Virgin execution, got %#v", nomination)
+	}
+	state := gs.StateForRoom("room-1")
+	townsfolk := findPlayerInState(t, state, "townsfolk")
+	if townsfolk.IsAlive {
+		t.Fatal("expected townsfolk nominator to be dead")
+	}
+}
+
+func TestGameSessionVirginFirstNominationByNonTownsfolkConsumesAbilityWithoutExecution(t *testing.T) {
+	gs := virginSession(t)
+
+	result, err := gs.Apply(NominateCmd{SenderID: "poisoner", NomineeID: "virgin"})
+	if err != nil {
+		t.Fatalf("unexpected minion nomination error: %v", err)
+	}
+	if eventListContainsPlayerDied(result.Events, "poisoner", game.DeathCauseExecution) {
+		t.Fatalf("expected non-Townsfolk nominator not to be executed, got %#v", result.Events)
+	}
+	if phase := gs.Phase(); phase != game.GamePhaseVoting {
+		t.Fatalf("expected normal voting after non-Townsfolk nominates Virgin, got %d", phase)
+	}
+
+	resolveNominationWithoutExecutionBy(t, gs, "virgin")
+	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+		t.Fatalf("unexpected change to night error: %v", err)
+	}
+	gs.nightWakeIndex = len(gs.activeNightWakeStepsLocked())
+	if _, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("unexpected resolve night error: %v", err)
+	}
+
+	secondResult, err := gs.Apply(NominateCmd{SenderID: "townsfolk", NomineeID: "virgin"})
+	if err != nil {
+		t.Fatalf("unexpected second Virgin nomination error: %v", err)
+	}
+	if eventListContainsPlayerDied(secondResult.Events, "townsfolk", game.DeathCauseExecution) {
+		t.Fatalf("expected Virgin ability to be spent after first nomination, got %#v", secondResult.Events)
+	}
+	if phase := gs.Phase(); phase != game.GamePhaseVoting {
+		t.Fatalf("expected second Virgin nomination to proceed to voting, got %d", phase)
+	}
+}
+
+func TestGameSessionVirginAbilityUsageSurvivesSnapshotRestore(t *testing.T) {
+	gs := virginSession(t)
+	gs.virginAbilityUsed = map[string]bool{"virgin": true}
+
+	restored := newGameSessionFromSnapshot(gs.snapshot())
+
+	result, err := restored.Apply(NominateCmd{SenderID: "townsfolk", NomineeID: "virgin"})
+	if err != nil {
+		t.Fatalf("unexpected restored Virgin nomination error: %v", err)
+	}
+	if eventListContainsPlayerDied(result.Events, "townsfolk", game.DeathCauseExecution) {
+		t.Fatalf("expected restored Virgin ability usage to prevent execution, got %#v", result.Events)
+	}
+	if phase := restored.Phase(); phase != game.GamePhaseVoting {
+		t.Fatalf("expected restored nomination to proceed to voting, got %d", phase)
+	}
+}
+
 func TestGameSessionRemovePlayer(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
@@ -677,6 +824,34 @@ func TestGameSessionStateForRoom(t *testing.T) {
 	}
 	if len(state.Players) != 1 {
 		t.Errorf("expected 1 player (storyteller removed), got %d", len(state.Players))
+	}
+}
+
+func TestGameSessionFinishedStateRevealsCharactersToPlayers(t *testing.T) {
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.players = []game.Player{
+		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+		{ID: "p2", Name: "P2", IsAlive: false, Character: testCharacter(t, "imp")},
+	}
+
+	hiddenState := gs.StateForRoomForRecipient("room-1", "p1")
+	hidden := findPlayerInState(t, hiddenState, "p2")
+	if hidden.Character != nil {
+		t.Fatalf("expected non-recipient character to be hidden before finish, got %#v", hidden.Character)
+	}
+
+	gs.phase = game.GamePhaseFinished
+	gs.winner = &game.GameEndedEvent{
+		Winner:      game.TeamGood,
+		Reason:      game.WinReasonImpExecuted,
+		Description: "The Demon is dead — good wins!",
+	}
+
+	revealedState := gs.StateForRoomForRecipient("room-1", "p1")
+	revealed := findPlayerInState(t, revealedState, "p2")
+	if revealed.Character == nil || revealed.Character.ID != "imp" {
+		t.Fatalf("expected finished state to reveal p2 character, got %#v", revealed.Character)
 	}
 }
 
@@ -787,4 +962,75 @@ func slayerSession(t *testing.T) *GameSession {
 		ghostVotesUsed: map[string]bool{},
 		slayerUsed:     map[string]bool{},
 	}
+}
+
+func nominationLimitSession(t *testing.T) *GameSession {
+	t.Helper()
+	return &GameSession{
+		players: []game.Player{
+			{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+			{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
+			{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
+			{ID: "p4", Name: "P4", IsAlive: true, Character: testCharacter(t, "poisoner")},
+			{ID: "p5", Name: "P5", IsAlive: true, Character: testCharacter(t, "imp")},
+		},
+		storytellerID:   "storyteller",
+		scriptID:        game.TroubleBrewingScriptID,
+		phase:           game.GamePhaseDay,
+		dayNumber:       1,
+		ghostVotesUsed:  map[string]bool{},
+		slayerUsed:      map[string]bool{},
+		nominatorsToday: map[string]bool{},
+		nomineesToday:   map[string]bool{},
+	}
+}
+
+func resolveWithoutExecution(t *testing.T, gs *GameSession) {
+	t.Helper()
+	resolveNominationWithoutExecutionBy(t, gs, "p1")
+}
+
+func resolveNominationWithoutExecutionBy(t *testing.T, gs *GameSession, voterID string) {
+	t.Helper()
+	no := false
+	if _, err := gs.Apply(CastVoteCmd{SenderID: voterID, Decision: no}); err != nil {
+		t.Fatalf("unexpected vote error: %v", err)
+	}
+	if _, err := gs.Apply(ResolveNominationCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("unexpected resolve nomination error: %v", err)
+	}
+}
+
+func virginSession(t *testing.T) *GameSession {
+	t.Helper()
+	return &GameSession{
+		players: []game.Player{
+			{ID: "virgin", Name: "Virgin", IsAlive: true, Character: testCharacter(t, "virgin")},
+			{ID: "townsfolk", Name: "Townsfolk", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+			{ID: "outsider", Name: "Outsider", IsAlive: true, Character: testCharacter(t, "librarian")},
+			{ID: "poisoner", Name: "Poisoner", IsAlive: true, Character: testCharacter(t, "poisoner")},
+			{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+		},
+		storytellerID:     "storyteller",
+		scriptID:          game.TroubleBrewingScriptID,
+		phase:             game.GamePhaseDay,
+		dayNumber:         1,
+		ghostVotesUsed:    map[string]bool{},
+		slayerUsed:        map[string]bool{},
+		nominatorsToday:   map[string]bool{},
+		nomineesToday:     map[string]bool{},
+		virginAbilityUsed: map[string]bool{},
+	}
+}
+
+func eventListContainsPlayerDied(events []game.GameEvent, playerID string, cause game.DeathCause) bool {
+	for _, event := range events {
+		if event.PlayerDied == nil {
+			continue
+		}
+		if event.PlayerDied.PlayerID == playerID && event.PlayerDied.Cause == cause {
+			return true
+		}
+	}
+	return false
 }

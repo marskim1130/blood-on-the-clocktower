@@ -592,3 +592,21 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-12 18:20:57 +08:00 --- 发现 H5 页面和剧本页仍有英文/中英混排的可见文案 [UI Copy]，并且共享脚本数据 [Shared Script Data] 中的暗流涌动角色名、角色能力 [Ability Text] 与夜晚提示 [Night Prompt] 仍是英文，导致玩家看到的提示和角色描述不一致 --- 将 `TROUBLE_BREWING_SCRIPT` 的剧本名、22 个角色名、能力描述和首夜/后续夜晚唤醒提示全部改为中文；将 H5 首页阶段、连接状态、说书人、阵营、夜间行动、错误提示、操作日志和各区块标题中文化；将剧本页区块标题与角色分类标签改为中文，并增加常见服务端错误的中文显示映射 [Error Message Mapping]；运行类型检查 [Typecheck] 后同步已跟踪的增量编译文件 [Incremental Build File] --- 修改了 packages/core/src/scripts/index.ts、packages/core/tsconfig.tsbuildinfo、packages/frontend/src/pages/index/index.tsx、packages/frontend/src/pages/scripts/index.tsx、packages/frontend/src/pages/scripts/utils.ts、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/core/src/scripts/index.ts packages/core/tsconfig.tsbuildinfo packages/frontend/src/pages/index/index.tsx packages/frontend/src/pages/scripts/index.tsx packages/frontend/src/pages/scripts/utils.ts work.md`。
+
+---
+
+2026-06-13 09:34:55 +08:00 --- 发现代码审查 [Code Review] 中指出 3 个终局相关问题：红唇女郎接魔 [Scarlet Woman Starpass] 使用恶魔死亡后的存活人数导致 5 人存活时误判善良胜利；终局角色揭示 [Role Reveal] 仍沿用普通玩家隐私快照导致非说书人看不到全员角色；普通玩家终局页没有返回大厅路径 [Return to Lobby] --- 在死亡路径中记录恶魔死亡前存活人数 [Pre-death Alive Count] 并传入胜利条件检查 [Win-condition Check]，修正接魔阈值判断；让已结束游戏或已有胜者的房间快照对所有接收者揭示角色；终局页所有玩家均显示返回大厅按钮，并清理本地房间状态；补充 5 人接魔、4 人不接魔与终局揭示测试；通过 `go test ./...`、`npm test`、`npm run typecheck` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/frontend/src/pages/index/index.tsx、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/frontend/src/pages/index/index.tsx work.md`。
+
+---
+
+2026-06-13 10:00:26 +08:00 --- 发现后端白天提名流程 [Day Nomination Flow] 仍缺少桌游规则中的每日提名限制 [Daily Nomination Limits]：同一天内同一玩家可以多次提名，且同一玩家可以被多次提名；同时该限制若只放内存会在服务器重启后丢失 --- 在 `GameSession` 中新增 `nominatorsToday` 与 `nomineesToday` 玩家标记映射 [Player Flag Maps]，提名成功时记录提名者与被提名者，进入夜晚或新白天时重置；将两个映射纳入快照保存/恢复 [Snapshot Save/Restore]；补充重复提名者、重复被提名者、新一天重置、快照恢复与 Redis 快照字段测试；通过 `go test ./...` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/persistence.go packages/backend/internal/ws/persistence_test.go work.md`。
+
+---
+
+2026-06-13 10:10:52 +08:00 --- 发现后端 Virgin 首次被提名能力 [Virgin First Nomination Ability] 尚未实现：Virgin 被镇民 [Townsfolk] 首次提名时不会立即处决提名者，且能力使用状态 [Ability Usage State] 在服务器重启后会丢失 --- 在提名流程 [Nomination Flow] 中记录 Virgin 能力使用状态，首次被提名时若提名者为镇民则立即以处决 [Execution] 方式杀死提名者并结束白天进入夜晚；非镇民首次提名只消耗能力并进入正常投票；将 `virginAbilityUsed` 纳入快照保存/恢复 [Snapshot Save/Restore]；补充 Virgin 镇民触发、非镇民消耗、快照恢复测试；通过 `go test ./...`、`git diff --check` --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/game_session_test.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/game_session_test.go packages/backend/internal/ws/persistence.go packages/backend/internal/ws/persistence_test.go work.md`。

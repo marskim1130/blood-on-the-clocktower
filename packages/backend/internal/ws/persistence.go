@@ -39,20 +39,23 @@ type roomSnapshot struct {
 }
 
 type gameSessionSnapshot struct {
-	Players         []game.Player        `json:"players"`
-	StorytellerID   string               `json:"storytellerId"`
-	OriginalPlayers int                  `json:"originalPlayers"`
-	ScriptID        string               `json:"scriptId"`
-	Phase           game.GamePhase       `json:"phase"`
-	DayNumber       int32                `json:"dayNumber"`
-	NightNumber     int32                `json:"nightNumber"`
-	NightWakeIndex  int                  `json:"nightWakeIndex"`
-	Nomination      *game.Nomination     `json:"nomination,omitempty"`
-	NightActions    []game.NightAction   `json:"nightActions,omitempty"`
-	Deaths          []game.DeathRecord   `json:"deaths,omitempty"`
-	GhostVotesUsed  map[string]bool      `json:"ghostVotesUsed,omitempty"`
-	SlayerUsed      map[string]bool      `json:"slayerUsed,omitempty"`
-	Winner          *game.GameEndedEvent `json:"winner,omitempty"`
+	Players           []game.Player        `json:"players"`
+	StorytellerID     string               `json:"storytellerId"`
+	OriginalPlayers   int                  `json:"originalPlayers"`
+	ScriptID          string               `json:"scriptId"`
+	Phase             game.GamePhase       `json:"phase"`
+	DayNumber         int32                `json:"dayNumber"`
+	NightNumber       int32                `json:"nightNumber"`
+	NightWakeIndex    int                  `json:"nightWakeIndex"`
+	Nomination        *game.Nomination     `json:"nomination,omitempty"`
+	NightActions      []game.NightAction   `json:"nightActions,omitempty"`
+	Deaths            []game.DeathRecord   `json:"deaths,omitempty"`
+	GhostVotesUsed    map[string]bool      `json:"ghostVotesUsed,omitempty"`
+	SlayerUsed        map[string]bool      `json:"slayerUsed,omitempty"`
+	NominatorsToday   map[string]bool      `json:"nominatorsToday,omitempty"`
+	NomineesToday     map[string]bool      `json:"nomineesToday,omitempty"`
+	VirginAbilityUsed map[string]bool      `json:"virginAbilityUsed,omitempty"`
+	Winner            *game.GameEndedEvent `json:"winner,omitempty"`
 }
 
 type FileSnapshotStore struct {
@@ -374,20 +377,23 @@ func (gs *GameSession) snapshot() gameSessionSnapshot {
 	defer gs.mu.Unlock()
 
 	return gameSessionSnapshot{
-		Players:         clonePlayers(gs.players),
-		StorytellerID:   gs.storytellerID,
-		OriginalPlayers: gs.originalPlayers,
-		ScriptID:        gs.scriptID,
-		Phase:           gs.phase,
-		DayNumber:       gs.dayNumber,
-		NightNumber:     gs.nightNumber,
-		NightWakeIndex:  gs.nightWakeIndex,
-		Nomination:      cloneNomination(gs.nomination),
-		NightActions:    cloneNightActions(gs.nightActions),
-		Deaths:          cloneDeaths(gs.deaths),
-		GhostVotesUsed:  cloneGhostVotesUsed(gs.ghostVotesUsed),
-		SlayerUsed:      cloneGhostVotesUsed(gs.slayerUsed),
-		Winner:          cloneWinner(gs.winner),
+		Players:           clonePlayers(gs.players),
+		StorytellerID:     gs.storytellerID,
+		OriginalPlayers:   gs.originalPlayers,
+		ScriptID:          gs.scriptID,
+		Phase:             gs.phase,
+		DayNumber:         gs.dayNumber,
+		NightNumber:       gs.nightNumber,
+		NightWakeIndex:    gs.nightWakeIndex,
+		Nomination:        cloneNomination(gs.nomination),
+		NightActions:      cloneNightActions(gs.nightActions),
+		Deaths:            cloneDeaths(gs.deaths),
+		GhostVotesUsed:    cloneGhostVotesUsed(gs.ghostVotesUsed),
+		SlayerUsed:        cloneGhostVotesUsed(gs.slayerUsed),
+		NominatorsToday:   cloneGhostVotesUsed(gs.nominatorsToday),
+		NomineesToday:     cloneGhostVotesUsed(gs.nomineesToday),
+		VirginAbilityUsed: cloneGhostVotesUsed(gs.virginAbilityUsed),
+		Winner:            cloneWinner(gs.winner),
 	}
 }
 
@@ -404,22 +410,37 @@ func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
 	if slayerUsed == nil {
 		slayerUsed = make(map[string]bool)
 	}
+	nominatorsToday := cloneGhostVotesUsed(snapshot.NominatorsToday)
+	if nominatorsToday == nil {
+		nominatorsToday = make(map[string]bool)
+	}
+	nomineesToday := cloneGhostVotesUsed(snapshot.NomineesToday)
+	if nomineesToday == nil {
+		nomineesToday = make(map[string]bool)
+	}
+	virginAbilityUsed := cloneGhostVotesUsed(snapshot.VirginAbilityUsed)
+	if virginAbilityUsed == nil {
+		virginAbilityUsed = make(map[string]bool)
+	}
 
 	return &GameSession{
-		players:         clonePlayers(snapshot.Players),
-		storytellerID:   snapshot.StorytellerID,
-		originalPlayers: snapshot.OriginalPlayers,
-		scriptID:        scriptID,
-		phase:           snapshot.Phase,
-		dayNumber:       snapshot.DayNumber,
-		nightNumber:     snapshot.NightNumber,
-		nightWakeIndex:  snapshot.NightWakeIndex,
-		nomination:      cloneNomination(snapshot.Nomination),
-		nightActions:    cloneNightActions(snapshot.NightActions),
-		deaths:          cloneDeaths(snapshot.Deaths),
-		ghostVotesUsed:  ghostVotesUsed,
-		slayerUsed:      slayerUsed,
-		winner:          cloneWinner(snapshot.Winner),
+		players:           clonePlayers(snapshot.Players),
+		storytellerID:     snapshot.StorytellerID,
+		originalPlayers:   snapshot.OriginalPlayers,
+		scriptID:          scriptID,
+		phase:             snapshot.Phase,
+		dayNumber:         snapshot.DayNumber,
+		nightNumber:       snapshot.NightNumber,
+		nightWakeIndex:    snapshot.NightWakeIndex,
+		nomination:        cloneNomination(snapshot.Nomination),
+		nightActions:      cloneNightActions(snapshot.NightActions),
+		deaths:            cloneDeaths(snapshot.Deaths),
+		ghostVotesUsed:    ghostVotesUsed,
+		slayerUsed:        slayerUsed,
+		nominatorsToday:   nominatorsToday,
+		nomineesToday:     nomineesToday,
+		virginAbilityUsed: virginAbilityUsed,
+		winner:            cloneWinner(snapshot.Winner),
 	}
 }
 

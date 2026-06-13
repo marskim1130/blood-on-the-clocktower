@@ -131,16 +131,19 @@ type GameSession struct {
 	scriptID        string
 
 	// Game state fields (populated after game starts)
-	phase          game.GamePhase
-	dayNumber      int32
-	nightNumber    int32
-	nightWakeIndex int
-	nomination     *game.Nomination
-	nightActions   []game.NightAction
-	deaths         []game.DeathRecord
-	ghostVotesUsed map[string]bool      // playerID -> whether ghost vote was used
-	slayerUsed     map[string]bool      // playerID -> whether Slayer ability was used
-	winner         *game.GameEndedEvent // set when game ends
+	phase             game.GamePhase
+	dayNumber         int32
+	nightNumber       int32
+	nightWakeIndex    int
+	nomination        *game.Nomination
+	nightActions      []game.NightAction
+	deaths            []game.DeathRecord
+	ghostVotesUsed    map[string]bool      // playerID -> whether ghost vote was used
+	slayerUsed        map[string]bool      // playerID -> whether Slayer ability was used
+	nominatorsToday   map[string]bool      // playerID -> whether they nominated today
+	nomineesToday     map[string]bool      // playerID -> whether they were nominated today
+	virginAbilityUsed map[string]bool      // playerID -> whether Virgin ability was checked
+	winner            *game.GameEndedEvent // set when game ends
 }
 
 func NewGameSession(scriptIDs ...string) *GameSession {
@@ -150,10 +153,13 @@ func NewGameSession(scriptIDs ...string) *GameSession {
 	}
 
 	return &GameSession{
-		phase:          game.GamePhaseSetup,
-		ghostVotesUsed: make(map[string]bool),
-		slayerUsed:     make(map[string]bool),
-		scriptID:       scriptID,
+		phase:             game.GamePhaseSetup,
+		ghostVotesUsed:    make(map[string]bool),
+		slayerUsed:        make(map[string]bool),
+		nominatorsToday:   make(map[string]bool),
+		nomineesToday:     make(map[string]bool),
+		virginAbilityUsed: make(map[string]bool),
+		scriptID:          scriptID,
 	}
 }
 
@@ -527,6 +533,12 @@ func (gs *GameSession) startNightLocked() {
 	}
 	gs.nightWakeIndex = 0
 	gs.nightActions = nil
+	gs.resetDailyNominationLimitsLocked()
+}
+
+func (gs *GameSession) resetDailyNominationLimitsLocked() {
+	gs.nominatorsToday = make(map[string]bool)
+	gs.nomineesToday = make(map[string]bool)
 }
 
 func (gs *GameSession) activeNightWakeStepsLocked() []game.NightWakeStep {
@@ -640,6 +652,7 @@ func (gs *GameSession) applyChangePhase(cmd ChangePhaseCmd) (ApplyResult, error)
 
 	if cmd.Phase == game.GamePhaseDay {
 		gs.dayNumber++
+		gs.resetDailyNominationLimitsLocked()
 	}
 	if cmd.Phase == game.GamePhaseNight {
 		gs.startNightLocked()
@@ -681,6 +694,33 @@ func (gs *GameSession) applyNominate(cmd NominateCmd) (ApplyResult, error) {
 	if !gs.players[nomineeIdx].IsAlive {
 		return ApplyResult{}, fmt.Errorf("cannot nominate a dead player")
 	}
+	if gs.nominatorsToday == nil {
+		gs.nominatorsToday = make(map[string]bool)
+	}
+	if gs.nomineesToday == nil {
+		gs.nomineesToday = make(map[string]bool)
+	}
+	if gs.nominatorsToday[cmd.SenderID] {
+		return ApplyResult{}, fmt.Errorf("player %s has already nominated today", cmd.SenderID)
+	}
+	if gs.nomineesToday[cmd.NomineeID] {
+		return ApplyResult{}, fmt.Errorf("player %s has already been nominated today", cmd.NomineeID)
+	}
+
+	gs.nominatorsToday[cmd.SenderID] = true
+	gs.nomineesToday[cmd.NomineeID] = true
+
+	if gs.virginAbilityUsed == nil {
+		gs.virginAbilityUsed = make(map[string]bool)
+	}
+	if gs.players[nomineeIdx].Character != nil &&
+		gs.players[nomineeIdx].Character.ID == "virgin" &&
+		!gs.virginAbilityUsed[cmd.NomineeID] {
+		gs.virginAbilityUsed[cmd.NomineeID] = true
+		if gs.playerHasCharacterTypeLocked(nomIdx, game.CharacterTypeTownsfolk) {
+			return gs.applyVirginExecutionLocked(cmd, nomIdx)
+		}
+	}
 
 	gs.phase = game.GamePhaseVoting
 	gs.nomination = &game.Nomination{
@@ -696,6 +736,49 @@ func (gs *GameSession) applyNominate(cmd NominateCmd) (ApplyResult, error) {
 			NomineeID:   cmd.NomineeID,
 		}},
 	}
+
+	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+func (gs *GameSession) playerHasCharacterTypeLocked(playerIndex int, characterType game.CharacterType) bool {
+	if playerIndex < 0 || playerIndex >= len(gs.players) || gs.players[playerIndex].Character == nil {
+		return false
+	}
+	charDef := game.GetCharacterByID(gs.players[playerIndex].Character.ID)
+	return charDef != nil && charDef.Type == characterType
+}
+
+func (gs *GameSession) applyVirginExecutionLocked(cmd NominateCmd, nominatorIndex int) (ApplyResult, error) {
+	gs.players[nominatorIndex].IsAlive = false
+	gs.deaths = append(gs.deaths, game.DeathRecord{
+		PlayerID:  cmd.SenderID,
+		Cause:     game.DeathCauseExecution,
+		DayNumber: gs.dayNumber,
+	})
+
+	events := []game.GameEvent{
+		{NominationStarted: &game.NominationStartedEvent{
+			NominatorID: cmd.SenderID,
+			NomineeID:   cmd.NomineeID,
+		}},
+		{PlayerDied: &game.PlayerDiedEvent{
+			PlayerID:  cmd.SenderID,
+			Cause:     game.DeathCauseExecution,
+			DayNumber: gs.dayNumber,
+		}},
+	}
+
+	if won := gs.checkWinConditions(0); won != nil {
+		gs.winner = won
+		events = append(events, game.GameEvent{GameEnded: won})
+		gs.phase = game.GamePhaseFinished
+		return ApplyResult{Events: events, Updated: true}, nil
+	}
+
+	gs.phase = game.GamePhaseNight
+	gs.nomination = nil
+	gs.startNightLocked()
+	events = append(events, game.GameEvent{PhaseChanged: &game.PhaseChanged{Phase: game.GamePhaseNight}})
 
 	return ApplyResult{Events: events, Updated: true}, nil
 }
@@ -784,6 +867,8 @@ func (gs *GameSession) applyResolveNomination(cmd ResolveNominationCmd) (ApplyRe
 	if executed {
 		pIdx := gs.findPlayerIndex(nomineeID)
 		if pIdx != -1 {
+			aliveBeforeDeath := gs.alivePlayerCountLocked()
+			demonDeathAliveCount := gs.demonDeathAliveCountLocked(pIdx, aliveBeforeDeath)
 			gs.players[pIdx].IsAlive = false
 			gs.deaths = append(gs.deaths, game.DeathRecord{
 				PlayerID:  nomineeID,
@@ -797,7 +882,7 @@ func (gs *GameSession) applyResolveNomination(cmd ResolveNominationCmd) (ApplyRe
 					DayNumber: gs.dayNumber,
 				},
 			})
-			if won := gs.checkWinConditions(); won != nil {
+			if won := gs.checkWinConditions(demonDeathAliveCount); won != nil {
 				gs.winner = won
 				events = append(events, game.GameEvent{GameEnded: won})
 				gs.phase = game.GamePhaseFinished
@@ -838,6 +923,8 @@ func (gs *GameSession) applyExecutePlayer(cmd ExecutePlayerCmd) (ApplyResult, er
 		return ApplyResult{}, fmt.Errorf("player %s is already dead", cmd.PlayerID)
 	}
 
+	aliveBeforeDeath := gs.alivePlayerCountLocked()
+	demonDeathAliveCount := gs.demonDeathAliveCountLocked(pIdx, aliveBeforeDeath)
 	gs.players[pIdx].IsAlive = false
 	gs.deaths = append(gs.deaths, game.DeathRecord{
 		PlayerID:  cmd.PlayerID,
@@ -853,7 +940,7 @@ func (gs *GameSession) applyExecutePlayer(cmd ExecutePlayerCmd) (ApplyResult, er
 		}},
 	}
 
-	if won := gs.checkWinConditions(); won != nil {
+	if won := gs.checkWinConditions(demonDeathAliveCount); won != nil {
 		gs.winner = won
 		events = append(events, game.GameEvent{GameEnded: won})
 		gs.phase = game.GamePhaseFinished
@@ -907,6 +994,8 @@ func (gs *GameSession) applyUseSlayerAbility(cmd UseSlayerAbilityCmd) (ApplyResu
 		targetDef = game.GetCharacterByID(gs.players[targetIdx].Character.ID)
 	}
 	if targetDef != nil && targetDef.Type == game.CharacterTypeDemon {
+		aliveBeforeDeath := gs.alivePlayerCountLocked()
+		demonDeathAliveCount := gs.demonDeathAliveCountLocked(targetIdx, aliveBeforeDeath)
 		gs.players[targetIdx].IsAlive = false
 		gs.deaths = append(gs.deaths, game.DeathRecord{
 			PlayerID:  cmd.TargetPlayerID,
@@ -921,7 +1010,7 @@ func (gs *GameSession) applyUseSlayerAbility(cmd UseSlayerAbilityCmd) (ApplyResu
 				DayNumber: gs.dayNumber,
 			},
 		})
-		if won := gs.checkWinConditions(); won != nil {
+		if won := gs.checkWinConditions(demonDeathAliveCount); won != nil {
 			gs.winner = won
 			events = append(events, game.GameEvent{GameEnded: won})
 			gs.phase = game.GamePhaseFinished
@@ -1010,6 +1099,7 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 	// Process adjudicated night actions. Player-submitted actions are treated as
 	// private choices for the storyteller; only the storyteller can resolve deaths.
 	var events []game.GameEvent
+	demonDeathAliveCount := 0
 	protectedTargets := gs.nightProtectedTargetsLocked()
 	for _, action := range gs.nightActions {
 		if action.ActorID == gs.storytellerID && action.ActionType == game.NightActionKill {
@@ -1018,6 +1108,10 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 				if tIdx != -1 && gs.players[tIdx].IsAlive {
 					if gs.nightKillPreventedLocked(tIdx, protectedTargets) {
 						continue
+					}
+					aliveBeforeDeath := gs.alivePlayerCountLocked()
+					if aliveAtDemonDeath := gs.demonDeathAliveCountLocked(tIdx, aliveBeforeDeath); aliveAtDemonDeath > demonDeathAliveCount {
+						demonDeathAliveCount = aliveAtDemonDeath
 					}
 					gs.players[tIdx].IsAlive = false
 					gs.deaths = append(gs.deaths, game.DeathRecord{
@@ -1044,9 +1138,10 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 	// Transition to Day
 	gs.phase = game.GamePhaseDay
 	gs.dayNumber++
+	gs.resetDailyNominationLimitsLocked()
 	events = append(events, game.GameEvent{PhaseChanged: &game.PhaseChanged{Phase: game.GamePhaseDay}})
 
-	if won := gs.checkWinConditions(); won != nil {
+	if won := gs.checkWinConditions(demonDeathAliveCount); won != nil {
 		gs.winner = won
 		events = append(events, game.GameEvent{GameEnded: won})
 		gs.phase = game.GamePhaseFinished
@@ -1149,6 +1244,8 @@ func (gs *GameSession) applyKillPlayer(cmd KillPlayerCmd) (ApplyResult, error) {
 		return ApplyResult{}, fmt.Errorf("player %s is already dead", cmd.PlayerID)
 	}
 
+	aliveBeforeDeath := gs.alivePlayerCountLocked()
+	demonDeathAliveCount := gs.demonDeathAliveCountLocked(pIdx, aliveBeforeDeath)
 	gs.players[pIdx].IsAlive = false
 	gs.deaths = append(gs.deaths, game.DeathRecord{
 		PlayerID:  cmd.PlayerID,
@@ -1165,7 +1262,7 @@ func (gs *GameSession) applyKillPlayer(cmd KillPlayerCmd) (ApplyResult, error) {
 		}},
 	}
 
-	if won := gs.checkWinConditions(); won != nil {
+	if won := gs.checkWinConditions(demonDeathAliveCount); won != nil {
 		gs.winner = won
 		events = append(events, game.GameEvent{GameEnded: won})
 		gs.phase = game.GamePhaseFinished
@@ -1189,7 +1286,7 @@ func isSupportedDeathCause(cause game.DeathCause) bool {
 
 // checkWinConditions evaluates current state and returns a GameEndedEvent if
 // the game should end, or nil if it continues. Must be called with gs.mu held.
-func (gs *GameSession) checkWinConditions() *game.GameEndedEvent {
+func (gs *GameSession) checkWinConditions(demonDeathAliveCount int) *game.GameEndedEvent {
 	aliveGood := 0
 	aliveEvil := 0
 	hasAliveDemon := false
@@ -1237,7 +1334,7 @@ func (gs *GameSession) checkWinConditions() *game.GameEndedEvent {
 
 	// Demon dead => good wins (by execution)
 	if !hasAliveDemon {
-		if gs.applyScarletWomanStarpassLocked(totalAlive) {
+		if gs.applyScarletWomanStarpassLocked(demonDeathAliveCount) {
 			return nil
 		}
 		return &game.GameEndedEvent{
@@ -1278,8 +1375,23 @@ func (gs *GameSession) checkWinConditions() *game.GameEndedEvent {
 	return nil
 }
 
-func (gs *GameSession) applyScarletWomanStarpassLocked(totalAlive int) bool {
-	if totalAlive < 5 || !gs.hasDeadDemonLocked() {
+func (gs *GameSession) demonDeathAliveCountLocked(playerIndex int, aliveBeforeDeath int) int {
+	if !gs.playerIsDemonLocked(playerIndex) {
+		return 0
+	}
+	return aliveBeforeDeath
+}
+
+func (gs *GameSession) playerIsDemonLocked(playerIndex int) bool {
+	if playerIndex < 0 || playerIndex >= len(gs.players) || gs.players[playerIndex].Character == nil {
+		return false
+	}
+	charDef := game.GetCharacterByID(gs.players[playerIndex].Character.ID)
+	return charDef != nil && charDef.Type == game.CharacterTypeDemon
+}
+
+func (gs *GameSession) applyScarletWomanStarpassLocked(demonDeathAliveCount int) bool {
+	if demonDeathAliveCount < 5 || !gs.hasDeadDemonLocked() {
 		return false
 	}
 
@@ -1332,7 +1444,10 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
-	canSeeAll := forceSeeAll || (gs.storytellerID != "" && recipientID == gs.storytellerID)
+	canSeeAll := forceSeeAll ||
+		(gs.storytellerID != "" && recipientID == gs.storytellerID) ||
+		gs.phase == game.GamePhaseFinished ||
+		gs.winner != nil
 	players := make([]game.Player, len(gs.players))
 	for i, player := range gs.players {
 		players[i] = player

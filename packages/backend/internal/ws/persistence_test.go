@@ -72,12 +72,15 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 				Players: []game.Player{
 					{ID: "p1", Name: "Alice", IsAlive: false},
 				},
-				StorytellerID:  "storyteller",
-				ScriptID:       game.TroubleBrewingScriptID,
-				Phase:          game.GamePhaseDay,
-				DayNumber:      2,
-				GhostVotesUsed: map[string]bool{"p1": true},
-				SlayerUsed:     map[string]bool{"p2": true},
+				StorytellerID:     "storyteller",
+				ScriptID:          game.TroubleBrewingScriptID,
+				Phase:             game.GamePhaseDay,
+				DayNumber:         2,
+				GhostVotesUsed:    map[string]bool{"p1": true},
+				SlayerUsed:        map[string]bool{"p2": true},
+				NominatorsToday:   map[string]bool{"p2": true},
+				NomineesToday:     map[string]bool{"p3": true},
+				VirginAbilityUsed: map[string]bool{"p4": true},
 				Deaths: []game.DeathRecord{
 					{PlayerID: "p1", Cause: game.DeathCauseNightKill, DayNumber: 1},
 				},
@@ -111,6 +114,12 @@ func TestRedisSnapshotStoreSavesAndLoadsSnapshot(t *testing.T) {
 	}
 	if !session.SlayerUsed["p2"] {
 		t.Fatalf("expected restored Slayer ability usage, got %#v", session.SlayerUsed)
+	}
+	if !session.NominatorsToday["p2"] || !session.NomineesToday["p3"] {
+		t.Fatalf("expected restored nomination limits, got nominators=%#v nominees=%#v", session.NominatorsToday, session.NomineesToday)
+	}
+	if !session.VirginAbilityUsed["p4"] {
+		t.Fatalf("expected restored Virgin ability usage, got %#v", session.VirginAbilityUsed)
 	}
 	if len(session.Deaths) != 1 || session.Deaths[0].PlayerID != "p1" {
 		t.Fatalf("expected restored death record, got %#v", session.Deaths)

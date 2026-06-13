@@ -120,6 +120,36 @@ func TestSaintExecutionWinsForEvil(t *testing.T) {
 	}
 }
 
+func TestPoisonedSaintExecutionDoesNotWinForEvil(t *testing.T) {
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.phase = game.GamePhaseDay
+	gs.dayNumber = 2
+	poisonedUntil := gs.dayNumber
+	gs.players = []game.Player{
+		{ID: "saint", Name: "Saint", IsAlive: true, Character: testCharacter(t, "saint"), PoisonedUntil: &poisonedUntil},
+		{ID: "townsfolk", Name: "Townsfolk", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+		{ID: "poisoner", Name: "Poisoner", IsAlive: true, Character: testCharacter(t, "poisoner")},
+		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+	}
+
+	result, err := gs.Apply(ExecutePlayerCmd{SenderID: "storyteller", PlayerID: "saint"})
+	if err != nil {
+		t.Fatalf("ExecutePlayer failed: %v", err)
+	}
+	for _, event := range result.Events {
+		if event.GameEnded != nil {
+			t.Fatalf("expected poisoned Saint execution not to end game, got %#v", event.GameEnded)
+		}
+	}
+	if phase := gs.Phase(); phase != game.GamePhaseDay {
+		t.Fatalf("expected phase to remain day after poisoned Saint execution, got %d", phase)
+	}
+	if winner := gs.StateForRoom("room-1").Winner; winner != nil {
+		t.Fatalf("expected no winner after poisoned Saint execution, got %#v", winner)
+	}
+}
+
 func TestImpSelfKillMakesLivingMinionTheImp(t *testing.T) {
 	gs := impSelfKillSession(t, true)
 

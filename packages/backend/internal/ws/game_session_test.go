@@ -439,6 +439,40 @@ func TestGameSessionScarletWomanBecomesImpWhenDemonDiesWithFiveAlive(t *testing.
 	}
 }
 
+func TestGameSessionPoisonedScarletWomanDoesNotStarpass(t *testing.T) {
+	gs := NewGameSession()
+	gs.storytellerID = "storyteller"
+	gs.phase = game.GamePhaseDay
+	gs.dayNumber = 1
+	poisonedUntil := gs.dayNumber
+	gs.players = []game.Player{
+		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
+		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
+		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
+		{ID: "scarlet", Name: "Scarlet", IsAlive: true, Character: testCharacter(t, "scarletwoman"), PoisonedUntil: &poisonedUntil},
+		{ID: "imp", Name: "Imp", IsAlive: true, Character: testCharacter(t, "imp")},
+	}
+
+	result, err := gs.Apply(ExecutePlayerCmd{
+		SenderID: "storyteller",
+		PlayerID: "imp",
+	})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+	if len(result.Events) == 0 || result.Events[len(result.Events)-1].GameEnded == nil {
+		t.Fatalf("expected gameEnded after demon death with poisoned Scarlet Woman, got %#v", result.Events)
+	}
+	ended := result.Events[len(result.Events)-1].GameEnded
+	if ended.Winner != game.TeamGood || ended.Reason != game.WinReasonImpExecuted {
+		t.Fatalf("expected good win when poisoned Scarlet Woman cannot starpass, got %#v", ended)
+	}
+	scarlet := findPlayerInState(t, gs.StateForRoom("room-1"), "scarlet")
+	if scarlet.Character == nil || scarlet.Character.ID != "scarletwoman" {
+		t.Fatalf("expected poisoned Scarlet Woman to remain unchanged, got %#v", scarlet.Character)
+	}
+}
+
 func TestGameSessionDemonDeathWinsWhenScarletWomanCannotStarpassWithFourAlive(t *testing.T) {
 	gs := NewGameSession()
 	gs.storytellerID = "storyteller"
@@ -818,6 +852,40 @@ func TestGameSessionVirginFirstNominationByNonTownsfolkConsumesAbilityWithoutExe
 	}
 	if phase := gs.Phase(); phase != game.GamePhaseVoting {
 		t.Fatalf("expected second Virgin nomination to proceed to voting, got %d", phase)
+	}
+}
+
+func TestGameSessionPoisonedVirginFirstNominationConsumesAbilityWithoutExecution(t *testing.T) {
+	gs := virginSession(t)
+	poisonedUntil := gs.dayNumber
+	gs.players[0].PoisonedUntil = &poisonedUntil
+
+	result, err := gs.Apply(NominateCmd{SenderID: "townsfolk", NomineeID: "virgin"})
+	if err != nil {
+		t.Fatalf("unexpected poisoned Virgin nomination error: %v", err)
+	}
+	if eventListContainsPlayerDied(result.Events, "townsfolk", game.DeathCauseExecution) {
+		t.Fatalf("expected poisoned Virgin not to execute townsfolk nominator, got %#v", result.Events)
+	}
+	if phase := gs.Phase(); phase != game.GamePhaseVoting {
+		t.Fatalf("expected normal voting after poisoned Virgin nomination, got %d", phase)
+	}
+
+	resolveNominationWithoutExecutionBy(t, gs, "virgin")
+	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+		t.Fatalf("unexpected change to night error: %v", err)
+	}
+	gs.nightWakeIndex = len(gs.activeNightWakeStepsLocked())
+	if _, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("unexpected resolve night error: %v", err)
+	}
+
+	secondResult, err := gs.Apply(NominateCmd{SenderID: "townsfolk", NomineeID: "virgin"})
+	if err != nil {
+		t.Fatalf("unexpected second Virgin nomination error: %v", err)
+	}
+	if eventListContainsPlayerDied(secondResult.Events, "townsfolk", game.DeathCauseExecution) {
+		t.Fatalf("expected poisoned first nomination to spend Virgin ability, got %#v", secondResult.Events)
 	}
 }
 

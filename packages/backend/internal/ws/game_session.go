@@ -1169,10 +1169,10 @@ func (gs *GameSession) applyNominate(cmd NominateCmd) (ApplyResult, error) {
 	}
 	if gs.players[nomineeIdx].Character != nil &&
 		gs.players[nomineeIdx].Character.ID == "virgin" &&
-		!gs.playerAbilityMalfunctioningLocked(nomineeIdx) &&
 		!gs.virginAbilityUsed[cmd.NomineeID] {
 		gs.virginAbilityUsed[cmd.NomineeID] = true
-		if gs.playerHasCharacterTypeLocked(nomIdx, game.CharacterTypeTownsfolk) {
+		if !gs.playerAbilityMalfunctioningLocked(nomineeIdx) &&
+			gs.playerHasCharacterTypeLocked(nomIdx, game.CharacterTypeTownsfolk) {
 			return gs.applyVirginExecutionLocked(cmd, nomIdx)
 		}
 	}
@@ -1852,10 +1852,11 @@ func (gs *GameSession) checkWinConditions(demonDeathAliveCount int) *game.GameEn
 
 	// Check if any executed player was the Saint
 	for _, d := range gs.deaths {
-		if d.Cause == game.DeathCauseExecution {
+		if d.Cause == game.DeathCauseExecution && d.DayNumber == gs.dayNumber {
 			pIdx := gs.findPlayerIndex(d.PlayerID)
 			if pIdx != -1 && gs.players[pIdx].Character != nil &&
-				gs.players[pIdx].Character.ID == "saint" {
+				gs.players[pIdx].Character.ID == "saint" &&
+				!gs.playerAbilityMalfunctioningLocked(pIdx) {
 				return &game.GameEndedEvent{
 					Winner:      game.TeamEvil,
 					Reason:      game.WinReasonSaintExecuted,
@@ -1972,7 +1973,10 @@ func (gs *GameSession) applyScarletWomanStarpassLocked(demonDeathAliveCount int)
 
 	for i := range gs.players {
 		player := &gs.players[i]
-		if !player.IsAlive || player.Character == nil || player.Character.ID != "scarletwoman" {
+		if !player.IsAlive ||
+			player.Character == nil ||
+			player.Character.ID != "scarletwoman" ||
+			gs.playerAbilityMalfunctioningLocked(i) {
 			continue
 		}
 		player.Character = &game.Character{

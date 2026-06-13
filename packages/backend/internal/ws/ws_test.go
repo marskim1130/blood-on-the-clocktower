@@ -976,6 +976,8 @@ func writeStorytellerFirstNightActions(t *testing.T, conn *websocket.Conn) {
 	t.Helper()
 
 	actions := []ClientMessage{
+		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnDemon)},
+		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnMinion)},
 		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionPoison), TargetIDs: []string{"p2"}},
 		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
 		{Type: "SUBMIT_NIGHT_ACTION", ActionType: string(game.NightActionLearnOutsider)},

@@ -20,6 +20,7 @@ export interface ScriptCharacterDefinition {
 
 export interface NightWakeStep {
   readonly characterId: string;
+  readonly characterType?: CharacterType;
   readonly order: number;
   readonly actionType: NightActionType;
   readonly prompt: string;
@@ -234,8 +235,26 @@ export const BASE_ROLE_COUNTS: Readonly<Record<number, RoleCount>> = {
 
 export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   {
-    characterId: 'poisoner',
+    characterId: '',
+    characterType: 'minion',
     order: 1,
+    actionType: 'learn_demon',
+    prompt: '爪牙得知哪名玩家是恶魔。',
+    minTargets: 0,
+    maxTargets: 0,
+  },
+  {
+    characterId: '',
+    characterType: 'demon',
+    order: 2,
+    actionType: 'learn_minion',
+    prompt: '恶魔得知哪些玩家是爪牙。',
+    minTargets: 0,
+    maxTargets: 0,
+  },
+  {
+    characterId: 'poisoner',
+    order: 3,
     actionType: 'poison',
     prompt: '投毒者选择一名玩家，使其中毒直到黄昏。',
     minTargets: 1,
@@ -243,7 +262,7 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   },
   {
     characterId: 'washerwoman',
-    order: 2,
+    order: 4,
     actionType: 'learn_townsfolk',
     prompt: '洗衣妇得知两名玩家之一是某个镇民。',
     minTargets: 2,
@@ -251,7 +270,7 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   },
   {
     characterId: 'librarian',
-    order: 3,
+    order: 5,
     actionType: 'learn_outsider',
     prompt: '图书管理员得知两名玩家之一是某个外来者，或得知没有外来者在场。',
     minTargets: 0,
@@ -259,7 +278,7 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   },
   {
     characterId: 'investigator',
-    order: 4,
+    order: 6,
     actionType: 'learn_minion',
     prompt: '调查员得知两名玩家之一是某个爪牙。',
     minTargets: 2,
@@ -267,7 +286,7 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   },
   {
     characterId: 'chef',
-    order: 5,
+    order: 7,
     actionType: 'learn_evil_pairs',
     prompt: '厨师得知相邻邪恶玩家的对数。',
     minTargets: 0,
@@ -275,7 +294,7 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   },
   {
     characterId: 'empath',
-    order: 6,
+    order: 8,
     actionType: 'learn_evil_neighbors',
     prompt: '共情者得知相邻存活玩家中有多少名是邪恶阵营。',
     minTargets: 0,
@@ -283,7 +302,7 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   },
   {
     characterId: 'fortuneteller',
-    order: 7,
+    order: 9,
     actionType: 'check_demon',
     prompt: '占卜师选择两名玩家，并得知其中是否有人被登记为恶魔。',
     minTargets: 2,
@@ -291,7 +310,7 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   },
   {
     characterId: 'butler',
-    order: 8,
+    order: 10,
     actionType: 'learn_master',
     prompt: '管家选择明天的主人。',
     minTargets: 1,
@@ -299,7 +318,7 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
   },
   {
     characterId: 'imp',
-    order: 9,
+    order: 11,
     actionType: 'kill',
     prompt: '小恶魔选择一名玩家死亡。',
     minTargets: 1,

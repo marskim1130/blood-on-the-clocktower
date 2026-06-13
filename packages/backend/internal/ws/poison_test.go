@@ -45,7 +45,7 @@ func TestPoisonPlayerSetsPoisonedUntil(t *testing.T) {
 		t.Fatalf("StartGame failed: %v", err)
 	}
 
-	// First night starts, Poisoner is first in wake order
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	// Storyteller poisons p2
 	result, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
@@ -177,7 +177,7 @@ func TestRepoisonUpdatesExpiration(t *testing.T) {
 		t.Fatal("expected p2's poison to be cleared at start of night 2")
 	}
 
-	// Poisoner acts again (first in wake order), re-poisons p2
+	// Poisoner acts again, re-poisons p2
 	_, err = gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
 		ActionType: string(game.NightActionPoison),
@@ -235,6 +235,7 @@ func setupPoisonedGameSession(t *testing.T) *GameSession {
 		t.Fatalf("StartGame failed: %v", err)
 	}
 
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	// Poisoner poisons p2
 	if _, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",

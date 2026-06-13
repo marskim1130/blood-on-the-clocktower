@@ -95,6 +95,7 @@ func TestPoisonedChefDoesNotAutoCompute(t *testing.T) {
 		"p5": "empath",
 	})
 
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	if _, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
 		ActionType: string(game.NightActionPoison),

@@ -107,12 +107,13 @@ type NightAction struct {
 
 // NightWakeStep describes one storyteller-facing wake step for the current script.
 type NightWakeStep struct {
-	CharacterID string          `json:"characterId"`
-	Order       int             `json:"order"`
-	ActionType  NightActionType `json:"actionType"`
-	Prompt      string          `json:"prompt"`
-	MinTargets  int             `json:"minTargets"`
-	MaxTargets  int             `json:"maxTargets"`
+	CharacterID   string          `json:"characterId"`
+	CharacterType string          `json:"characterType,omitempty"`
+	Order         int             `json:"order"`
+	ActionType    NightActionType `json:"actionType"`
+	Prompt        string          `json:"prompt"`
+	MinTargets    int             `json:"minTargets"`
+	MaxTargets    int             `json:"maxTargets"`
 }
 
 // GameState represents the complete state of a game

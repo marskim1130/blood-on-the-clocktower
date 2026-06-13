@@ -20,6 +20,7 @@ func TestWasherwomanAutoComputesTownsfolkNameFromTargets(t *testing.T) {
 func TestPoisonedWasherwomanDoesNotAutoCompute(t *testing.T) {
 	gs := newStartedTypeHintGame(t, "washerwoman", "empath", "chef", "poisoner", "imp")
 
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	event := submitTypeHintNightAction(t, gs, game.NightActionPoison, []string{"p1"}, "")
 	if event.Result != nil {
 		t.Fatalf("expected poison action to have no result, got %v", event.Result)
@@ -74,6 +75,7 @@ func TestInvestigatorAutoComputesMinionNameFromTargets(t *testing.T) {
 func TestPoisonedInvestigatorDoesNotAutoCompute(t *testing.T) {
 	gs := newStartedTypeHintGame(t, "investigator", "washerwoman", "chef", "poisoner", "imp")
 
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	submitTypeHintNightAction(t, gs, game.NightActionPoison, []string{"p1"}, "")
 	skipTypeHintGameToCharacter(t, gs, "investigator")
 

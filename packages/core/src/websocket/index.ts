@@ -97,6 +97,7 @@ export interface RoomState {
 
 export interface RoomNightWakeStep {
   readonly characterId: string;
+  readonly characterType?: string;
   readonly order: number;
   readonly actionType: string;
   readonly prompt: string;

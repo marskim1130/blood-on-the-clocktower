@@ -39,26 +39,15 @@ func TestEmpathAutoComputesEvilNeighbors(t *testing.T) {
 		t.Fatalf("StartGame failed: %v", err)
 	}
 
-	// Skip to Empath's turn (first night order: Poisoner, Washerwoman, Librarian, Investigator, Chef, Empath)
-	// We need to submit actions for all prior steps
-	actions := []struct {
-		actionType string
-		targets    []string
-	}{
-		{string(game.NightActionPoison), []string{"p4"}},               // Poisoner poisons p4
-		{string(game.NightActionLearnTownsfolk), []string{"p1", "p2"}}, // Washerwoman needs 2 targets
-		{string(game.NightActionLearnOutsider), nil},                   // Librarian (no outsiders)
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
+	if _, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionPoison),
+		TargetIDs:  []string{"p4"},
+	}); err != nil {
+		t.Fatalf("Poison failed: %v", err)
 	}
-
-	for _, action := range actions {
-		if _, err := gs.Apply(SubmitNightActionCmd{
-			SenderID:   "storyteller",
-			ActionType: action.actionType,
-			TargetIDs:  action.targets,
-		}); err != nil {
-			t.Fatalf("SubmitNightAction failed: %v", err)
-		}
-	}
+	skipToCharacter(t, gs, "empath")
 
 	// Now submit Empath action WITHOUT providing a result
 	result, err := gs.Apply(SubmitNightActionCmd{
@@ -108,6 +97,7 @@ func TestEmpathPoisonedNoAutoCompute(t *testing.T) {
 	})
 
 	// Poisoner poisons Empath (p2)
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	if _, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
 		ActionType: string(game.NightActionPoison),

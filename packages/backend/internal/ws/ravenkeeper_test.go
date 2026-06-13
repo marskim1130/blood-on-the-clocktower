@@ -150,6 +150,7 @@ func newStartedRavenkeeperGame(t *testing.T) *GameSession {
 func enterRavenkeeperSecondNight(t *testing.T, gs *GameSession) {
 	t.Helper()
 
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	actions := []SubmitNightActionCmd{
 		{SenderID: "storyteller", ActionType: string(game.NightActionPoison), TargetIDs: []string{"p2"}},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnEvilNeighbors)},

@@ -66,6 +66,7 @@ const NIGHT_ACTION_TYPES = [
   { id: 'kill', label: '击杀', needsTarget: true },
   { id: 'poison', label: '下毒', needsTarget: true },
   { id: 'protect', label: '保护', needsTarget: true },
+  { id: 'learn_demon', label: '确认恶魔信息', needsTarget: false },
   { id: 'learn_townsfolk', label: '确认镇民信息', needsTarget: false },
   { id: 'learn_outsider', label: '确认外来者信息', needsTarget: false },
   { id: 'learn_minion', label: '确认爪牙信息', needsTarget: false },
@@ -76,6 +77,13 @@ const NIGHT_ACTION_TYPES = [
   { id: 'learn_died', label: '确认死亡触发', needsTarget: true },
   { id: 'learn_master', label: '选择主人', needsTarget: false },
 ] as const;
+
+const CHARACTER_TYPE_LABELS: Record<string, string> = {
+  townsfolk: '镇民',
+  outsider: '外来者',
+  minion: '爪牙',
+  demon: '恶魔',
+};
 
 // ─── Local Game State Types ──────────────────────────────────────
 
@@ -317,6 +325,18 @@ export default function IndexPage() {
         (roomState?.players ?? [])
           .map((player) => player.character?.id)
           .filter((characterId): characterId is string => Boolean(characterId)),
+      ),
+    [roomState],
+  );
+  const assignedCharacterTypes = useMemo(
+    () =>
+      new Set<string>(
+        (roomState?.players ?? [])
+          .map((player) => {
+            const characterId = player.character?.id;
+            return TROUBLE_BREWING_SCRIPT.characters.find((item) => item.id === characterId)?.type;
+          })
+          .filter((characterType): characterType is NonNullable<typeof characterType> => Boolean(characterType)),
       ),
     [roomState],
   );
@@ -1364,18 +1384,22 @@ export default function IndexPage() {
             <Text className='sectionTitle'>≡ 唤醒顺序</Text>
             {nightWakeSteps.map((step, index) => {
               const character = TROUBLE_BREWING_SCRIPT.characters.find((item) => item.id === step.characterId);
-              const inPlay = assignedCharacterIds.has(step.characterId);
+              const groupLabel = step.characterType ? CHARACTER_TYPE_LABELS[step.characterType] ?? step.characterType : '';
+              const stepLabel = character?.name || groupLabel || step.characterId;
+              const inPlay = step.characterType
+                ? assignedCharacterTypes.has(step.characterType)
+                : assignedCharacterIds.has(step.characterId);
               const isCurrent = currentNightWakeStep?.characterId === step.characterId && currentNightWakeStep.order === step.order;
               const isCompleted = index < currentNightWakeIndex;
               return (
                 <View
                   className={`wakeStep ${inPlay ? 'wakeStepActive' : 'wakeStepInactive'} ${isCurrent ? 'wakeStepCurrent' : ''} ${isCompleted ? 'wakeStepDone' : ''}`}
-                  key={`${step.order}-${step.characterId}`}
+                  key={`${step.order}-${step.characterId || step.characterType || step.actionType}`}
                 >
                   <View className='wakeStepHeader'>
                     <Text className='wakeStepOrder'>{step.order}</Text>
                     <Text className='wakeStepName'>
-                      {character?.name ?? step.characterId}
+                      {stepLabel}
                       {isCurrent ? ' · 当前' : isCompleted ? ' · 已完成' : inPlay ? ' · 待处理' : ' · 未在场'}
                     </Text>
                   </View>

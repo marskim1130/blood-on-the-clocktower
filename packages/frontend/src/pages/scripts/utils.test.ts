@@ -71,8 +71,9 @@ describe('night order', () => {
 
   it('all wake steps reference valid script characters', () => {
     const characterIds = new Set(TROUBLE_BREWING_SCRIPT.characters.map((c) => c.id));
+    const characterTypes = new Set(TROUBLE_BREWING_SCRIPT.characters.map((c) => c.type));
     for (const step of getFirstNightOrder()) {
-      expect(characterIds.has(step.characterId)).toBe(true);
+      expect(step.characterId ? characterIds.has(step.characterId) : characterTypes.has(step.characterType!)).toBe(true);
     }
   });
 

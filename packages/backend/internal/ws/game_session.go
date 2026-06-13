@@ -561,14 +561,6 @@ func (gs *GameSession) clearExpiredPoisonLocked() {
 	}
 }
 
-func (gs *GameSession) currentWakeCharacterIDLocked() string {
-	step := gs.currentNightWakeStepLocked()
-	if step == nil {
-		return ""
-	}
-	return step.CharacterID
-}
-
 func (gs *GameSession) findLivingCharacterIndexLocked(characterID string) int {
 	for i, p := range gs.players {
 		if p.Character != nil && p.Character.ID == characterID && p.IsAlive {
@@ -592,6 +584,28 @@ func (gs *GameSession) characterCanAutoResolveLocked(characterID string) (int, b
 		return -1, false
 	}
 	return playerIdx, true
+}
+
+func (gs *GameSession) computeDemonInfoResultLocked() string {
+	return "Demon: " + gs.formatPlayersByCharacterTypeLocked(game.CharacterTypeDemon)
+}
+
+func (gs *GameSession) computeMinionInfoResultLocked() string {
+	return "Minions: " + gs.formatPlayersByCharacterTypeLocked(game.CharacterTypeMinion)
+}
+
+func (gs *GameSession) formatPlayersByCharacterTypeLocked(characterType game.CharacterType) string {
+	summaries := make([]string, 0)
+	for i := range gs.players {
+		if !gs.playerHasCharacterTypeLocked(i, characterType) {
+			continue
+		}
+		summaries = append(summaries, fmt.Sprintf("%s (%s)", gs.players[i].Name, gs.players[i].Character.Name))
+	}
+	if len(summaries) == 0 {
+		return "none"
+	}
+	return strings.Join(summaries, ", ")
 }
 
 func (gs *GameSession) computeWasherwomanResultLocked(washerwomanCharID string, targetIDs []string) string {
@@ -1332,6 +1346,7 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 		return ApplyResult{}, fmt.Errorf("night actions can only be submitted during the night phase")
 	}
 
+	var step *game.NightWakeStep
 	if cmd.SenderID != gs.storytellerID {
 		actorIdx := gs.findPlayerIndex(cmd.SenderID)
 		if actorIdx == -1 {
@@ -1341,7 +1356,7 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 			return ApplyResult{}, fmt.Errorf("dead players cannot submit night actions")
 		}
 	} else {
-		step := gs.currentNightWakeStepLocked()
+		step = gs.currentNightWakeStepLocked()
 		if step == nil {
 			return ApplyResult{}, fmt.Errorf("no remaining night wake steps")
 		}
@@ -1356,7 +1371,9 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 
 	actorCharID := ""
 	if cmd.SenderID == gs.storytellerID {
-		actorCharID = gs.currentWakeCharacterIDLocked()
+		if step != nil {
+			actorCharID = step.CharacterID
+		}
 	}
 
 	action := game.NightAction{
@@ -1368,25 +1385,31 @@ func (gs *GameSession) applySubmitNightAction(cmd SubmitNightActionCmd) (ApplyRe
 
 	// Auto-compute ability results for information roles (if not poisoned)
 	if cmd.SenderID == gs.storytellerID && action.Result == "" {
-		if actorCharID != "" {
-			switch action.ActionType {
-			case game.NightActionLearnTownsfolk:
-				action.Result = gs.computeWasherwomanResultLocked(actorCharID, action.TargetIDs)
-			case game.NightActionLearnOutsider:
-				action.Result = gs.computeLibrarianResultLocked(actorCharID, action.TargetIDs)
-			case game.NightActionLearnMinion:
-				action.Result = gs.computeInvestigatorResultLocked(actorCharID, action.TargetIDs)
-			case game.NightActionLearnEvilPairs:
-				action.Result = gs.computeChefResultLocked(actorCharID)
-			case game.NightActionLearnEvilNeighbors:
-				action.Result = gs.computeEmpathResultLocked(actorCharID)
-			case game.NightActionCheckDemon:
-				action.Result = gs.computeFortuneTellerResultLocked(actorCharID, action.TargetIDs)
-			case game.NightActionLearnExecuted:
-				action.Result = gs.computeUndertakerResultLocked(actorCharID)
-			case game.NightActionLearnDied:
-				action.Result = gs.computeRavenkeeperResultLocked(actorCharID, action.TargetIDs)
+		switch action.ActionType {
+		case game.NightActionLearnDemon:
+			if step != nil && step.CharacterType == game.NightWakeCharacterTypeMinion {
+				action.Result = gs.computeDemonInfoResultLocked()
 			}
+		case game.NightActionLearnTownsfolk:
+			action.Result = gs.computeWasherwomanResultLocked(actorCharID, action.TargetIDs)
+		case game.NightActionLearnOutsider:
+			action.Result = gs.computeLibrarianResultLocked(actorCharID, action.TargetIDs)
+		case game.NightActionLearnMinion:
+			if step != nil && step.CharacterType == game.NightWakeCharacterTypeDemon {
+				action.Result = gs.computeMinionInfoResultLocked()
+			} else {
+				action.Result = gs.computeInvestigatorResultLocked(actorCharID, action.TargetIDs)
+			}
+		case game.NightActionLearnEvilPairs:
+			action.Result = gs.computeChefResultLocked(actorCharID)
+		case game.NightActionLearnEvilNeighbors:
+			action.Result = gs.computeEmpathResultLocked(actorCharID)
+		case game.NightActionCheckDemon:
+			action.Result = gs.computeFortuneTellerResultLocked(actorCharID, action.TargetIDs)
+		case game.NightActionLearnExecuted:
+			action.Result = gs.computeUndertakerResultLocked(actorCharID)
+		case game.NightActionLearnDied:
+			action.Result = gs.computeRavenkeeperResultLocked(actorCharID, action.TargetIDs)
 		}
 	}
 

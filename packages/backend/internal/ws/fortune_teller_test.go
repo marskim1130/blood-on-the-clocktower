@@ -47,6 +47,7 @@ func TestFortuneTellerAutoComputesNoWhenTargetsExcludeDemon(t *testing.T) {
 func TestPoisonedFortuneTellerDoesNotAutoCompute(t *testing.T) {
 	gs := newStartedFortuneTellerGame(t)
 
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	if _, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
 		ActionType: string(game.NightActionPoison),

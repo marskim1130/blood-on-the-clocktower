@@ -32,7 +32,7 @@ describe('night phase wake order', () => {
 
     expect(getNextToWake(INITIAL_NIGHT_STATE, 1, aliveCharacters)).toEqual({
       characterId: 'fortuneteller',
-      order: 7,
+      order: 9,
       actionType: 'check_demon',
     });
   });

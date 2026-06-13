@@ -79,6 +79,7 @@ func preparedButlerDay(t *testing.T, poisonButler bool) *GameSession {
 	if poisonButler {
 		poisonTargetID = "p1"
 	}
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	submitTypeHintNightAction(t, gs, game.NightActionPoison, []string{poisonTargetID}, "")
 	skipTypeHintGameToCharacter(t, gs, "butler")
 	submitTypeHintNightAction(t, gs, game.NightActionLearnMaster, []string{"p2"}, "")

@@ -1,5 +1,5 @@
 import type { PlayerId, Character } from '../types/index.js';
-import { getScriptWakeOrder } from '../scripts/index.js';
+import { getScriptCharacterById, getScriptWakeOrder } from '../scripts/index.js';
 
 // ─── Night Phase Types ──────────────────────────────────────────
 
@@ -15,6 +15,7 @@ export type NightActionType =
   | 'protect' // Monk
   | 'learn_died' // Ravenkeeper
   | 'learn_master' // Butler
+  | 'learn_demon' // Minions
   | 'poison' // Poisoner
   | 'kill'; // Imp
 
@@ -39,6 +40,7 @@ export interface NightState {
 /** Wake order entry: character acts at a specific order number. */
 export interface WakeOrderEntry {
   readonly characterId: string;
+  readonly characterType?: string | undefined;
   readonly order: number;
   readonly actionType: NightActionType;
 }
@@ -49,23 +51,30 @@ export interface WakeOrderEntry {
  * First night wake order for Trouble Brewing.
  */
 export const FIRST_NIGHT_ORDER: readonly WakeOrderEntry[] = [
-  ...getScriptWakeOrder('trouble_brewing', 1).map(({ characterId, order, actionType }) => ({
-    characterId,
-    order,
-    actionType,
-  })),
+  ...getScriptWakeOrder('trouble_brewing', 1).map(toWakeOrderEntry),
 ];
 
 /**
  * Subsequent night wake order for Trouble Brewing.
  */
 export const SUBSEQUENT_NIGHT_ORDER: readonly WakeOrderEntry[] = [
-  ...getScriptWakeOrder('trouble_brewing', 2).map(({ characterId, order, actionType }) => ({
-    characterId,
-    order,
-    actionType,
-  })),
+  ...getScriptWakeOrder('trouble_brewing', 2).map(toWakeOrderEntry),
 ];
+
+function toWakeOrderEntry({
+  characterId,
+  characterType,
+  order,
+  actionType,
+}: {
+  readonly characterId: string;
+  readonly characterType?: string;
+  readonly order: number;
+  readonly actionType: NightActionType;
+}): WakeOrderEntry {
+  const entry = { characterId, order, actionType };
+  return characterType ? { ...entry, characterType } : entry;
+}
 
 // ─── Initial State ───────────────────────────────────────────────
 
@@ -102,7 +111,7 @@ export function getNextToWake(
     const entry = wakeOrder[i]!;
 
     for (const [, character] of aliveCharacters) {
-      if (character.id === entry.characterId) {
+      if (characterMatchesWakeEntry(character, entry)) {
         return entry;
       }
     }
@@ -263,14 +272,24 @@ export function validateNightAction(
   }
 
   const playerCharacter = aliveCharacters.get(action.playerId);
-  if (playerCharacter && playerCharacter.id !== expectedEntry.characterId) {
+  if (playerCharacter && !characterMatchesWakeEntry(playerCharacter, expectedEntry)) {
     return {
       code: 'WRONG_CHARACTER',
-      message: `Expected ${expectedEntry.characterId} to act, got ${playerCharacter.id}.`,
+      message: `Expected ${expectedEntry.characterId || expectedEntry.characterType} to act, got ${playerCharacter.id}.`,
     };
   }
 
   return null;
+}
+
+function characterMatchesWakeEntry(character: Character, entry: WakeOrderEntry): boolean {
+  if (entry.characterId) {
+    return character.id === entry.characterId;
+  }
+  if (!entry.characterType) {
+    return false;
+  }
+  return getScriptCharacterById(character.id)?.type === entry.characterType;
 }
 
 /**

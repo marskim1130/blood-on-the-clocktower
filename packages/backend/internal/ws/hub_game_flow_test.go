@@ -526,11 +526,11 @@ func TestCompleteMVPGameFlowFromFirstNightToGoodWin(t *testing.T) {
 		t.Fatalf("expected game to start at night, got %d", phase)
 	}
 	stateAtNight := h.buildRoomStateForRecipient(roomID, "storyteller")
-	if len(stateAtNight.NightWakeSteps) != 5 {
-		t.Fatalf("expected 5 active first-night wake steps, got %#v", stateAtNight.NightWakeSteps)
+	if len(stateAtNight.NightWakeSteps) != 7 {
+		t.Fatalf("expected 7 active first-night wake steps, got %#v", stateAtNight.NightWakeSteps)
 	}
-	if stateAtNight.CurrentNightWakeStep == nil || stateAtNight.CurrentNightWakeStep.ActionType != game.NightActionPoison {
-		t.Fatalf("expected Poisoner to be current wake step, got %#v", stateAtNight.CurrentNightWakeStep)
+	if stateAtNight.CurrentNightWakeStep == nil || stateAtNight.CurrentNightWakeStep.ActionType != game.NightActionLearnDemon {
+		t.Fatalf("expected Minion information to be current wake step, got %#v", stateAtNight.CurrentNightWakeStep)
 	}
 	clearAllMessages(storytellerConn, playerConns)
 
@@ -657,7 +657,7 @@ func TestStorytellerNightActionMustMatchCurrentWakeStep(t *testing.T) {
 	if !ok || errMsg.Type != "ERROR" {
 		t.Fatalf("expected ERROR message, got %#v", msgs[0])
 	}
-	if errMsg.Error != "expected night action poison, got kill" {
+	if errMsg.Error != "expected night action learn_demon, got kill" {
 		t.Fatalf("expected current wake step error, got %q", errMsg.Error)
 	}
 }
@@ -665,6 +665,7 @@ func TestStorytellerNightActionMustMatchCurrentWakeStep(t *testing.T) {
 func TestStorytellerNightActionValidatesTargetCount(t *testing.T) {
 	h, storytellerConn, _, _ := setupStartedRoom(t)
 
+	submitStorytellerEvilTeamInfo(t, h, storytellerConn)
 	h.handleMessage(storytellerConn, ClientMessage{
 		Type:       MsgSubmitNightAction,
 		ActionType: string(game.NightActionPoison),
@@ -696,7 +697,7 @@ func TestResolveNightRejectsRemainingWakeSteps(t *testing.T) {
 	if !ok || errMsg.Type != "ERROR" {
 		t.Fatalf("expected ERROR message, got %#v", msgs[0])
 	}
-	if errMsg.Error != "cannot resolve night with 5 wake step(s) remaining" {
+	if errMsg.Error != "cannot resolve night with 7 wake step(s) remaining" {
 		t.Fatalf("expected remaining wake steps error, got %q", errMsg.Error)
 	}
 }
@@ -1198,6 +1199,8 @@ func submitStorytellerFirstNightActions(t *testing.T, h *Hub, storytellerConn *F
 	t.Helper()
 
 	actions := []ClientMessage{
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnDemon)},
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnMinion)},
 		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionPoison), TargetIDs: []string{"p2"}},
 		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
 		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnOutsider)},
@@ -1210,6 +1213,21 @@ func submitStorytellerFirstNightActions(t *testing.T, h *Hub, storytellerConn *F
 		h.handleMessage(storytellerConn, action)
 		assertNoErrorMessages(t, storytellerConn.Messages())
 	}
+}
+
+func submitStorytellerEvilTeamInfo(t *testing.T, h *Hub, storytellerConn *FakeConnection) {
+	t.Helper()
+
+	actions := []ClientMessage{
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnDemon)},
+		{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnMinion)},
+	}
+	for _, action := range actions {
+		storytellerConn.ClearMessages()
+		h.handleMessage(storytellerConn, action)
+		assertNoErrorMessages(t, storytellerConn.Messages())
+	}
+	storytellerConn.ClearMessages()
 }
 
 func countNightActionSubmitted(messages []any) int {

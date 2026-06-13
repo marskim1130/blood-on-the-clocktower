@@ -156,11 +156,13 @@ func TestGetActiveNightWakeStepsFiltersToAliveAssignedCharacters(t *testing.T) {
 	}
 
 	active := GetActiveNightWakeSteps(TroubleBrewingScriptID, 1, players)
-	if len(active) != 2 {
-		t.Fatalf("expected 2 active wake steps, got %#v", active)
+	if len(active) != 3 {
+		t.Fatalf("expected 3 active wake steps, got %#v", active)
 	}
-	if active[0].CharacterID != "washerwoman" || active[1].CharacterID != "imp" {
-		t.Fatalf("expected washerwoman then imp, got %#v", active)
+	if active[0].CharacterType != NightWakeCharacterTypeDemon ||
+		active[1].CharacterID != "washerwoman" ||
+		active[2].CharacterID != "imp" {
+		t.Fatalf("expected demon info, washerwoman, then imp, got %#v", active)
 	}
 }
 

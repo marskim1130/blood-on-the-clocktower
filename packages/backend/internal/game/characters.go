@@ -10,6 +10,11 @@ const (
 	CharacterTypeDemon
 )
 
+const (
+	NightWakeCharacterTypeMinion = "minion"
+	NightWakeCharacterTypeDemon  = "demon"
+)
+
 // CharacterDefinition defines a Trouble Brewing character
 type CharacterDefinition struct {
 	ID      string
@@ -145,15 +150,17 @@ var ValidRoleCounts = map[int]RoleCount{
 
 // TroubleBrewingFirstNightOrder defines the storyteller wake order for night one.
 var TroubleBrewingFirstNightOrder = []NightWakeStep{
-	{CharacterID: "poisoner", Order: 1, ActionType: NightActionPoison, Prompt: "Poisoner chooses one player to poison until dusk.", MinTargets: 1, MaxTargets: 1},
-	{CharacterID: "washerwoman", Order: 2, ActionType: NightActionLearnTownsfolk, Prompt: "Washerwoman learns that one of two players is a specific Townsfolk.", MinTargets: 2, MaxTargets: 2},
-	{CharacterID: "librarian", Order: 3, ActionType: NightActionLearnOutsider, Prompt: "Librarian learns that one of two players is a specific Outsider, or that none are in play.", MinTargets: 0, MaxTargets: 2},
-	{CharacterID: "investigator", Order: 4, ActionType: NightActionLearnMinion, Prompt: "Investigator learns that one of two players is a specific Minion.", MinTargets: 2, MaxTargets: 2},
-	{CharacterID: "chef", Order: 5, ActionType: NightActionLearnEvilPairs, Prompt: "Chef learns the number of adjacent evil pairs.", MinTargets: 0, MaxTargets: 0},
-	{CharacterID: "empath", Order: 6, ActionType: NightActionLearnEvilNeighbors, Prompt: "Empath learns how many alive neighbours are evil.", MinTargets: 0, MaxTargets: 0},
-	{CharacterID: "fortuneteller", Order: 7, ActionType: NightActionCheckDemon, Prompt: "Fortune Teller chooses two players and learns if either registers as the Demon.", MinTargets: 2, MaxTargets: 2},
-	{CharacterID: "butler", Order: 8, ActionType: NightActionLearnMaster, Prompt: "Butler chooses their master for tomorrow.", MinTargets: 1, MaxTargets: 1},
-	{CharacterID: "imp", Order: 9, ActionType: NightActionKill, Prompt: "Imp chooses one player to die.", MinTargets: 1, MaxTargets: 1},
+	{CharacterType: NightWakeCharacterTypeMinion, Order: 1, ActionType: NightActionLearnDemon, Prompt: "Minions learn which player is the Demon.", MinTargets: 0, MaxTargets: 0},
+	{CharacterType: NightWakeCharacterTypeDemon, Order: 2, ActionType: NightActionLearnMinion, Prompt: "Demon learns which players are Minions.", MinTargets: 0, MaxTargets: 0},
+	{CharacterID: "poisoner", Order: 3, ActionType: NightActionPoison, Prompt: "Poisoner chooses one player to poison until dusk.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "washerwoman", Order: 4, ActionType: NightActionLearnTownsfolk, Prompt: "Washerwoman learns that one of two players is a specific Townsfolk.", MinTargets: 2, MaxTargets: 2},
+	{CharacterID: "librarian", Order: 5, ActionType: NightActionLearnOutsider, Prompt: "Librarian learns that one of two players is a specific Outsider, or that none are in play.", MinTargets: 0, MaxTargets: 2},
+	{CharacterID: "investigator", Order: 6, ActionType: NightActionLearnMinion, Prompt: "Investigator learns that one of two players is a specific Minion.", MinTargets: 2, MaxTargets: 2},
+	{CharacterID: "chef", Order: 7, ActionType: NightActionLearnEvilPairs, Prompt: "Chef learns the number of adjacent evil pairs.", MinTargets: 0, MaxTargets: 0},
+	{CharacterID: "empath", Order: 8, ActionType: NightActionLearnEvilNeighbors, Prompt: "Empath learns how many alive neighbours are evil.", MinTargets: 0, MaxTargets: 0},
+	{CharacterID: "fortuneteller", Order: 9, ActionType: NightActionCheckDemon, Prompt: "Fortune Teller chooses two players and learns if either registers as the Demon.", MinTargets: 2, MaxTargets: 2},
+	{CharacterID: "butler", Order: 10, ActionType: NightActionLearnMaster, Prompt: "Butler chooses their master for tomorrow.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "imp", Order: 11, ActionType: NightActionKill, Prompt: "Imp chooses one player to die.", MinTargets: 1, MaxTargets: 1},
 }
 
 // TroubleBrewingSubsequentNightOrder defines the storyteller wake order after night one.
@@ -182,21 +189,42 @@ func GetScriptWakeOrder(scriptID string, nightNumber int32) []NightWakeStep {
 // GetActiveNightWakeSteps filters the script wake order down to assigned, alive characters.
 func GetActiveNightWakeSteps(scriptID string, nightNumber int32, players []Player) []NightWakeStep {
 	inPlay := map[string]bool{}
+	characterTypesInPlay := map[string]bool{}
 	for _, player := range players {
 		if player.Character == nil || !player.IsAlive {
 			continue
 		}
 		inPlay[player.Character.ID] = true
+		if charDef := GetScriptCharacterByID(scriptID, player.Character.ID); charDef != nil {
+			if characterType := characterTypeKey(charDef.Type); characterType != "" {
+				characterTypesInPlay[characterType] = true
+			}
+		}
 	}
 
 	steps := GetScriptWakeOrder(scriptID, nightNumber)
 	active := make([]NightWakeStep, 0, len(steps))
 	for _, step := range steps {
-		if inPlay[step.CharacterID] {
+		if step.CharacterID != "" && inPlay[step.CharacterID] {
+			active = append(active, step)
+			continue
+		}
+		if step.CharacterType != "" && characterTypesInPlay[step.CharacterType] {
 			active = append(active, step)
 		}
 	}
 	return active
+}
+
+func characterTypeKey(characterType CharacterType) string {
+	switch characterType {
+	case CharacterTypeMinion:
+		return NightWakeCharacterTypeMinion
+	case CharacterTypeDemon:
+		return NightWakeCharacterTypeDemon
+	default:
+		return ""
+	}
 }
 
 func cloneNightWakeSteps(steps []NightWakeStep) []NightWakeStep {

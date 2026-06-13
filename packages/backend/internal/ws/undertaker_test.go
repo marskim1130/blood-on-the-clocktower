@@ -136,6 +136,7 @@ func newStartedUndertakerGame(t *testing.T) *GameSession {
 func completeUndertakerFirstNight(t *testing.T, gs *GameSession) {
 	t.Helper()
 
+	skipNightWakeStepsUntilAction(t, gs, game.NightActionPoison)
 	actions := []SubmitNightActionCmd{
 		{SenderID: "storyteller", ActionType: string(game.NightActionPoison), TargetIDs: []string{"p3"}},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},

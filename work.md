@@ -675,3 +675,9 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 2026-06-13 14:54:43 +08:00 --- 发现 Butler 规则 [Butler Rule] 尚未落地：夜晚 `learn_master` 只记录行动，没有把选择的主人 [Master] 带到白天投票 [Day Voting]；同时中毒状态 [Poisoned State] 在白天 `PoisonedUntil == dayNumber` 时被视为已失效，早于黄昏 [Dusk] 清理时机 --- 新增 `butlerMasters` 会话状态 [Session State]，在 Butler 夜晚行动中记录主人并纳入快照保存/恢复 [Snapshot Save/Restore]；投票时若存活且未中毒的 Butler 要投赞成票 [Yes Vote]，必须等待主人已投赞成；反对票 [No Vote] 不受限制；将中毒判断改为持续到 `PoisonedUntil >= dayNumber`，与黄昏清理保持一致；新增测试覆盖主人未赞成拦截、主人赞成后放行、反对票放行、中毒 Butler 放行、缺少主人错误和快照恢复 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/persistence.go、packages/backend/internal/ws/persistence_test.go、packages/backend/internal/ws/butler_test.go、work.md
 
 撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go packages/backend/internal/ws/persistence.go packages/backend/internal/ws/persistence_test.go work.md`，并删除 `packages/backend/internal/ws/butler_test.go`。
+
+---
+
+2026-06-13 14:59:29 +08:00 --- 发现 Mayor 终局 [Mayor Endgame] 的触发点不够准确：通用胜负检查 [Generic Win-condition Check] 会在夜杀后刚剩 3 人且 Mayor 存活时过早判定善良胜利，但规则语义应是白天结束且没有处决 [No Execution] 时触发；同时 Saint 被处决邪恶胜利 [Saint Executed Evil Win] 缺少明确回归测试 --- 将 Mayor 胜利移动到 Day→Night 阶段转换 [Phase Transition] 前检查，只有 3 人存活、Mayor 存活、未中毒 [Unpoisoned] 且当天没有处决死亡时才结束游戏；从通用死亡后胜负检查中移除 Mayor 早触发；新增测试覆盖白天结束 Mayor 胜利、夜杀到 3 人不立即胜利、当天有处决时 Mayor 不胜利、中毒 Mayor 不胜利，以及 Saint 被处决时邪恶胜利 --- 修改了 packages/backend/internal/ws/game_session.go、packages/backend/internal/ws/endgame_test.go、work.md
+
+撤回方式 [Rollback Strategy]：执行 `git checkout -- packages/backend/internal/ws/game_session.go work.md`，并删除 `packages/backend/internal/ws/endgame_test.go`。

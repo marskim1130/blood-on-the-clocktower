@@ -881,6 +881,11 @@ func (gs *GameSession) applyChangePhase(cmd ChangePhaseCmd) (ApplyResult, error)
 		gs.resetDailyNominationLimitsLocked()
 	}
 	if cmd.Phase == game.GamePhaseNight {
+		if won := gs.mayorEndgameWinnerLocked(); won != nil {
+			gs.winner = won
+			gs.phase = game.GamePhaseFinished
+			return ApplyResult{Events: []game.GameEvent{{GameEnded: won}}, Updated: true}, nil
+		}
 		// Clear expired poison at dusk (Day→Night transition)
 		gs.clearExpiredPoisonLocked()
 		gs.startNightLocked()
@@ -1579,7 +1584,6 @@ func (gs *GameSession) checkWinConditions(demonDeathAliveCount int) *game.GameEn
 	aliveGood := 0
 	aliveEvil := 0
 	hasAliveDemon := false
-	var aliveMayor bool
 
 	for _, p := range gs.players {
 		if !p.IsAlive {
@@ -1598,9 +1602,6 @@ func (gs *GameSession) checkWinConditions(demonDeathAliveCount int) *game.GameEn
 		charDef := game.GetCharacterByID(p.Character.ID)
 		if charDef != nil && charDef.Type == game.CharacterTypeDemon {
 			hasAliveDemon = true
-		}
-		if p.Character.ID == "mayor" {
-			aliveMayor = true
 		}
 	}
 
@@ -1642,26 +1643,34 @@ func (gs *GameSession) checkWinConditions(demonDeathAliveCount int) *game.GameEn
 		}
 	}
 
-	// Mayor endgame: only 3 alive and no execution happened today
-	if totalAlive == 3 && aliveMayor {
-		// Check that no execution happened this day cycle
-		executedToday := false
-		for _, d := range gs.deaths {
-			if d.DayNumber == gs.dayNumber && d.Cause == game.DeathCauseExecution {
-				executedToday = true
-				break
-			}
+	return nil
+}
+
+func (gs *GameSession) mayorEndgameWinnerLocked() *game.GameEndedEvent {
+	totalAlive := 0
+	mayorIdx := -1
+	for i, player := range gs.players {
+		if !player.IsAlive {
+			continue
 		}
-		if !executedToday {
-			return &game.GameEndedEvent{
-				Winner:      game.TeamGood,
-				Reason:      game.WinReasonMayorEndgame,
-				Description: "Only 3 players remain with no execution — Mayor wins for good!",
-			}
+		totalAlive++
+		if player.Character != nil && player.Character.ID == "mayor" {
+			mayorIdx = i
 		}
 	}
-
-	return nil
+	if totalAlive != 3 || mayorIdx == -1 || gs.playerIsPoisonedLocked(mayorIdx) {
+		return nil
+	}
+	for _, death := range gs.deaths {
+		if death.DayNumber == gs.dayNumber && death.Cause == game.DeathCauseExecution {
+			return nil
+		}
+	}
+	return &game.GameEndedEvent{
+		Winner:      game.TeamGood,
+		Reason:      game.WinReasonMayorEndgame,
+		Description: "Only 3 players remain with no execution — Mayor wins for good!",
+	}
 }
 
 func (gs *GameSession) demonDeathAliveCountLocked(playerIndex int, aliveBeforeDeath int) int {

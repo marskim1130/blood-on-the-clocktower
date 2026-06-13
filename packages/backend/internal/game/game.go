@@ -73,12 +73,13 @@ type Character struct {
 
 // Player represents a player in the game
 type Player struct {
-	ID            string     `json:"id"`
-	Name          string     `json:"name"`
-	Character     *Character `json:"character,omitempty"`
-	IsAlive       bool       `json:"isAlive"`
-	Votes         int32      `json:"votes"`
-	PoisonedUntil *int32     `json:"poisonedUntil,omitempty"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Character      *Character `json:"character,omitempty"`
+	ShownCharacter *Character `json:"shownCharacter,omitempty"`
+	IsAlive        bool       `json:"isAlive"`
+	Votes          int32      `json:"votes"`
+	PoisonedUntil  *int32     `json:"poisonedUntil,omitempty"`
 }
 
 // DeathRecord represents a record of a player's death
@@ -163,8 +164,9 @@ type VoteCast struct {
 }
 
 type CharacterAssigned struct {
-	PlayerID  string    `json:"playerId"`
-	Character Character `json:"character"`
+	PlayerID       string     `json:"playerId"`
+	Character      Character  `json:"character"`
+	ShownCharacter *Character `json:"shownCharacter,omitempty"`
 }
 
 // PlayerDiedEvent represents a player death event

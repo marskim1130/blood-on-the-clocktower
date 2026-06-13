@@ -488,7 +488,13 @@ export default function IndexPage() {
 
     // ─── Character Assigned ──────────────────────────────────
     if ('characterAssigned' in event) {
-      const assignment = (event as { readonly characterAssigned: { readonly playerId: string; readonly character: GameCharacter } }).characterAssigned;
+      const assignment = (event as {
+        readonly characterAssigned: {
+          readonly playerId: string;
+          readonly character: GameCharacter;
+          readonly shownCharacter?: GameCharacter | null;
+        };
+      }).characterAssigned;
       if (assignment.playerId === playerId) {
         setMyCharacter(assignment.character);
       }
@@ -499,7 +505,7 @@ export default function IndexPage() {
           ...current,
           players: current.players.map((player) =>
             player.id === assignment.playerId
-              ? { ...player, character: assignment.character }
+              ? { ...player, character: assignment.character, shownCharacter: assignment.shownCharacter ?? null }
               : player,
           ),
         };
@@ -1119,6 +1125,9 @@ export default function IndexPage() {
           const poisonedUntil = isStoryteller && typeof player.poisonedUntil === 'number'
             ? player.poisonedUntil
             : null;
+          const shownCharacterText = isStoryteller && player.shownCharacter
+            ? `（显示为 ${player.shownCharacter.name}）`
+            : '';
           return (
             <View className={`player ${isDead ? 'playerDead' : ''}`} key={player.id}>
               <View className='playerInfo'>
@@ -1128,7 +1137,7 @@ export default function IndexPage() {
                 </Text>
                 <Text className='mono'>{player.id}</Text>
                 <Text className='hint'>
-                  角色：{player.character?.name ?? '隐藏/未分配'}
+                  角色：{player.character?.name ?? '隐藏/未分配'}{shownCharacterText}
                   {isDead && hasGhostVote ? ' | 幽灵票可用' : ''}
                   {isDead && !hasGhostVote ? ' | 幽灵票已用' : ''}
                 </Text>

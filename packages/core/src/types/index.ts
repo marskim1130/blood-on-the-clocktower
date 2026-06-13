@@ -6,6 +6,7 @@ export interface Player {
   readonly id: PlayerId;
   readonly name: string;
   readonly character: Character | null;
+  readonly shownCharacter?: Character | null;
   readonly isAlive: boolean;
   readonly votes: number;
   readonly poisonedUntil?: number;
@@ -67,7 +68,12 @@ export type GameEvent =
   | { readonly type: 'PLAYER_LEFT'; readonly playerId: PlayerId }
   | { readonly type: 'PHASE_CHANGED'; readonly phase: GamePhase }
   | { readonly type: 'VOTE_CAST'; readonly voterId: PlayerId; readonly targetId: PlayerId | null }
-  | { readonly type: 'CHARACTER_ASSIGNED'; readonly playerId: PlayerId; readonly character: Character }
+  | {
+      readonly type: 'CHARACTER_ASSIGNED';
+      readonly playerId: PlayerId;
+      readonly character: Character;
+      readonly shownCharacter?: Character | null;
+    }
   | {
       readonly type: 'PLAYER_DIED';
       readonly playerId: PlayerId;

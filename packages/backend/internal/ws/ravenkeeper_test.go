@@ -51,7 +51,7 @@ func TestRavenkeeperAutoComputesNoneWhenNotKilledTonight(t *testing.T) {
 func TestProtectedRavenkeeperDoesNotAutoRevealCharacter(t *testing.T) {
 	gs := newStartedRavenkeeperGame(t)
 	enterRavenkeeperSecondNight(t, gs)
-	submitRavenkeeperNightPrefix(t, gs, "p2", "p1")
+	submitRavenkeeperNightPrefix(t, gs, "p3", "p1")
 	submitRavenkeeperImpKill(t, gs, "p1")
 
 	result, err := gs.Apply(SubmitNightActionCmd{
@@ -66,6 +66,27 @@ func TestProtectedRavenkeeperDoesNotAutoRevealCharacter(t *testing.T) {
 	event := result.Events[0].NightActionSubmitted
 	if event.Result == nil || *event.Result != "none" {
 		t.Fatalf("expected protected Ravenkeeper result 'none', got %v", event.Result)
+	}
+}
+
+func TestPoisonedMonkDoesNotProtectRavenkeeper(t *testing.T) {
+	gs := newStartedRavenkeeperGame(t)
+	enterRavenkeeperSecondNight(t, gs)
+	submitRavenkeeperNightPrefix(t, gs, "p2", "p1")
+	submitRavenkeeperImpKill(t, gs, "p1")
+
+	result, err := gs.Apply(SubmitNightActionCmd{
+		SenderID:   "storyteller",
+		ActionType: string(game.NightActionLearnDied),
+		TargetIDs:  []string{"p5"},
+	})
+	if err != nil {
+		t.Fatalf("SubmitNightAction failed: %v", err)
+	}
+
+	event := result.Events[0].NightActionSubmitted
+	if event.Result == nil || *event.Result != "Imp" {
+		t.Fatalf("expected poisoned Monk not to protect Ravenkeeper, got %v", event.Result)
 	}
 }
 

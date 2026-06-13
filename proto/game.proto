@@ -12,6 +12,7 @@ message Player {
   bool is_alive = 4;
   int32 votes = 5;
   optional int32 poisoned_until = 6;
+  optional Character shown_character = 7;
 }
 
 // Character represents a character role
@@ -150,6 +151,7 @@ message VoteCast {
 message CharacterAssigned {
   string player_id = 1;
   Character character = 2;
+  optional Character shown_character = 3;
 }
 
 message PlayerDied {

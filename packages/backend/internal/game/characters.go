@@ -195,6 +195,9 @@ func GetActiveNightWakeSteps(scriptID string, nightNumber int32, players []Playe
 			continue
 		}
 		inPlay[player.Character.ID] = true
+		if player.Character.ID == "drunk" && player.ShownCharacter != nil {
+			inPlay[player.ShownCharacter.ID] = true
+		}
 		if charDef := GetScriptCharacterByID(scriptID, player.Character.ID); charDef != nil {
 			if characterType := characterTypeKey(charDef.Type); characterType != "" {
 				characterTypesInPlay[characterType] = true

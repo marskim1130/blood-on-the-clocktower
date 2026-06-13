@@ -166,6 +166,23 @@ func TestGetActiveNightWakeStepsFiltersToAliveAssignedCharacters(t *testing.T) {
 	}
 }
 
+func TestGetActiveNightWakeStepsIncludesDrunkShownTownsfolk(t *testing.T) {
+	players := []Player{
+		{
+			ID:             "p1",
+			IsAlive:        true,
+			Character:      &Character{ID: "drunk", Name: "Drunk", Team: TeamGood},
+			ShownCharacter: &Character{ID: "washerwoman", Name: "Washerwoman", Team: TeamGood},
+		},
+		{ID: "p2", IsAlive: true, Character: &Character{ID: "imp", Name: "Imp", Team: TeamEvil}},
+	}
+
+	active := GetActiveNightWakeSteps(TroubleBrewingScriptID, 1, players)
+	if !nightWakeOrderContains(active, "washerwoman") {
+		t.Fatalf("expected Drunk shown Washerwoman to create a Washerwoman wake step, got %#v", active)
+	}
+}
+
 func TestValidateAssignment10Players(t *testing.T) {
 	// 10 players: 7 townsfolk, 0 outsiders, 2 minions, 1 demon
 	valid := map[string]string{

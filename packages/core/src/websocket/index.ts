@@ -27,6 +27,7 @@ export interface ClientMessage {
   readonly maxPlayers?: number;
   readonly scriptId?: string;
   readonly assignments?: Record<string, string>;
+  readonly shownCharacters?: Record<string, string>;
   readonly event?: Record<string, unknown>;
   /** Phase name for CHANGE_PHASE (e.g. 'day', 'night', 'voting'). */
   readonly phase?: string;
@@ -66,6 +67,7 @@ export interface RoomState {
     readonly id: string;
     readonly name: string;
     readonly character?: GameCharacter | null;
+    readonly shownCharacter?: GameCharacter | null;
     readonly isAlive: boolean;
     readonly votes?: number;
     readonly poisonedUntil?: number;
@@ -117,7 +119,7 @@ export type GameServerEvent =
   | { readonly playerLeft: { readonly playerId: string } }
   | { readonly phaseChanged: { readonly phase: number } }
   | { readonly voteCast: { readonly voterId: string; readonly targetId?: string; readonly decision?: boolean } }
-  | { readonly characterAssigned: { readonly playerId: string; readonly character: GameCharacter } }
+  | { readonly characterAssigned: { readonly playerId: string; readonly character: GameCharacter; readonly shownCharacter?: GameCharacter | null } }
   | { readonly playerDied: { readonly playerId: string; readonly cause: string; readonly dayNumber: number } }
   | { readonly nominationStarted: { readonly nominatorId: string; readonly nomineeId: string } }
   | { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number; readonly requiredVotes?: number } }
@@ -379,8 +381,12 @@ export class GameWebSocketClient {
     this.send({ type: 'SET_STORYTELLER', targetPlayerId });
   }
 
-  assignCharacters(assignments: Record<string, string>): void {
-    this.send({ type: 'ASSIGN_CHARACTERS', assignments });
+  assignCharacters(assignments: Record<string, string>, shownCharacters?: Record<string, string>): void {
+    this.send({
+      type: 'ASSIGN_CHARACTERS',
+      assignments,
+      ...(shownCharacters && Object.keys(shownCharacters).length > 0 ? { shownCharacters } : {}),
+    });
   }
 
   submitEvent(event: Record<string, unknown>): void {

@@ -110,6 +110,7 @@ export interface ProtoPlayer {
   readonly isAlive: boolean;
   readonly votes: number;
   readonly poisonedUntil?: number;
+  readonly shownCharacter?: ProtoCharacter;
 }
 
 export interface ProtoCharacter {
@@ -158,7 +159,7 @@ export type ProtoGameEvent =
   | { readonly playerLeft: { readonly playerId: string } }
   | { readonly phaseChanged: { readonly phase: GamePhase } }
   | { readonly voteCast: { readonly voterId: string; readonly targetId?: string; readonly decision?: boolean } }
-  | { readonly characterAssigned: { readonly playerId: string; readonly character: ProtoCharacter } }
+  | { readonly characterAssigned: { readonly playerId: string; readonly character: ProtoCharacter; readonly shownCharacter?: ProtoCharacter } }
   | { readonly playerDied: { readonly playerId: string; readonly cause: DeathCause; readonly dayNumber: number } }
   | { readonly nominationStarted: { readonly nominatorId: string; readonly nomineeId: string } }
   | { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number; readonly requiredVotes: number } }

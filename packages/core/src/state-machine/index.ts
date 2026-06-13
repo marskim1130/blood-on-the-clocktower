@@ -58,7 +58,9 @@ function gameReducer(state: GameState, event: GameEvent): GameState {
       return {
         ...state,
         players: state.players.map((p) =>
-          p.id === event.playerId ? { ...p, character: event.character } : p
+          p.id === event.playerId
+            ? { ...p, character: event.character, shownCharacter: event.shownCharacter ?? null }
+            : p
         ),
       };
 

@@ -15,8 +15,9 @@ type SetStorytellerCmd struct {
 }
 
 type AssignCharactersCmd struct {
-	SenderID    string
-	Assignments map[string]string // playerID -> characterID
+	SenderID        string
+	Assignments     map[string]string // playerID -> characterID
+	ShownCharacters map[string]string // playerID -> townsfolk characterID shown to the Drunk
 }
 
 type SubmitEventCmd struct {
@@ -238,7 +239,21 @@ func (gs *GameSession) Players() []game.Player {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 	result := make([]game.Player, len(gs.players))
-	copy(result, gs.players)
+	for i, player := range gs.players {
+		result[i] = player
+		if player.Character != nil {
+			character := *player.Character
+			result[i].Character = &character
+		}
+		if player.ShownCharacter != nil {
+			shownCharacter := *player.ShownCharacter
+			result[i].ShownCharacter = &shownCharacter
+		}
+		if player.PoisonedUntil != nil {
+			poisonedUntil := *player.PoisonedUntil
+			result[i].PoisonedUntil = &poisonedUntil
+		}
+	}
 	return result
 }
 
@@ -384,6 +399,9 @@ func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResu
 	if !game.ValidateScriptAssignment(gs.scriptID, cmd.Assignments, playerCount) {
 		return ApplyResult{}, fmt.Errorf("invalid character assignment for player count")
 	}
+	if err := validateShownCharacters(gs.scriptID, cmd.Assignments, cmd.ShownCharacters); err != nil {
+		return ApplyResult{}, err
+	}
 
 	// Assign characters
 	for playerID, charID := range cmd.Assignments {
@@ -399,6 +417,16 @@ func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResu
 					Team:    charDef.Team,
 					Ability: charDef.Ability,
 				}
+				gs.players[i].ShownCharacter = nil
+				if shownCharID := cmd.ShownCharacters[playerID]; shownCharID != "" {
+					shownDef := game.GetScriptCharacterByID(gs.scriptID, shownCharID)
+					gs.players[i].ShownCharacter = &game.Character{
+						ID:      shownDef.ID,
+						Name:    shownDef.Name,
+						Team:    shownDef.Team,
+						Ability: shownDef.Ability,
+					}
+				}
 			}
 		}
 	}
@@ -410,20 +438,66 @@ func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResu
 		if charDef == nil {
 			continue
 		}
-		events = append(events, game.GameEvent{
-			CharacterAssigned: &game.CharacterAssigned{
-				PlayerID: playerID,
-				Character: game.Character{
-					ID:      charDef.ID,
-					Name:    charDef.Name,
-					Team:    charDef.Team,
-					Ability: charDef.Ability,
-				},
+		assignment := &game.CharacterAssigned{
+			PlayerID: playerID,
+			Character: game.Character{
+				ID:      charDef.ID,
+				Name:    charDef.Name,
+				Team:    charDef.Team,
+				Ability: charDef.Ability,
 			},
+		}
+		if shownCharID := cmd.ShownCharacters[playerID]; shownCharID != "" {
+			shownDef := game.GetScriptCharacterByID(gs.scriptID, shownCharID)
+			assignment.ShownCharacter = &game.Character{
+				ID:      shownDef.ID,
+				Name:    shownDef.Name,
+				Team:    shownDef.Team,
+				Ability: shownDef.Ability,
+			}
+		}
+		events = append(events, game.GameEvent{
+			CharacterAssigned: assignment,
 		})
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+func validateShownCharacters(scriptID string, assignments map[string]string, shownCharacters map[string]string) error {
+	if shownCharacters == nil {
+		shownCharacters = map[string]string{}
+	}
+
+	for playerID, shownCharID := range shownCharacters {
+		actualCharID, ok := assignments[playerID]
+		if !ok {
+			return fmt.Errorf("shown character player %s not found in assignments", playerID)
+		}
+		if actualCharID != "drunk" {
+			return fmt.Errorf("shown characters can only be assigned to the Drunk")
+		}
+		shownDef := game.GetScriptCharacterByID(scriptID, shownCharID)
+		if shownDef == nil {
+			return fmt.Errorf("shown character %s not found in script", shownCharID)
+		}
+		if shownDef.Type != game.CharacterTypeTownsfolk {
+			return fmt.Errorf("Drunk shown character must be a Townsfolk")
+		}
+		for _, actualAssignedCharID := range assignments {
+			if actualAssignedCharID == shownCharID {
+				return fmt.Errorf("Drunk shown character %s is already assigned", shownCharID)
+			}
+		}
+	}
+
+	for playerID, actualCharID := range assignments {
+		if actualCharID == "drunk" && shownCharacters[playerID] == "" {
+			return fmt.Errorf("Drunk player %s requires a shown Townsfolk character", playerID)
+		}
+	}
+
+	return nil
 }
 
 func (gs *GameSession) applySubmitEvent(cmd SubmitEventCmd) (ApplyResult, error) {
@@ -578,9 +652,32 @@ func (gs *GameSession) playerIsPoisonedLocked(playerIdx int) bool {
 	return poisonedUntil != nil && *poisonedUntil >= gs.dayNumber
 }
 
+func (gs *GameSession) playerAbilityMalfunctioningLocked(playerIdx int) bool {
+	if gs.playerIsPoisonedLocked(playerIdx) {
+		return true
+	}
+	return playerIdx >= 0 &&
+		playerIdx < len(gs.players) &&
+		gs.players[playerIdx].Character != nil &&
+		gs.players[playerIdx].Character.ID == "drunk"
+}
+
+func (gs *GameSession) playerCanUseVisibleCharacterLocked(playerIdx int, characterID string) bool {
+	if playerIdx < 0 || playerIdx >= len(gs.players) || gs.players[playerIdx].Character == nil {
+		return false
+	}
+	player := gs.players[playerIdx]
+	if player.Character.ID == characterID {
+		return true
+	}
+	return player.Character.ID == "drunk" &&
+		player.ShownCharacter != nil &&
+		player.ShownCharacter.ID == characterID
+}
+
 func (gs *GameSession) characterCanAutoResolveLocked(characterID string) (int, bool) {
 	playerIdx := gs.findLivingCharacterIndexLocked(characterID)
-	if playerIdx == -1 || gs.playerIsPoisonedLocked(playerIdx) {
+	if playerIdx == -1 || gs.playerAbilityMalfunctioningLocked(playerIdx) {
 		return -1, false
 	}
 	return playerIdx, true
@@ -904,6 +1001,15 @@ func (gs *GameSession) applyStartGame(cmd StartGameCmd) (ApplyResult, error) {
 	if !game.ValidateScriptAssignment(gs.scriptID, assignments, len(gs.players)) {
 		return ApplyResult{}, fmt.Errorf("invalid character assignment for player count")
 	}
+	shownCharacters := make(map[string]string, len(gs.players))
+	for _, p := range gs.players {
+		if p.ShownCharacter != nil {
+			shownCharacters[p.ID] = p.ShownCharacter.ID
+		}
+	}
+	if err := validateShownCharacters(gs.scriptID, assignments, shownCharacters); err != nil {
+		return ApplyResult{}, err
+	}
 
 	gs.phase = game.GamePhaseNight
 	gs.dayNumber = 1
@@ -1013,6 +1119,7 @@ func (gs *GameSession) applyNominate(cmd NominateCmd) (ApplyResult, error) {
 	}
 	if gs.players[nomineeIdx].Character != nil &&
 		gs.players[nomineeIdx].Character.ID == "virgin" &&
+		!gs.playerAbilityMalfunctioningLocked(nomineeIdx) &&
 		!gs.virginAbilityUsed[cmd.NomineeID] {
 		gs.virginAbilityUsed[cmd.NomineeID] = true
 		if gs.playerHasCharacterTypeLocked(nomIdx, game.CharacterTypeTownsfolk) {
@@ -1132,7 +1239,7 @@ func (gs *GameSession) validateButlerVoteLocked(voterIdx int, decision bool) err
 	if !voter.IsAlive || voter.Character == nil || voter.Character.ID != "butler" {
 		return nil
 	}
-	if gs.playerIsPoisonedLocked(voterIdx) {
+	if gs.playerAbilityMalfunctioningLocked(voterIdx) {
 		return nil
 	}
 	masterID := gs.butlerMasters[voter.ID]
@@ -1291,7 +1398,7 @@ func (gs *GameSession) applyUseSlayerAbility(cmd UseSlayerAbilityCmd) (ApplyResu
 	if !slayer.IsAlive {
 		return ApplyResult{}, fmt.Errorf("dead players cannot use the Slayer ability")
 	}
-	if slayer.Character == nil || slayer.Character.ID != "slayer" {
+	if !gs.playerCanUseVisibleCharacterLocked(slayerIdx, "slayer") {
 		return ApplyResult{}, fmt.Errorf("only the Slayer can use this ability")
 	}
 	if gs.slayerUsed == nil {
@@ -1315,7 +1422,11 @@ func (gs *GameSession) applyUseSlayerAbility(cmd UseSlayerAbilityCmd) (ApplyResu
 	if gs.players[targetIdx].Character != nil {
 		targetDef = game.GetCharacterByID(gs.players[targetIdx].Character.ID)
 	}
-	if targetDef != nil && targetDef.Type == game.CharacterTypeDemon {
+	if targetDef != nil &&
+		targetDef.Type == game.CharacterTypeDemon &&
+		slayer.Character != nil &&
+		slayer.Character.ID == "slayer" &&
+		!gs.playerAbilityMalfunctioningLocked(slayerIdx) {
 		aliveBeforeDeath := gs.alivePlayerCountLocked()
 		demonDeathAliveCount := gs.demonDeathAliveCountLocked(targetIdx, aliveBeforeDeath)
 		gs.players[targetIdx].IsAlive = false
@@ -1524,6 +1635,10 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 
 func (gs *GameSession) nightProtectedTargetsLocked() map[string]bool {
 	protected := map[string]bool{}
+	monkIdx := gs.findLivingCharacterIndexLocked("monk")
+	if monkIdx == -1 || gs.playerAbilityMalfunctioningLocked(monkIdx) {
+		return protected
+	}
 	for _, action := range gs.nightActions {
 		if action.ActorID != gs.storytellerID || action.ActionType != game.NightActionProtect {
 			continue
@@ -1540,7 +1655,9 @@ func (gs *GameSession) nightKillPreventedLocked(targetIndex int, protectedTarget
 	if protectedTargets[target.ID] {
 		return true
 	}
-	return target.Character != nil && target.Character.ID == "soldier"
+	return target.Character != nil &&
+		target.Character.ID == "soldier" &&
+		!gs.playerAbilityMalfunctioningLocked(targetIndex)
 }
 
 // ────────────────────────────────────────────────
@@ -1736,7 +1853,7 @@ func (gs *GameSession) mayorEndgameWinnerLocked() *game.GameEndedEvent {
 			mayorIdx = i
 		}
 	}
-	if totalAlive != 3 || mayorIdx == -1 || gs.playerIsPoisonedLocked(mayorIdx) {
+	if totalAlive != 3 || mayorIdx == -1 || gs.playerAbilityMalfunctioningLocked(mayorIdx) {
 		return nil
 	}
 	for _, death := range gs.deaths {
@@ -1855,13 +1972,23 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 			character := *player.Character
 			players[i].Character = &character
 		}
+		if player.ShownCharacter != nil {
+			shownCharacter := *player.ShownCharacter
+			players[i].ShownCharacter = &shownCharacter
+		}
 		if player.PoisonedUntil != nil {
 			poisonedUntil := *player.PoisonedUntil
 			players[i].PoisonedUntil = &poisonedUntil
 		}
-		// Hide character from non-storyteller recipients (except own character)
-		if !canSeeAll && player.ID != recipientID {
-			players[i].Character = nil
+		// Hide character from non-storyteller recipients, and show the Drunk only their false Townsfolk.
+		if !canSeeAll {
+			if player.ID == recipientID && player.Character != nil && player.Character.ID == "drunk" && player.ShownCharacter != nil {
+				shownCharacter := *player.ShownCharacter
+				players[i].Character = &shownCharacter
+			} else if player.ID != recipientID {
+				players[i].Character = nil
+			}
+			players[i].ShownCharacter = nil
 		}
 		// Hide PoisonedUntil from all non-storyteller recipients (including the poisoned player)
 		if !canSeeAll {

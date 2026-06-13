@@ -410,8 +410,9 @@ func (h *Hub) handleAssignCharacters(conn Connection, msg ClientMessage) {
 	}
 
 	result, err := gs.Apply(AssignCharactersCmd{
-		SenderID:    senderID,
-		Assignments: msg.Assignments,
+		SenderID:        senderID,
+		Assignments:     msg.Assignments,
+		ShownCharacters: msg.ShownCharacters,
 	})
 	if err != nil {
 		conn.SendJSON(ServerMessage{Type: "ERROR", Error: err.Error()})
@@ -1045,7 +1046,8 @@ func (h *Hub) destroyFinishedRoom(roomID string) {
 func (h *Hub) sendCharacterAssignment(roomID, storytellerID string, assignment *game.CharacterAssigned) {
 	clients := h.rm.GetClientsByRoom(roomID)
 
-	playerEvent := game.GameEvent{CharacterAssigned: assignment}
+	playerAssignment := cloneCharacterAssignmentForPlayer(assignment)
+	playerEvent := game.GameEvent{CharacterAssigned: playerAssignment}
 	if playerClient := clients[assignment.PlayerID]; playerClient != nil {
 		if err := playerClient.Conn.SendJSON(ServerMessage{
 			Type:  "EVENT_BROADCAST",
@@ -1066,6 +1068,18 @@ func (h *Hub) sendCharacterAssignment(roomID, storytellerID string, assignment *
 			}
 		}
 	}
+}
+
+func cloneCharacterAssignmentForPlayer(assignment *game.CharacterAssigned) *game.CharacterAssigned {
+	if assignment == nil {
+		return nil
+	}
+	playerAssignment := *assignment
+	if assignment.ShownCharacter != nil {
+		playerAssignment.Character = *assignment.ShownCharacter
+		playerAssignment.ShownCharacter = nil
+	}
+	return &playerAssignment
 }
 
 func (h *Hub) sendNightActionSubmitted(roomID, storytellerID string, action *game.NightActionEvent) {

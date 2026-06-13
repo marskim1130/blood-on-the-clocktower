@@ -459,6 +459,10 @@ func clonePlayers(players []game.Player) []game.Player {
 			character := *player.Character
 			result[i].Character = &character
 		}
+		if player.ShownCharacter != nil {
+			shownCharacter := *player.ShownCharacter
+			result[i].ShownCharacter = &shownCharacter
+		}
 	}
 	return result
 }

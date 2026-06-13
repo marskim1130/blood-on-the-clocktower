@@ -41,7 +41,8 @@ type ClientMessage struct {
 	ExecutePlayerID string            `json:"executePlayerId,omitempty"`
 	MaxPlayers      int               `json:"maxPlayers,omitempty"`
 	ScriptID        string            `json:"scriptId,omitempty"`
-	Assignments     map[string]string `json:"assignments,omitempty"` // playerID -> characterID
+	Assignments     map[string]string `json:"assignments,omitempty"`     // playerID -> characterID
+	ShownCharacters map[string]string `json:"shownCharacters,omitempty"` // playerID -> Townsfolk shown to the Drunk
 	Event           *game.GameEvent   `json:"event,omitempty"`
 	NomineeID       string            `json:"nomineeId,omitempty"`   // NOMINATE target
 	Decision        *bool             `json:"decision,omitempty"`    // CAST_VOTE value

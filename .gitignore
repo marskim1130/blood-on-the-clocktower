@@ -29,6 +29,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+!.env.example
 
 # Logs
 *.log
@@ -50,6 +51,7 @@ packages/backend/vendor/
 *.dll
 *.so
 *.dylib
+*.tsbuildinfo
 
 # Taro
 .temp/

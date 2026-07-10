@@ -882,3 +882,554 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 
 ### 撤回方式 [Rollback Strategy]
 执行 `git checkout -- work.md` 并从 work.md 中删除本条 2026-06-13 18:30 记录；前端页面设计方案尚未实施，暂无代码变更需要回滚。
+
+
+## 2026-07-10 14:17 --- 架构深化机会缺少跨上下文统一视图 --- 使用领域上下文、删除测试 [Deletion Test] 与并行分包探索生成架构评审 --- 修改临时 HTML 报告与 `work.md`
+
+### 发现什么问题
+- Backend 的 Hub、RoomManager、GameSession 之间存在权威游戏会话所有权分散、命令编排重复与双写补偿。
+- Frontend 页面同时承担实时消息投影、身份持久化、连接生命周期与游戏 UI 状态，接口 [Interface] 接近实现 [Implementation] 复杂度。
+- Core 的 Game State Machine 与 Vote、Death、Win Conditions 存在平行状态和重复规则路径。
+- ProtoBuf、生成 TypeScript 类型、手写 TypeScript/Go 类型的事实来源所有权不明确。
+- Script、Night Phase 与 Backend 角色规则之间存在 Trouble Brewing 知识泄漏。
+
+### 使用什么方式解决
+- 读取 `CONTEXT-MAP.md`、三个包的 `CONTEXT.md` 与架构词汇规范；确认当前无 ADR 冲突。
+- 并行探索 Core、Frontend、Backend，应用删除测试 [Deletion Test]，按深度 [Depth]、杠杆 [Leverage]、局部性 [Locality] 合并为五个候选。
+- 在系统临时目录生成包含 Before/After 图、推荐强度与首要推荐的 HTML 报告；未提出具体 interface 设计，未修改生产代码。
+- Backend 探索基线通过 `go test ./...` 与 `go test -race ./internal/ws`。
+
+### 修改了哪些文件
+- `C:\Users\Qilia\AppData\Local\Temp\architecture-review-20260710-141729.html` — 新增统一架构评审报告。
+- `work.md` — 新增本次架构评审审计记录。
+
+### 撤回方式 [Rollback Strategy]
+- 删除临时报告：`Remove-Item -LiteralPath 'C:\Users\Qilia\AppData\Local\Temp\architecture-review-20260710-141729.html'`。
+- 撤回日志：从 `work.md` 删除标题以 `## 2026-07-10 14:17` 开头的本节；或在确认没有其他未提交日志后执行 `git checkout -- work.md`。
+## 2026-07-10 14:35 --- 后端权威游戏会话缺少成员与连接生命周期不变量 --- 将已确认决策写入 Backend 领域上下文 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 现有领域文档未区分房间成员 [Room Member] 与活动连接 [Active Connection]，无法表达断线保留成员和同一 `playerId` 连接接管语义。
+
+### 使用什么方式解决
+- 定义权威游戏会话 [Authoritative Game Session] 为成员关系、说书人、房间设置、重连资格与完整游戏状态的唯一所有者。
+- 记录断线不移除成员、同一 `playerId` 可重连、新连接替换并关闭旧连接、仅显式离开或踢出撤销成员资格。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增会话所有权领域术语与四条业务规则。
+- `work.md` — 新增本次设计决策审计记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 `Session Ownership` 小节及业务规则 5-8。
+- 从 `work.md` 删除标题以 `## 2026-07-10 14:35` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 14:40 --- 命令提交缺少持久化失败语义 --- 将持久化纳入事务式提交 [Transactional Commit] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 现有规则只声明有效事件需要持久化，没有规定内存提交、Snapshot persistence 与广播的顺序，也没有规定持久化失败后的状态。
+
+### 使用什么方式解决
+- 确认命令仅在结果状态持久化成功后才算成功。
+- 确认持久化失败时恢复命令前的内存状态，并向调用者返回错误。
+- 确认广播只能发生在持久化成功后，客户端不得观察到未持久化状态。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增事务式提交、回滚与广播顺序规则。
+- `work.md` — 新增本次失败语义决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 9-11。
+- 从 `work.md` 删除标题以 `## 2026-07-10 14:40` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 14:45 --- 已提交状态缺少广播失败与恢复语义 --- 采用提交不可回滚与完整快照恢复 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 持久化成功后若部分客户端广播失败，现有领域规则未说明命令结果、连接状态和遗漏事件的恢复方式。
+
+### 使用什么方式解决
+- 确认已持久化命令不会因广播失败而回滚或改判失败。
+- 广播失败的活动连接 [Active Connection] 会失效并关闭，但房间成员 [Room Member] 保留。
+- 玩家以相同 `playerId` 重连后接收最新完整持久化状态，不补发遗漏的增量事件。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增广播失败、连接失效与完整快照恢复规则。
+- `work.md` — 新增本次恢复语义决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 12-14。
+- 从 `work.md` 删除标题以 `## 2026-07-10 14:45` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 14:50 --- 并发命令缺少排序与隔离模型 --- 采用每房间串行化 [Per-Room Serialization] 与异步广播 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 同一房间并发命令的读取顺序、持久化失败后的后继状态，以及广播是否占用命令执行序列均未定义。
+
+### 使用什么方式解决
+- 同一权威游戏会话 [Authoritative Game Session] 按服务器接收顺序串行处理命令，不同会话可并行。
+- 后继命令只读取前一条成功持久化的状态；失败命令不推进状态。
+- 提交后生成不可变广播负载 [Immutable Broadcast Payload]，广播异步执行且不阻塞后续命令。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增命令排序、会话隔离与广播解耦规则。
+- `work.md` — 新增本次并发模型决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 15-18。
+- 从 `work.md` 删除标题以 `## 2026-07-10 14:50` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 14:55 --- 房间生命周期与游戏命令可能落入不同并发序列 --- 统一进入权威会话命令序列并隔离连接接管 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- Join、Leave、Kick、房间设置、说书人指派若不与游戏命令共享排序，会导致各命令读取不同成员集合并重新产生双写竞态 [Dual-Write Race]。
+
+### 使用什么方式解决
+- 所有改变房间成员、设置或游戏状态的命令统一进入每会话串行命令序列。
+- 新连接接管 [Connection Takeover] 仅原子替换活动连接，不改变权威状态，因此由传输 adapter 处理且不触发 Snapshot persistence。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增生命周期命令排序与连接接管例外规则。
+- `work.md` — 新增本次命令边界决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 19-20。
+- 从 `work.md` 删除标题以 `## 2026-07-10 14:55` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:00 --- 游戏结束、空房间与房间销毁语义混合 --- 引入显式关闭房间 [Close Room] 生命周期 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 当前设计可能在游戏结束或最后成员离开时销毁房间，导致最终状态无法重连查看，也让网络或操作失误造成不可恢复的数据删除。
+
+### 使用什么方式解决
+- 区分已结束游戏与已关闭房间 [Closed Room]：游戏结束后会话继续保留并持久化。
+- 仅显式 Close Room 命令可从会话注册表 [Session Registry] 与 Snapshot 原子删除房间。
+- 空房间不会自动删除；本轮不引入超时清理 [TTL Cleanup]。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Closed Room 术语及房间终止规则。
+- `work.md` — 新增本次房间生命周期决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Closed Room 定义与业务规则 21-24。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:00` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:05 --- Close Room 权限与创建者身份缺少持久语义 --- 定义房间创建者 [Room Creator] 的独占权限 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 未定义说书人是否可关闭房间、创建者离开后的权限、创建者能否被踢出，以及创建者身份丢失后的恢复策略。
+
+### 使用什么方式解决
+- 定义房间创建者 [Room Creator] 为持久身份，并独占 Close Room 权限。
+- 创建者断线或离开成员关系后仍保留关闭权限，且不能成为 Kick Player 目标。
+- 本轮不支持所有权转移或管理员恢复；说书人身份不授予关闭权限。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Room Creator 术语及关闭权限规则。
+- `work.md` — 新增本次权限决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Room Creator 定义与业务规则 25-27。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:05` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:10 --- 公开 playerId 可被用于身份与房间权限劫持 --- 引入服务器恢复凭证 [Resume Credential] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 客户端提供的公开 `playerId` 无法证明身份控制权；攻击者可借此接管活动连接、恢复创建者身份并执行 Close Room。
+
+### 使用什么方式解决
+- 首次创建房间成员身份时由服务器签发不可猜测的恢复凭证 [Resume Credential]。
+- 重连和新连接接管必须同时验证 `playerId` 与恢复凭证。
+- 凭证随权威游戏会话持久化，仅返回其所有者，禁止向其他成员广播。
+- 凭证丢失视为身份控制权丢失，本轮不提供恢复机制。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Resume Credential 术语及身份验证规则。
+- `work.md` — 新增本次鉴权决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Resume Credential 定义与业务规则 28-31。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:10` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:15 --- 自动轮换恢复凭证可能因响应丢失锁死身份 --- 固定凭证生命周期并延后撤销机制 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 若每次重连或连接接管自动轮换恢复凭证 [Resume Credential]，持久化成功但响应丢失会导致客户端永久失去新凭证。
+
+### 使用什么方式解决
+- 恢复凭证在房间成员 [Room Member] 身份生命周期内保持稳定，重连和连接接管不自动轮换。
+- 显式凭证轮换与撤销机制不属于本轮生命周期。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增恢复凭证稳定性与延后范围规则。
+- `work.md` — 新增本次安全取舍决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 32-33。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:15` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:20 --- Join Room 可泄漏成员存在性并混淆新加入与重连 --- 统一凭证错误并固定 playerId 语义 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 已占用 `playerId` 的 Join Room 请求若根据成员是否存在返回不同错误，会产生成员枚举 [Member Enumeration]；自动替换 `playerId` 也会破坏客户端身份语义。
+
+### 使用什么方式解决
+- 已存在 `playerId` 只有在恢复凭证 [Resume Credential] 正确时才作为重连或连接接管处理。
+- 凭证缺失或错误统一返回不暴露成员存在性的凭证错误。
+- 服务器不自动生成替代 `playerId`；新成员必须提交房间内未占用的身份。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Join Room 身份冲突与防枚举规则。
+- `work.md` — 新增本次身份冲突决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 34-36。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:20` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:25 --- 主动离开与被踢后的重新加入资格未区分 --- 引入保留身份 [Retained Identity] 与房间封禁 [Room Ban] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- Leave Room 与 Kick Player 若都只删除成员，将无法表达自愿离开后恢复身份以及被踢后禁止重新加入的不同业务意图。
+
+### 使用什么方式解决
+- 主动离开删除成员资格但保留身份记录和原恢复凭证，可使用相同 `playerId` 再次加入。
+- 被踢出会删除成员、撤销凭证并创建房间级封禁 [Room Ban]；本轮不支持解除封禁。
+- 关闭房间时统一删除成员、保留身份、凭证和封禁记录。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Retained Identity、Room Ban 术语及重新加入规则。
+- `work.md` — 新增本次成员资格决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Retained Identity、Room Ban 定义与业务规则 37-40。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:25` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:30 --- 游戏开始后成员变更会破坏角色与胜负不变量 --- 冻结参与者集合 [Participant Set] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 游戏开始后加入、重新加入、主动离开或踢出会改变角色分配、原始玩家数与胜负规则依赖的参与者集合。
+
+### 使用什么方式解决
+- 游戏开始时永久冻结参与者集合 [Participant Set]，游戏结束后仍保持冻结。
+- 冻结后禁止新玩家、保留身份重新加入、主动离开与踢出。
+- 现有参与者仍可断线、重连和连接接管，因为这些操作不改变参与者集合。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Participant Set 术语及冻结规则。
+- `work.md` — 新增本次游戏完整性决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Participant Set 定义与业务规则 41-43。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:30` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:35 --- 离开的创建者在参与者冻结后无法重新加入关闭房间 --- 引入分离式管理命令 [Detached Management Command] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 房间创建者在游戏开始前主动离开后会成为保留身份；参与者集合冻结后无法重新加入，但仍需保有关闭房间的可达路径。
+
+### 使用什么方式解决
+- 允许离开的创建者凭 `roomId + playerId + Resume Credential` 执行分离式 Close Room。
+- 该命令不恢复成员资格，也不授予其他房间设置或游戏命令权限。
+- Close Room 仍进入房间串行命令序列，并以事务式持久化删除完成。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Detached Management Command 术语及关闭房间例外规则。
+- `work.md` — 新增本次可达性决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Detached Management Command 定义与业务规则 44-46。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:35` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:40 --- 全局 Snapshot 与跨房间并行提交存在丢失更新风险 --- 改为每房间记录 [Per-Room Record] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 单一全局 Snapshot 在不同房间并行执行读取与写回时可能覆盖彼此更新，违背跨房间并行处理模型。
+
+### 使用什么方式解决
+- 每个权威游戏会话独立持久化为房间记录 [Room Record]。
+- Create Room 创建记录，成功命令原子替换记录，Close Room 删除记录；启动时枚举恢复全部记录。
+- Redis 使用每房间 Key；File adapter 即使共用物理文件，也必须提供按房间原子更新语义。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Room Record 术语及每房间持久化规则。
+- `work.md` — 新增本次持久化所有权决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Room Record 定义与业务规则 47-51。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:40` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:45 --- File adapter 无法在单一 JSON 文件中提供真正的每房间原子更新 --- 改为目录式房间文件与原子重命名 [Atomic Rename] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 单一 JSON 文件仍要求重写全部房间，无法隔离并发更新、单房间损坏和关闭删除。
+
+### 使用什么方式解决
+- `CLOCKTOWER_SNAPSHOT_PATH` 改为目录，每个房间使用 `<roomId>.json` 独立文件。
+- 更新时在同目录写入并刷新临时文件，再原子重命名覆盖；关闭房间删除对应文件。
+- 启动扫描目录恢复房间，单个损坏文件记录错误并跳过，不阻断其他房间。
+- 本轮不实现旧单文件 Snapshot 自动迁移。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 File adapter 原子更新、恢复与损坏隔离规则。
+- `work.md` — 新增本次文件持久化决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 52-56。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:45` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:50 --- Room Record 演进缺少版本与恢复失败策略 --- 引入显式模式版本 [Schema Version] 与逐版本迁移 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 持久化结构变化后，缺少版本字段会迫使恢复代码猜测缺失字段，未知新版本也可能被错误解释。
+
+### 使用什么方式解决
+- 每条 Room Record 包含从 1 开始的 `schemaVersion`。
+- 未知新版本记录错误并跳过，不做推测转换；旧版本通过显式逐版本迁移函数升级。
+- 迁移在内存中执行，并在该房间下一次成功命令时写回最新版本。
+- 本轮只建立版本框架，不实现旧 Room Record 迁移。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Room Record 版本与迁移规则。
+- `work.md` — 新增本次恢复兼容决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 57-61。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:50` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 15:55 --- Create Room 响应丢失会产生重复或孤儿房间 --- 引入创建请求幂等键 [Idempotency Key] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 房间已持久化但创建响应丢失时，客户端无法获得 `roomId` 与恢复凭证，直接重试会创建第二个房间并遗留不可管理状态。
+
+### 使用什么方式解决
+- Create Room 必须携带客户端生成且不可猜测的 `requestId`。
+- 首次成功时持久化请求参数及房间、创建者和凭证结果；相同请求重试返回原结果。
+- 同一 `requestId` 参数不一致时拒绝；关闭房间时删除对应幂等记录。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Create Request 术语及 Create Room 幂等规则。
+- `work.md` — 新增本次创建失败恢复决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Create Request 定义与业务规则 62-66。
+- 从 `work.md` 删除标题以 `## 2026-07-10 15:55` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:00 --- 普通命令确认丢失会导致重复执行或依赖规则偶然拒绝 --- 引入单调客户端序号 [Monotonic Client Sequence] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 夜间行动、处决、阶段切换等命令可能已提交但确认响应丢失；重试不能依赖具体游戏规则恰好阻止第二次执行。
+
+### 使用什么方式解决
+- 每个房间成员身份使用独立递增的 `clientSequence`，服务器持久化最后接受的序号与命令标识。
+- 新命令必须使用期望的下一序号；相同序号与相同内容视为去重重试，不重新执行或广播。
+- 相同序号内容不同、旧序号或跳号均拒绝，并返回服务器期望的下一序号。
+- 重连响应包含下一可用序号。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Client Sequence 术语及成员命令幂等规则。
+- `work.md` — 新增本次重复投递决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Client Sequence 定义与业务规则 67-72。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:00` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:05 --- 客户端序号在离开、重连与分离式命令间的作用域不明确 --- 将序号绑定持久身份 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 若客户端序号 [Client Sequence] 绑定连接或当前成员资格，主动离开后重置序号会允许旧命令重放，分离式 Close Room 也缺少幂等顺序。
+
+### 使用什么方式解决
+- Client Sequence 绑定持久玩家身份，保留身份 [Retained Identity] 继续保存最后序号。
+- 重新加入和分离式 Close Room 使用下一序号；重连与连接接管不改变权威状态，因此不消耗序号。
+- 新身份由服务器返回初始下一序号。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Client Sequence 身份作用域规则。
+- `work.md` — 新增本次序号生命周期决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 73-77。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:05` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:10 --- 首次 Join Room 响应丢失会重复创建身份或遗失凭证 --- 引入加入请求幂等键 [Join Request Idempotency] --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 新玩家首次加入时尚无恢复凭证和客户端序号；若持久化成功但响应丢失，重试可能创建重复成员或签发不同凭证。
+
+### 使用什么方式解决
+- 首次 Join Room 必须携带不可猜测的 `joinRequestId`。
+- 成功时持久化请求参数、新身份、恢复凭证和初始下一客户端序号；相同请求重试返回原结果。
+- 同一请求 ID 参数冲突时拒绝；身份创建后改用既有身份的重连或保留身份重新加入规则。
+- Join Request 记录随房间关闭删除。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Join Request 术语及首次加入幂等规则。
+- `work.md` — 新增本次加入恢复决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Join Request 定义与业务规则 78-83。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:10` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:15 --- 保留身份重新加入与普通断线重连的幂等语义混淆 --- 将重新加入定义为带序号成员命令 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 保留身份 [Retained Identity] 重新加入会改变成员关系，而普通断线重连不会；若两者都不消耗客户端序号，响应丢失后的重复重新加入缺少可靠去重。
+
+### 使用什么方式解决
+- 保留身份重新加入携带 `playerId + Resume Credential + clientSequence`，并在同一事务式提交中恢复成员资格和推进序号。
+- 相同序号与相同重新加入命令的重试返回当前已提交状态，不再次广播。
+- 普通断线重连保持传输操作，不消耗客户端序号。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增保留身份重新加入的序号与去重规则。
+- `work.md` — 新增本次重新加入语义决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 84-87。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:15` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:20 --- Leave Room 响应丢失会让客户端误判成员状态 --- 提交后关闭连接并显式返回保留身份状态 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 主动离开已提交但响应丢失时，客户端可能继续把自己视为成员；若重连自动恢复成员资格，又会撤销用户刚完成的离开意图。
+
+### 使用什么方式解决
+- Leave Room 作为带客户端序号的状态命令，提交后将成员转为保留身份并关闭活动连接。
+- 后续认证只返回保留身份状态和下一期望序号，不自动恢复成员；必须显式执行重新加入命令。
+- 重试已接受的 Leave Room 序号返回已离开状态，不重复执行。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Leave Room 提交、连接关闭与恢复规则。
+- `work.md` — 新增本次主动离开失败恢复决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 88-92。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:20` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:25 --- Kick Player 的撤权、通知与连接关闭顺序未定义 --- 先持久化撤权再尽力通知 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 若先通知或关闭连接再持久化踢出结果，持久化失败可能让目标已断线但仍具有效身份；若错误信息暴露封禁，又会泄漏房间策略。
+
+### 使用什么方式解决
+- Kick Player 在房间串行序列中先原子持久化成员删除、凭证撤销、房间封禁与发起者序号。
+- 提交成功后尽力发送 `KICKED`，随后无论通知结果都关闭并移除目标连接。
+- 旧凭证后续只收到统一凭证错误，广播不包含凭证或封禁详情。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Kick Player 撤权、通知与隐私规则。
+- `work.md` — 新增本次踢出时序决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 93-96。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:25` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:30 --- Close Room 的持久化删除、注册表移除与连接通知顺序未定义 --- 采用持久化优先的关闭事务 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 若先移除内存房间或关闭连接再删除持久化记录，删除失败会造成运行状态与恢复状态分裂；关闭后的错误也可能泄漏历史成员信息。
+
+### 使用什么方式解决
+- Close Room 在房间串行序列内校验创建者凭证与下一客户端序号。
+- 先持久化删除 Room Record 与 Create Request；失败则保持房间、连接和内存状态不变。
+- 删除成功后移出会话注册表，使用预先冻结的连接列表尽力发送 `ROOM_CLOSED` 并关闭连接。
+- 关闭后的所有请求统一返回房间不存在。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Close Room 事务、通知与隐私规则。
+- `work.md` — 新增本次关闭时序决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 97-101。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:30` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:35 --- 短房间 ID 复用会混淆已关闭房间与新房间身份 --- 使用不可猜测且不复用的持久 Room ID --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 关闭后复用有限短码会让旧链接、缓存请求和历史凭证误指向新房间，也需要墓碑才能区分生命周期。
+
+### 使用什么方式解决
+- Room ID 使用足够长、不可猜测的持久标识，并且关闭后不主动复用。
+- 创建时对 Room Record 执行条件创建；碰撞则生成新 ID 重试。
+- 不保存关闭墓碑；未来如需短邀请码，作为独立可轮换别名设计。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Room ID 术语及不复用、条件创建规则。
+- `work.md` — 新增本次标识符决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Room ID 定义与业务规则 102-105。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:35` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:40 --- Redis 持久化可能被误解为支持多实例并发处理 --- 限定单活动后端实例并引入 Room Revision --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 每房间串行化仅在单进程内成立；两个后端实例可能同时读取并覆盖同一 Room Record，Redis 本身不会提供命令排序。
+
+### 使用什么方式解决
+- 当前部署明确只支持单活动后端实例 [Single Active Backend Instance]。
+- Redis 仅作为持久化 adapter，不承担分布式锁、排序或故障切换协调。
+- 每次成功替换 Room Record 递增 Room Revision，用于陈旧写入检测和未来扩展。
+- 多实例、房间分片、分布式租约与主动故障切换延后设计，并要求文档与启动日志声明限制。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Room Revision 术语及部署限制规则。
+- `work.md` — 新增本次部署模型决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除 Room Revision 定义与业务规则 106-110。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:40` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+## 2026-07-10 16:45 --- 客户端无法检测广播遗漏、乱序或陈旧状态 --- 将 Room Revision 暴露到协议 --- 修改 `packages/backend/CONTEXT.md` 与 `work.md`
+
+### 发现什么问题
+- 仅依赖增量广播时，客户端无法可靠判断是否遗漏消息、收到乱序结果或持有旧状态。
+
+### 使用什么方式解决
+- 完整房间状态、成功命令确认和提交广播均包含持久化后的 Room Revision。
+- 客户端发现修订号跳跃或倒退时请求完整状态，不自行推断遗漏事件。
+- 去重命令响应返回当前最新修订号；修订号只表示提交顺序，与游戏阶段、事件数量及客户端序号区分。
+- 本轮后端协议支持该字段，前端自动重同步可后续垂直切片交付。
+
+### 修改了哪些文件
+- `packages/backend/CONTEXT.md` — 新增 Room Revision 协议可见性规则。
+- `work.md` — 新增本次客户端一致性决策记录。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `packages/backend/CONTEXT.md` 删除业务规则 111-115。
+- 从 `work.md` 删除标题以 `## 2026-07-10 16:45` 开头的本节；或在确认没有其他未提交修改后执行 `git checkout -- packages/backend/CONTEXT.md work.md`。
+
+## 2026-07-10 16:38 --- 房间成员关系、游戏状态与持久化散落在 Hub 和全局 Snapshot 中 --- 引入权威游戏会话 [Authoritative Game Session] 与每房间事务提交 --- 修改 Backend 会话、存储、WebSocket 与启动文件
+
+### 发现什么问题
+- 断线会混淆成员资格与活动连接，无法安全保留身份并重连。
+- 同房间命令缺少统一串行事务，持久化失败可能造成内存与存储状态撕裂。
+- 全局 Snapshot 扩大故障域，隐私投影、客户端序号和房间修订号没有单一权威来源。
+
+### 使用什么方式解决
+- 新增 `internal/session` 深层模块 [Deep Module]，独占成员、保留身份、凭证 nonce、封禁、设置、游戏状态、客户端序号、房间修订号和关闭墓碑。
+- 使用候选状态 → Store CAS → 原子发布的事务式提交 [Transactional Commit]；同房间串行，不同房间可并行。
+- 新增 Memory、File 与 Redis Room Record Store 适配器 [Adapter]，文件模式改为每房间文件，Redis 改为命名空间与 Lua CAS。
+- Hub 收窄为协议与活动连接适配器；连接接管使用连接代次并在执行临界区重新验证。
+- 修复普通玩家夜晚进度与角色私密信息投影。
+
+### 修改了哪些文件
+- `packages/backend/internal/session/**` — 权威会话、注册表、凭证和模块测试。
+- `packages/backend/internal/sessionstore/**` — Store seam 与 Memory/File/Redis adapters、契约测试。
+- `packages/backend/internal/ws/active_connections.go`、`packages/backend/internal/ws/hub_v2.go`、`packages/backend/internal/ws/session_engine.go` 及相关测试 — 连接代次、协议编排与旧游戏规则实现适配。
+- `packages/backend/internal/ws/hub.go`、`packages/backend/internal/ws/message.go`、`packages/backend/internal/ws/game_session.go` — 生产 v2 路径、协议字段与隐私修复。
+- `packages/backend/cmd/server/main.go` — 凭证密钥校验、每房间恢复、单实例日志与健康检查。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/session`、`packages/backend/internal/sessionstore` 和新增的 v2 WebSocket 文件。
+- 将 `packages/backend/internal/ws/hub.go`、`packages/backend/internal/ws/message.go`、`packages/backend/internal/ws/game_session.go`、`packages/backend/cmd/server/main.go` 恢复到本次修改前版本；旧 Snapshot 备份可用于整体回滚。
+
+## 2026-07-10 16:38 --- 客户端缺少安全重连、序号去重与修订重同步 --- Core 与 Frontend 同步切换协议 v2 --- 修改 Core WebSocket 与 Frontend 身份生命周期
+
+### 发现什么问题
+- 客户端只保存短房间 ID，断线后无法证明身份；命令确认丢失可能重复执行或错误推进后续命令。
+- 客户端无法发现房间广播跳跃、倒退或同修订重复。
+
+### 使用什么方式解决
+- Core 统一添加协议 v2 信封、恢复身份、创建/加入幂等键、单在途序号队列和自动 `RESUME_ROOM`。
+- 恢复时比较服务端下一序号，区分未提交重试与已提交确认丢失。
+- Frontend 持久化版本化房间身份，支持保留身份重新加入、关闭房间、被踢清理和完整状态重同步。
+- 发现修订缺口时不应用不一致增量负载，先请求权威完整投影。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/index.ts`、`packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/frontend/src/lib/utils.ts`、`packages/frontend/src/lib/utils.test.ts`、`packages/frontend/src/pages/index/index.tsx`。
+
+### 撤回方式 [Rollback Strategy]
+- 将上述 Core 与 Frontend 文件恢复到本次修改前版本；同时清除客户端存储键 `clocktower.roomIdentity.v2`，避免旧客户端误读 v2 身份记录。
+
+## 2026-07-10 16:38 --- 新架构缺少统一交付门禁和部署事实源 --- 增加协议文档、配置示例、CI 与统一验证脚本 --- 修改文档和工程配置
+
+### 发现什么问题
+- 三个上下文文档仍描述旧 WebSocket 与全局 Snapshot，仓库没有 CI 工作流或生产环境变量示例。
+- Go、竞态测试、Core 与 Frontend 构建测试没有统一入口。
+
+### 使用什么方式解决
+- 新增协议 v2 和 Backend 部署文档，更新三个 `CONTEXT.md`。
+- 新增 `.env.example`、`pnpm verify` 与 GitHub Actions 门禁。
+- 忽略 TypeScript 增量构建产物，避免验证污染工作树。
+
+### 修改了哪些文件
+- `docs/protocol/websocket-v2.md`、`packages/backend/README.md`、`.env.example`。
+- `packages/backend/CONTEXT.md`、`packages/core/CONTEXT.md`、`packages/frontend/CONTEXT.md`。
+- `package.json`、`.github/workflows/verify.yml`、`.gitignore`、`work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除新增文档、配置示例和 CI 文件，并将 `package.json`、`.gitignore` 与三个 `CONTEXT.md` 恢复到本次修改前版本。

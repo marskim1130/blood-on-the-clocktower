@@ -36,6 +36,13 @@ The `GameWebSocketClient` provides:
 - Automatic reconnection with configurable attempts
 - Type-safe event handling
 - Connection status tracking
+- Protocol v2 message envelopes and stable room identity metadata
+- Automatic `RESUME_ROOM` after transport reconnection
+- One in-flight sequenced state command at a time
+- Client sequence advancement only after authoritative acknowledgement
+- Room revision tracking for full-state resynchronization
+
+The Core client keeps identity in memory. Durable Resume Credential storage belongs to the Frontend adapter.
 
 ## Business Rules
 

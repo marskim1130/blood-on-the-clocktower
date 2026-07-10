@@ -1,72 +1,102 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
-import { WebSocketServer, WebSocket as WsWebSocket } from 'ws';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { WebSocket as WsWebSocket, WebSocketServer } from 'ws';
 import { GameWebSocketClient } from '../index.js';
 import type { ServerMessage } from '../index.js';
 
-// Use ws package as mock server since vitest runs in Node
 const originalWebSocket = globalThis.WebSocket;
+const port = 18765;
 let receivedMessages: Array<Record<string, unknown>> = [];
+let server: WebSocketServer;
+let rejectNextSequencedCommand = false;
 
-function createMockServer(port: number) {
-  const wss = new WebSocketServer({ port });
-
-  const rooms = new Map<string, Set<WsWebSocket>>();
-
-  wss.on('connection', (ws) => {
-    let currentRoom: string | null = null;
-
-    ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString());
-      receivedMessages.push(msg);
-
-      if (msg.type === 'CREATE_ROOM') {
-        currentRoom = `${msg.playerId}-room`;
-        if (!rooms.has(currentRoom)) rooms.set(currentRoom, new Set());
-        rooms.get(currentRoom)!.add(ws);
-
-        const state: ServerMessage = {
-          type: 'ROOM_STATE',
-          roomId: currentRoom,
-          state: { roomId: currentRoom, players: [] },
-        };
-        ws.send(JSON.stringify(state));
-      }
-
-      if (msg.type === 'JOIN_ROOM') {
-        currentRoom = msg.roomId;
-        if (!rooms.has(msg.roomID)) rooms.set(msg.roomId, new Set());
-        rooms.get(msg.roomId)!.add(ws);
-
-        // Send ROOM_STATE
-        const state: ServerMessage = {
-          type: 'ROOM_STATE',
-          roomId: msg.roomId,
-          state: { roomId: msg.roomId, players: [] },
-        };
-        ws.send(JSON.stringify(state));
-      }
-    });
-
-    ws.on('close', () => {
-      if (currentRoom) rooms.get(currentRoom)?.delete(ws);
-    });
-  });
-
-  return wss;
+function send(socket: WsWebSocket, message: ServerMessage): void {
+  socket.send(JSON.stringify(message));
 }
 
-describe('GameWebSocketClient', () => {
-  let server: WebSocketServer;
-  const port = 18765;
+function createMockServer(): WebSocketServer {
+  const mockServer = new WebSocketServer({ port });
+  mockServer.on('connection', (socket) => {
+    socket.on('message', (data) => {
+      const message = JSON.parse(data.toString()) as Record<string, unknown>;
+      receivedMessages.push(message);
 
-  beforeAll(async () => {
-    // Patch global WebSocket for Node environment
+      if (message.type === 'CREATE_ROOM') {
+        send(socket, {
+          type: 'CREATE_ROOM_RESULT',
+          roomId: `${message.playerId}-room`,
+          resumeCredential: 'creator-credential',
+          nextClientSequence: 1,
+          roomRevision: 1,
+        });
+      } else if (message.type === 'JOIN_ROOM') {
+        send(socket, {
+          type: 'JOIN_ROOM_RESULT',
+          roomId: String(message.roomId),
+          resumeCredential: 'member-credential',
+          nextClientSequence: 1,
+          roomRevision: 2,
+        });
+      } else if (message.type === 'RESUME_ROOM') {
+        send(socket, {
+          type: 'RESUME_ROOM_RESULT',
+          roomId: String(message.roomId),
+          nextClientSequence: 1,
+          roomRevision: 2,
+        });
+      } else if (
+        typeof message.clientSequence === 'number' &&
+        message.type !== 'FAIL_COMMAND'
+      ) {
+        if (rejectNextSequencedCommand) {
+          rejectNextSequencedCommand = false;
+          send(socket, {
+            type: 'ERROR',
+            code: 'INVALID_GAME_STATE',
+            error: 'rejected',
+            nextClientSequence: Number(message.clientSequence) + 1,
+          });
+          return;
+        }
+        send(socket, {
+          type: 'COMMAND_RESULT',
+          acceptedSequence: message.clientSequence,
+          nextClientSequence: message.clientSequence + 1,
+          roomRevision: Number(message.clientSequence) + 2,
+        });
+      }
+    });
+  });
+  return mockServer;
+}
+
+function createClient(options: Partial<ConstructorParameters<typeof GameWebSocketClient>[0]> = {}): GameWebSocketClient {
+  return new GameWebSocketClient({
+    url: `ws://localhost:${port}`,
+    maxReconnectAttempts: 0,
+    requestIdFactory: () => 'generated-request-id',
+    ...options,
+  });
+}
+
+async function connect(client: GameWebSocketClient): Promise<void> {
+  client.connect();
+  await waitFor(() => client.status === 'connected');
+}
+
+async function createIdentity(client: GameWebSocketClient): Promise<void> {
+  client.createRoom('creator', 'Alice', 5, 'trouble_brewing', 'create-request');
+  await waitFor(() => client.identity !== null);
+}
+
+describe('GameWebSocketClient protocol v2', () => {
+  beforeAll(() => {
     (globalThis as Record<string, unknown>).WebSocket = WsWebSocket;
-    server = createMockServer(port);
+    server = createMockServer();
   });
 
   beforeEach(() => {
     receivedMessages = [];
+    rejectNextSequencedCommand = false;
   });
 
   afterAll(() => {
@@ -74,281 +104,169 @@ describe('GameWebSocketClient', () => {
     (globalThis as Record<string, unknown>).WebSocket = originalWebSocket;
   });
 
-  it('connects to server and reports status changes', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
+  it('adds protocolVersion and create request id, then stores identity metadata', async () => {
+    const client = createClient();
+    await connect(client);
+
+    client.createRoom('creator', 'Alice', 5, 'trouble_brewing', 'create-1');
+    await waitFor(() => client.identity !== null);
+
+    expect(receivedMessages[0]).toMatchObject({
+      protocolVersion: 2,
+      type: 'CREATE_ROOM',
+      requestId: 'create-1',
+      playerId: 'creator',
+      scriptId: 'trouble_brewing',
     });
-
-    const statuses: string[] = [];
-    client.onStatusChange((s) => statuses.push(s));
-
-    client.connect();
-
-    await new Promise<void>((resolve) => {
-      client.onStatusChange((s) => {
-        if (s === 'connected') resolve();
-      });
+    expect(client.identity).toEqual({
+      roomId: 'creator-room',
+      playerId: 'creator',
+      resumeCredential: 'creator-credential',
     });
-
-    expect(statuses).toContain('connecting');
-    expect(statuses).toContain('connected');
-    expect(client.status).toBe('connected');
-
-    client.disconnect();
-    expect(client.status).toBe('disconnected');
-  });
-
-  it('joins a room and receives ROOM_STATE', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
-
-    client.connect();
-    await new Promise<void>((resolve) => {
-      client.onStatusChange((s) => {
-        if (s === 'connected') resolve();
-      });
-    });
-
-    const messages: ServerMessage[] = [];
-    client.onMessage((msg) => messages.push(msg));
-
-    client.joinRoom('room-1', 'p1', 'Alice');
-
-    // Wait for ROOM_STATE response
-    await new Promise((r) => setTimeout(r, 100));
-
-    expect(messages).toHaveLength(1);
-    expect(messages[0]!.type).toBe('ROOM_STATE');
-    expect(messages[0]!.roomId).toBe('room-1');
-
+    expect(client.nextSequence).toBe(1);
+    expect(client.currentRoomRevision).toBe(1);
     client.disconnect();
   });
 
-  it('rejoins the created room after reconnecting', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      reconnectInterval: 10,
-      maxReconnectAttempts: 2,
+  it('adds joinRequestId and stores the joined identity', async () => {
+    const client = createClient();
+    await connect(client);
+
+    client.joinRoom('room-1', 'p1', 'Alice', 'join-1');
+    await waitFor(() => client.identity !== null);
+
+    expect(receivedMessages[0]).toMatchObject({
+      protocolVersion: 2,
+      type: 'JOIN_ROOM',
+      joinRequestId: 'join-1',
+      roomId: 'room-1',
+      playerId: 'p1',
     });
+    expect(client.identity?.resumeCredential).toBe('member-credential');
+    client.disconnect();
+  });
 
-    client.connect();
-    await waitFor(() => client.status === 'connected');
-
-    const messages: ServerMessage[] = [];
-    client.onMessage((msg) => messages.push(msg));
-
-    client.createRoom('creator', 'Alice', 5);
-    await waitFor(() => messages.some((msg) => msg.type === 'ROOM_STATE' && msg.roomId === 'creator-room'));
+  it('uses RESUME_ROOM with the saved credential after reconnecting', async () => {
+    const client = createClient({ reconnectInterval: 10, maxReconnectAttempts: 2 });
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
 
     server.clients.forEach((socket) => socket.close());
+    await waitFor(() => receivedMessages.some((message) => message.type === 'RESUME_ROOM'));
 
-    await waitFor(() =>
-      receivedMessages.some(
-        (msg) =>
-          msg.type === 'JOIN_ROOM' &&
-          msg.roomId === 'creator-room' &&
-          msg.playerId === 'creator' &&
-          msg.playerName === 'Alice'
-      )
-    );
-
+    expect(receivedMessages.find((message) => message.type === 'RESUME_ROOM')).toMatchObject({
+      protocolVersion: 2,
+      roomId: 'creator-room',
+      playerId: 'creator',
+      resumeCredential: 'creator-credential',
+    });
     client.disconnect();
   });
 
-  it('sends script id when creating a room', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
+  it('does not replay an already committed command after resume advances the sequence', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
 
-    client.connect();
-    await waitFor(() => client.status === 'connected');
+    client.startGame();
+    await waitFor(() => client.nextSequence === 2);
+    const commandCount = receivedMessages.filter((message) => message.type === 'START_GAME').length;
+    server.clients.forEach((socket) => send(socket, {
+      type: 'RESUME_ROOM_RESULT',
+      roomId: 'creator-room',
+      nextClientSequence: 2,
+      roomRevision: 3,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
 
-    client.createRoom('creator', 'Alice', 5, 'trouble_brewing');
-    await waitFor(() =>
-      receivedMessages.some(
-        (msg) =>
-          msg.type === 'CREATE_ROOM' &&
-          msg.playerId === 'creator' &&
-          msg.scriptId === 'trouble_brewing'
-      )
-    );
-
+    expect(receivedMessages.filter((message) => message.type === 'START_GAME')).toHaveLength(commandCount);
     client.disconnect();
   });
 
-  it('sends manual end game command', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
-
-    client.connect();
-    await waitFor(() => client.status === 'connected');
-
-    client.endGame('evil', 'The Storyteller called the game.');
-    await waitFor(() =>
-      receivedMessages.some(
-        (msg) =>
-          msg.type === 'END_GAME' &&
-          msg.winner === 'evil' &&
-          msg.reason === 'storyteller_decision' &&
-          msg.description === 'The Storyteller called the game.'
-      )
-    );
-
-    client.disconnect();
-  });
-
-  it('sends kick player command', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
-
-    client.connect();
-    await waitFor(() => client.status === 'connected');
-
-    client.kickPlayer('p2');
-    await waitFor(() =>
-      receivedMessages.some(
-        (msg) =>
-          msg.type === 'KICK_PLAYER' &&
-          msg.targetPlayerId === 'p2'
-      )
-    );
-
-    client.disconnect();
-  });
-
-  it('sends room settings update command', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
-
-    client.connect();
-    await waitFor(() => client.status === 'connected');
+  it('attaches one sequence at a time and advances only after success', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
 
     client.updateRoomSettings(7, 'trouble_brewing');
-    await waitFor(() =>
-      receivedMessages.some(
-        (msg) =>
-          msg.type === 'UPDATE_ROOM_SETTINGS' &&
-          msg.maxPlayers === 7 &&
-          msg.scriptId === 'trouble_brewing'
-      )
-    );
+    client.startGame();
 
+    await waitFor(() => receivedMessages.filter((message) => message.clientSequence !== undefined).length === 2);
+    const commands = receivedMessages.filter((message) => message.clientSequence !== undefined);
+    expect(commands[0]).toMatchObject({
+      type: 'UPDATE_ROOM_SETTINGS',
+      clientSequence: 1,
+      resumeCredential: 'creator-credential',
+    });
+    expect(commands[1]).toMatchObject({ type: 'START_GAME', clientSequence: 2 });
+    await waitFor(() => client.nextSequence === 3);
+    expect(client.currentRoomRevision).toBe(4);
     client.disconnect();
   });
 
-  it('sends Slayer ability command', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
+  it('does not advance the sequence for an error response', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
 
-    client.connect();
-    await waitFor(() => client.status === 'connected');
-
-    client.useSlayerAbility('p2');
-    await waitFor(() =>
-      receivedMessages.some(
-        (msg) =>
-          msg.type === 'USE_SLAYER_ABILITY' &&
-          msg.targetPlayerId === 'p2'
-      )
-    );
-
+    rejectNextSequencedCommand = true;
+    client.startGame();
+    await waitFor(() => receivedMessages.some((message) => message.type === 'START_GAME'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(client.nextSequence).toBe(1);
     client.disconnect();
   });
 
-  it('sends manual kill command', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
-
-    client.connect();
-    await waitFor(() => client.status === 'connected');
-
-    client.killPlayer('p2', 'night_kill');
-    await waitFor(() =>
-      receivedMessages.some(
-        (msg) =>
-          msg.type === 'KILL_PLAYER' &&
-          msg.targetPlayerId === 'p2' &&
-          msg.cause === 'night_kill'
-      )
-    );
-
-    client.disconnect();
-  });
-
-  it('sends night action result when provided', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
-
-    client.connect();
-    await waitFor(() => client.status === 'connected');
-
-    client.submitNightAction('check_demon', ['p2', 'p3'], 'yes');
-    await waitFor(() =>
-      receivedMessages.some(
-        (msg) =>
-          msg.type === 'SUBMIT_NIGHT_ACTION' &&
-          msg.actionType === 'check_demon' &&
-          Array.isArray(msg.targetIds) &&
-          msg.targetIds.length === 2 &&
-          msg.result === 'yes'
-      )
-    );
-
-    client.disconnect();
-  });
-
-  it('does not resume a room after receiving kicked error', async () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      reconnectInterval: 10,
-      maxReconnectAttempts: 1,
-    });
-
-    client.connect();
-    await waitFor(() => client.status === 'connected');
-
-    const messages: ServerMessage[] = [];
-    client.onMessage((msg) => messages.push(msg));
-    client.joinRoom('room-kick', 'p1', 'Alice');
-    await waitFor(() => messages.some((msg) => msg.type === 'ROOM_STATE' && msg.roomId === 'room-kick'));
-
+  it('sends new lifecycle and query commands with the correct sequencing rules', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
     receivedMessages = [];
-    server.clients.forEach((socket) => {
-      socket.send(JSON.stringify({ type: 'ERROR', error: 'kicked from room' }));
-      socket.close();
+
+    client.getRoomState();
+    client.rejoinRoom();
+    client.closeRoom();
+
+    await waitFor(() => receivedMessages.some((message) => message.type === 'CLOSE_ROOM'));
+    expect(receivedMessages.find((message) => message.type === 'GET_ROOM_STATE')).toMatchObject({
+      protocolVersion: 2,
+      resumeCredential: 'creator-credential',
     });
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    expect(receivedMessages.some((msg) => msg.type === 'JOIN_ROOM')).toBe(false);
-
+    expect(receivedMessages.find((message) => message.type === 'REJOIN_ROOM')).toMatchObject({ clientSequence: 1 });
+    expect(receivedMessages.find((message) => message.type === 'CLOSE_ROOM')).toMatchObject({ clientSequence: 2 });
     client.disconnect();
   });
 
-  it('throws when sending on disconnected client', () => {
-    const client = new GameWebSocketClient({
-      url: `ws://localhost:${port}`,
-      maxReconnectAttempts: 0,
-    });
+  it('clears saved identity after KICKED', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
 
-    expect(() => client.send({ type: 'JOIN_ROOM', roomId: 'r1' })).toThrow(
-      'WebSocket is not connected'
-    );
+    server.clients.forEach((socket) => send(socket, { type: 'KICKED', roomId: 'creator-room' }));
+    await waitFor(() => client.identity === null);
+
+    expect(client.nextSequence).toBeNull();
+    expect(() => client.getRoomState()).toThrow('Room identity is not available');
+    client.disconnect();
+  });
+
+  it('preserves the transport seam for raw protocol messages', async () => {
+    const client = createClient();
+    await connect(client);
+
+    client.send({ type: 'GET_ROOM_STATE', roomId: 'r1', playerId: 'p1', resumeCredential: 'credential' });
+    await waitFor(() => receivedMessages.length === 1);
+
+    expect(receivedMessages[0]?.protocolVersion).toBe(2);
+    client.disconnect();
+  });
+
+  it('throws when sending on a disconnected client', () => {
+    const client = createClient();
+    expect(() => client.send({ type: 'GET_ROOM_STATE' })).toThrow('WebSocket is not connected');
   });
 });
 

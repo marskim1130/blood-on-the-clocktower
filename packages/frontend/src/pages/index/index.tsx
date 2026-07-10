@@ -7,7 +7,7 @@ import {
   getScriptWakeOrder,
   TROUBLE_BREWING_SCRIPT,
 } from '@clocktower/core';
-import type { ConnectionStatus, GameCharacter, RoomState, ServerMessage } from '@clocktower/core';
+import type { ClientRoomIdentity, ConnectionStatus, GameCharacter, IdentityStatus, RoomState, ServerMessage } from '@clocktower/core';
 import { createTaroWebSocketTransport } from '../../lib/taro-websocket-transport';
 import {
   type GamePhase,
@@ -17,7 +17,10 @@ import {
   normalizeWinner,
   eventValue,
   getStoredString,
+  getStoredRoomIdentity,
   persistString,
+  persistRoomIdentity,
+  removeStoredValue,
   getOrCreatePlayerId,
 } from '../../lib/utils';
 import './index.css';
@@ -26,6 +29,7 @@ const PLAYER_ID_STORAGE_KEY = 'clocktower.playerId';
 const PLAYER_NAME_STORAGE_KEY = 'clocktower.playerName';
 const WS_URL_STORAGE_KEY = 'clocktower.wsUrl';
 const LAST_ROOM_ID_STORAGE_KEY = 'clocktower.lastRoomId';
+const ROOM_IDENTITY_STORAGE_KEY = 'clocktower.roomIdentity.v2';
 const MAX_PLAYERS_STORAGE_KEY = 'clocktower.maxPlayers';
 const DEFAULT_WS_URL = 'ws://localhost:8080/ws';
 const DEFAULT_SCRIPT_ID = TROUBLE_BREWING_SCRIPT.id;
@@ -114,7 +118,26 @@ interface GameOverInfo {
 const SERVER_MESSAGE_LABELS: Readonly<Record<string, string>> = {
   ERROR: '错误',
   ROOM_STATE: '房间状态',
+  ROOM_STATE_CHANGED: '房间状态更新',
+  IDENTITY_STATUS: '身份状态',
+  KICKED: '被移出房间',
+  ROOM_CLOSED: '房间已关闭',
   EVENT: '游戏事件',
+};
+
+const SERVER_ERROR_CODE_LABELS: Readonly<Record<string, string>> = {
+  UNSUPPORTED_PROTOCOL: '客户端协议版本不受支持，请更新应用',
+  ROOM_NOT_FOUND: '房间不存在或已关闭',
+  INVALID_CREDENTIAL: '房间身份已失效，请重新加入',
+  STALE_CONNECTION: '当前连接已被新连接接管',
+  FORBIDDEN: '没有权限执行该操作',
+  ROOM_FULL: '房间人数已满',
+  PARTICIPANT_SET_FROZEN: '游戏开始后不能更改参与者',
+  UNEXPECTED_SEQUENCE: '操作序号不同步，正在请求最新状态',
+  SEQUENCE_CONFLICT: '操作序号冲突，请重新同步房间状态',
+  IDEMPOTENCY_CONFLICT: '重复请求参数不一致',
+  PERSISTENCE_UNAVAILABLE: '服务器暂时无法保存状态，请稍后重试',
+  INTERNAL: '服务器内部错误',
 };
 
 const SERVER_ERROR_LABELS: Readonly<Record<string, string>> = {
@@ -172,7 +195,8 @@ function serverMessageLabel(type: string): string {
   return SERVER_MESSAGE_LABELS[type] ?? '服务器消息';
 }
 
-function serverErrorMessage(error: string | undefined): string {
+function serverErrorMessage(error: string | undefined, code?: string): string {
+  if (code && SERVER_ERROR_CODE_LABELS[code]) return SERVER_ERROR_CODE_LABELS[code];
   if (!error) return '未知错误';
   const exact = SERVER_ERROR_LABELS[error];
   if (exact) return exact;
@@ -233,6 +257,7 @@ function chooseFortuneTellerRedHerring(assignments: Record<string, string>): str
 
 export default function IndexPage() {
   const clientRef = useRef<GameWebSocketClient | null>(null);
+  const roomRevisionRef = useRef<number | null>(null);
   const [wsUrl, setWsUrl] = useState(DEFAULT_WS_URL);
   const [playerId, setPlayerId] = useState('');
   const [playerName, setPlayerName] = useState('');
@@ -240,6 +265,9 @@ export default function IndexPage() {
   const [maxPlayersInput, setMaxPlayersInput] = useState('5');
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
   const [roomState, setRoomState] = useState<RoomState | null>(null);
+  const [roomIdentity, setRoomIdentity] = useState<ClientRoomIdentity | null>(null);
+  const [identityStatus, setIdentityStatus] = useState<IdentityStatus | null>(null);
+  const [roomRevision, setRoomRevision] = useState<number | null>(null);
   const [myCharacter, setMyCharacter] = useState<GameCharacter | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [logs, setLogs] = useState<readonly string[]>([]);
@@ -279,11 +307,19 @@ export default function IndexPage() {
   useEffect(() => {
     const id = getOrCreatePlayerId();
     const defaultName = `玩家${id.slice(-4)}`;
-    setPlayerId(id);
+    const storedIdentity = getStoredRoomIdentity(ROOM_IDENTITY_STORAGE_KEY);
+    const legacyRoomId = getStoredString(LAST_ROOM_ID_STORAGE_KEY);
+    const resolvedPlayerId = storedIdentity?.playerId ?? id;
+    setPlayerId(resolvedPlayerId);
     setPlayerName(getStoredString(PLAYER_NAME_STORAGE_KEY, defaultName));
     setWsUrl(getStoredString(WS_URL_STORAGE_KEY, DEFAULT_WS_URL));
-    setRoomIdInput(getStoredString(LAST_ROOM_ID_STORAGE_KEY));
+    setRoomIdentity(storedIdentity);
+    setRoomIdInput(storedIdentity?.roomId ?? '');
     setMaxPlayersInput(getStoredString(MAX_PLAYERS_STORAGE_KEY, '5'));
+    if (!storedIdentity && legacyRoomId) {
+      removeStoredValue(LAST_ROOM_ID_STORAGE_KEY);
+      setErrorMessage('旧版房间身份缺少恢复凭证，已清理，请重新加入房间');
+    }
 
     return () => {
       clientRef.current?.disconnect();
@@ -394,7 +430,30 @@ export default function IndexPage() {
 
   function updateRoomIdInput(value: string): void {
     setRoomIdInput(value);
-    persistString(LAST_ROOM_ID_STORAGE_KEY, value.trim());
+  }
+
+  function saveRoomIdentity(identity: ClientRoomIdentity): void {
+    setRoomIdentity(identity);
+    setPlayerId(identity.playerId);
+    setRoomIdInput(identity.roomId);
+    persistString(PLAYER_ID_STORAGE_KEY, identity.playerId);
+    persistString(LAST_ROOM_ID_STORAGE_KEY, identity.roomId);
+    persistRoomIdentity(ROOM_IDENTITY_STORAGE_KEY, { version: 2, ...identity });
+  }
+
+  function clearRoomIdentity(clearRoomInput = true): void {
+    setRoomIdentity(null);
+    setIdentityStatus(null);
+    setRoomRevision(null);
+    roomRevisionRef.current = null;
+    removeStoredValue(ROOM_IDENTITY_STORAGE_KEY);
+    removeStoredValue(LAST_ROOM_ID_STORAGE_KEY);
+    if (clearRoomInput) setRoomIdInput('');
+  }
+
+  function clearRoomView(): void {
+    setRoomState(null);
+    setMyCharacter(null);
   }
 
   function updateMaxPlayersInput(value: string): void {
@@ -458,21 +517,87 @@ export default function IndexPage() {
 
   function applyMessage(message: ServerMessage): void {
     appendLog(`收到${serverMessageLabel(message.type)}`);
+    if (typeof message.roomRevision === 'number') {
+      const previousRevision = roomRevisionRef.current;
+      const revisionHasGap = previousRevision !== null && (
+        message.roomRevision < previousRevision ||
+        message.roomRevision > previousRevision + 1
+      );
+      const isFullState = message.type === 'ROOM_STATE' || message.type === 'RESUME_ROOM_RESULT';
+      if (revisionHasGap && !isFullState) {
+        try {
+          clientRef.current?.getRoomState();
+          appendLog('检测到房间修订缺口，正在同步完整状态');
+        } catch {
+          appendLog('房间修订缺口自动同步失败');
+        }
+        return;
+      }
+      if (previousRevision !== null && message.roomRevision === previousRevision && message.type === 'ROOM_STATE_CHANGED') {
+        return;
+      }
+      roomRevisionRef.current = message.roomRevision;
+      setRoomRevision(message.roomRevision);
+    }
+    if (message.identityStatus) {
+      setIdentityStatus(message.identityStatus);
+      if (message.identityStatus.status === 'retained') clearRoomView();
+    }
+
+    if (
+      message.type === 'CREATE_ROOM_RESULT' ||
+      message.type === 'JOIN_ROOM_RESULT' ||
+      message.type === 'RESUME_ROOM_RESULT'
+    ) {
+      const identity = clientRef.current?.identity;
+      if (identity) saveRoomIdentity(identity);
+      setIdentityStatus(message.identityStatus ?? { status: 'member', canRejoin: false, participantSetFrozen: false });
+      if (message.state) syncRoomSnapshot(message.state);
+      setErrorMessage('');
+      return;
+    }
 
     if (message.type === 'ERROR') {
-      setErrorMessage(serverErrorMessage(message.error));
-      if (message.error === 'kicked from room') {
-        setRoomState(null);
-        setMyCharacter(null);
-        updateRoomIdInput('');
-        appendLog('已被房主移出房间');
+      setErrorMessage(serverErrorMessage(message.error, message.code));
+      if (message.code === 'INVALID_CREDENTIAL' || message.code === 'ROOM_NOT_FOUND') {
+        clearRoomIdentity();
+        clearRoomView();
+      }
+      if (message.code === 'UNEXPECTED_SEQUENCE' || message.code === 'SEQUENCE_CONFLICT') {
+        try {
+          clientRef.current?.getRoomState();
+        } catch {
+          appendLog('自动同步房间状态失败');
+        }
       }
       return;
     }
 
-    if (message.type === 'ROOM_STATE') {
+    if (message.type === 'KICKED') {
+      clearRoomIdentity();
+      clearRoomView();
+      setErrorMessage('你已被房主移出房间');
+      appendLog('已被房主移出房间');
+      return;
+    }
+
+    if (message.type === 'ROOM_CLOSED') {
+      clearRoomIdentity();
+      clearRoomView();
+      setErrorMessage('房间已关闭');
+      appendLog('房间已由创建者关闭');
+      return;
+    }
+
+    if (message.type === 'IDENTITY_STATUS') {
+      clearRoomView();
+      return;
+    }
+
+    if (message.type === 'ROOM_STATE' || message.type === 'ROOM_STATE_CHANGED' || message.type === 'COMMAND_RESULT') {
       if (message.roomId) updateRoomIdInput(message.roomId);
       if (message.state) syncRoomSnapshot(message.state);
+      if (message.state) setIdentityStatus({ status: 'member', canRejoin: false, participantSetFrozen: false });
       return;
     }
 
@@ -647,7 +772,7 @@ export default function IndexPage() {
     }
   }
 
-  function connect(onConnected?: (client: GameWebSocketClient) => void): void {
+  function connect(onConnected?: (client: GameWebSocketClient) => void, identityToResume = roomIdentity): void {
     setErrorMessage('');
     clientRef.current?.disconnect();
     persistString(WS_URL_STORAGE_KEY, wsUrl.trim());
@@ -661,9 +786,14 @@ export default function IndexPage() {
     let handledConnected = false;
     client.onStatusChange((nextStatus) => {
       setStatus(nextStatus);
-      if (nextStatus === 'connected' && onConnected && !handledConnected) {
+      if (nextStatus === 'connected' && !handledConnected) {
         handledConnected = true;
-        onConnected(client);
+        if (onConnected) {
+          onConnected(client);
+        } else if (identityToResume) {
+          client.resumeRoom(identityToResume.roomId, identityToResume.playerId, identityToResume.resumeCredential);
+          appendLog(`正在恢复房间身份：${identityToResume.roomId}`);
+        }
       }
     });
     client.onMessage(applyMessage);
@@ -697,6 +827,7 @@ export default function IndexPage() {
     persistString(PLAYER_NAME_STORAGE_KEY, displayName);
     persistString(MAX_PLAYERS_STORAGE_KEY, maxPlayersInput);
     client.createRoom(playerId, displayName, Number.isNaN(maxPlayers) ? 5 : maxPlayers, DEFAULT_SCRIPT_ID);
+    setIdentityStatus(null);
     setMyCharacter(null);
     appendLog('已发送创建房间请求');
   }
@@ -715,34 +846,37 @@ export default function IndexPage() {
     persistString(PLAYER_NAME_STORAGE_KEY, displayName);
     updateRoomIdInput(roomId);
     client.joinRoom(roomId, playerId, displayName);
+    setIdentityStatus(null);
     setMyCharacter(null);
     appendLog(`已发送加入房间请求：${roomId}`);
   }
 
   function resumeLastRoom(): void {
-    const roomId = roomIdInput.trim() || getStoredString(LAST_ROOM_ID_STORAGE_KEY);
-    if (!roomId) {
-      setErrorMessage('没有可恢复的房间号');
+    const identity = roomIdentity ?? getStoredRoomIdentity(ROOM_IDENTITY_STORAGE_KEY);
+    if (!identity) {
+      if (roomIdInput.trim()) {
+        setErrorMessage('该房间没有恢复凭证，请使用“加入房间”重新加入');
+      } else {
+        setErrorMessage('没有可恢复的房间身份');
+      }
       return;
     }
 
-    const displayName = playerName.trim() || playerId;
-    updateRoomIdInput(roomId);
-    persistString(PLAYER_NAME_STORAGE_KEY, displayName);
+    saveRoomIdentity(identity);
 
-    const join = (client: GameWebSocketClient): void => {
-      client.joinRoom(roomId, playerId, displayName);
+    const resume = (client: GameWebSocketClient): void => {
+      client.resumeRoom(identity.roomId, identity.playerId, identity.resumeCredential);
       setMyCharacter(null);
-      appendLog(`已恢复并加入房间：${roomId}`);
+      appendLog(`正在恢复房间身份：${identity.roomId}`);
     };
 
     const client = clientRef.current;
     if (client?.status === 'connected') {
-      join(client);
+      resume(client);
       return;
     }
 
-    connect(join);
+    connect(undefined, identity);
   }
 
   function copyInviteText(): void {
@@ -773,10 +907,21 @@ export default function IndexPage() {
     if (!client) return;
 
     client.leaveRoom();
-    setRoomState(null);
-    setMyCharacter(null);
-    updateRoomIdInput('');
     appendLog('已发送离开房间请求');
+  }
+
+  function rejoinRoom(): void {
+    const client = requireClient();
+    if (!client) return;
+    client.rejoinRoom();
+    appendLog('已发送重新加入房间请求');
+  }
+
+  function closeRoom(): void {
+    const client = requireClient();
+    if (!client) return;
+    client.closeRoom();
+    appendLog('已发送关闭房间请求');
   }
 
   function kickPlayer(targetPlayerId: string): void {
@@ -827,14 +972,15 @@ export default function IndexPage() {
   }
 
   function resetIdentity(): void {
+    clientRef.current?.disconnect();
+    clientRef.current = null;
     const nextId = `player_${Math.random().toString(36).slice(2, 10)}`;
     Taro.setStorageSync(PLAYER_ID_STORAGE_KEY, nextId);
     setPlayerId(nextId);
     setPlayerName(`玩家${nextId.slice(-4)}`);
     persistString(PLAYER_NAME_STORAGE_KEY, `玩家${nextId.slice(-4)}`);
-    updateRoomIdInput('');
-    setRoomState(null);
-    setMyCharacter(null);
+    clearRoomIdentity();
+    clearRoomView();
     appendLog(`已重置身份 ${nextId}`);
   }
 
@@ -1115,10 +1261,20 @@ export default function IndexPage() {
           <Button className='button' onClick={resumeLastRoom}>↻ 恢复最近</Button>
           <Button className='button' onClick={leaveRoom}>← 离开房间</Button>
         </View>
+        {identityStatus?.status === 'retained' && (
+          <View className='row'>
+            <Button className='button primary' disabled={!identityStatus.canRejoin} onClick={rejoinRoom}>→ 重新加入</Button>
+            <Text className='hint'>{identityStatus.participantSetFrozen ? '参与者已冻结，无法重新加入' : '当前身份已离开房间'}</Text>
+          </View>
+        )}
+        {roomIdentity && (
+          <Button className='button warn' onClick={closeRoom}>× 关闭房间（仅创建者）</Button>
+        )}
         <View className='inviteBox'>
           <Text className='hint'>当前房间</Text>
           <Text className='inviteCode'>{currentRoomId || '未加入'}</Text>
           <Text className='hint'>剧本：{currentScriptName}</Text>
+          <Text className='hint'>房间修订：{roomRevision ?? '未同步'}</Text>
           <Button className='button' onClick={copyInviteText}>⧉ 复制邀请信息</Button>
         </View>
         <Button className='button' onClick={openScriptPage}>≡ 查看剧本与夜晚顺序</Button>

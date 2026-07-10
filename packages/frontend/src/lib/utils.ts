@@ -10,6 +10,13 @@ export interface InputEvent {
   };
 }
 
+export interface StoredRoomIdentity {
+  readonly version: 2;
+  readonly roomId: string;
+  readonly playerId: string;
+  readonly resumeCredential: string;
+}
+
 export function mapProtocolPhase(phase: number | undefined): GamePhase | null {
   if (phase === undefined) return null;
   const phaseMap: Record<number, GamePhase> = {
@@ -40,6 +47,36 @@ export function getStoredString(key: string, fallback = ''): string {
 
 export function persistString(key: string, value: string): void {
   Taro.setStorageSync(key, value);
+}
+
+export function removeStoredValue(key: string): void {
+  Taro.removeStorageSync(key);
+}
+
+export function getStoredRoomIdentity(key: string): StoredRoomIdentity | null {
+  const stored = Taro.getStorageSync<unknown>(key);
+  if (!stored || typeof stored !== 'object') return null;
+
+  const identity = stored as Partial<StoredRoomIdentity>;
+  if (
+    identity.version !== 2 ||
+    typeof identity.roomId !== 'string' || !identity.roomId.trim() ||
+    typeof identity.playerId !== 'string' || !identity.playerId.trim() ||
+    typeof identity.resumeCredential !== 'string' || !identity.resumeCredential.trim()
+  ) {
+    return null;
+  }
+
+  return {
+    version: 2,
+    roomId: identity.roomId,
+    playerId: identity.playerId,
+    resumeCredential: identity.resumeCredential,
+  };
+}
+
+export function persistRoomIdentity(key: string, identity: StoredRoomIdentity): void {
+  Taro.setStorageSync(key, identity);
 }
 
 export function getOrCreatePlayerId(): string {

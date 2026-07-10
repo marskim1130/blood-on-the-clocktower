@@ -29,11 +29,20 @@ const (
 	MsgSubmitNightAction  = "SUBMIT_NIGHT_ACTION"
 	MsgResolveNight       = "RESOLVE_NIGHT"
 	MsgEndGame            = "END_GAME"
+	MsgResumeRoom         = "RESUME_ROOM"
+	MsgRejoinRoom         = "REJOIN_ROOM"
+	MsgGetRoomState       = "GET_ROOM_STATE"
+	MsgCloseRoom          = "CLOSE_ROOM"
 )
 
 // ClientMessage represents a message from client to server
 type ClientMessage struct {
+	ProtocolVersion           int               `json:"protocolVersion,omitempty"`
 	Type                      string            `json:"type"`
+	RequestID                 string            `json:"requestId,omitempty"`
+	JoinRequestID             string            `json:"joinRequestId,omitempty"`
+	ResumeCredential          string            `json:"resumeCredential,omitempty"`
+	ClientSequence            uint64            `json:"clientSequence,omitempty"`
 	RoomID                    string            `json:"roomId,omitempty"`
 	PlayerName                string            `json:"playerName,omitempty"`
 	PlayerID                  string            `json:"playerId,omitempty"`
@@ -215,11 +224,17 @@ func (msg ClientMessage) targetPlayerID() string {
 
 // ServerMessage represents a message from server to client
 type ServerMessage struct {
-	Type   string          `json:"type"`
-	RoomID string          `json:"roomId,omitempty"`
-	State  *RoomState      `json:"state,omitempty"`
-	Event  *game.GameEvent `json:"event,omitempty"`
-	Error  string          `json:"error,omitempty"`
+	Type               string          `json:"type"`
+	Code               string          `json:"code,omitempty"`
+	RoomID             string          `json:"roomId,omitempty"`
+	State              *RoomState      `json:"state,omitempty"`
+	IdentityStatus     any             `json:"identityStatus,omitempty"`
+	Event              *game.GameEvent `json:"event,omitempty"`
+	Error              string          `json:"error,omitempty"`
+	ResumeCredential   string          `json:"resumeCredential,omitempty"`
+	RoomRevision       uint64          `json:"roomRevision,omitempty"`
+	AcceptedSequence   uint64          `json:"acceptedSequence,omitempty"`
+	NextClientSequence uint64          `json:"nextClientSequence,omitempty"`
 }
 
 // RoomState represents the current state of a room

@@ -4,6 +4,7 @@ vi.mock('@tarojs/taro', () => ({
   default: {
     getStorageSync: vi.fn(),
     setStorageSync: vi.fn(),
+    removeStorageSync: vi.fn(),
   },
 }));
 
@@ -13,7 +14,10 @@ import {
   normalizeWinner,
   eventValue,
   getStoredString,
+  getStoredRoomIdentity,
   persistString,
+  persistRoomIdentity,
+  removeStoredValue,
   getOrCreatePlayerId,
 } from './utils';
 
@@ -101,6 +105,32 @@ describe('persistString', () => {
   it('calls setStorageSync with key and value', () => {
     persistString('myKey', 'myValue');
     expect(mockedTaro.setStorageSync).toHaveBeenCalledWith('myKey', 'myValue');
+  });
+});
+
+describe('room identity storage', () => {
+  const identity = {
+    version: 2 as const,
+    roomId: 'room-123',
+    playerId: 'player-123',
+    resumeCredential: 'credential-123',
+  };
+
+  it('reads a valid protocol v2 room identity', () => {
+    mockedTaro.getStorageSync.mockReturnValue(identity);
+    expect(getStoredRoomIdentity('identity')).toEqual(identity);
+  });
+
+  it('rejects legacy or incomplete room identities', () => {
+    mockedTaro.getStorageSync.mockReturnValue({ roomId: 'room-123', playerId: 'player-123' });
+    expect(getStoredRoomIdentity('identity')).toBeNull();
+  });
+
+  it('persists and removes a room identity', () => {
+    persistRoomIdentity('identity', identity);
+    removeStoredValue('identity');
+    expect(mockedTaro.setStorageSync).toHaveBeenCalledWith('identity', identity);
+    expect(mockedTaro.removeStorageSync).toHaveBeenCalledWith('identity');
   });
 });
 

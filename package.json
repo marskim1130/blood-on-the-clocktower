@@ -13,6 +13,11 @@
     "typecheck": "tsc --build",
     "proto:generate": "node scripts/generate-types.mjs",
     "test": "vitest run",
+    "test:backend": "cd packages/backend && go test ./...",
+    "test:backend:race": "cd packages/backend && go test -race ./internal/ws ./internal/session ./internal/sessionstore",
+    "test:core": "pnpm --filter @clocktower/core run test",
+    "test:frontend": "pnpm --filter @clocktower/frontend run test",
+    "verify": "pnpm test:backend && pnpm test:backend:race && pnpm --filter @clocktower/core run build && pnpm test:core && pnpm test:frontend && pnpm --filter @clocktower/frontend run build",
     "test:watch": "vitest"
   },
   "devDependencies": {

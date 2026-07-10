@@ -2129,7 +2129,7 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 	nightWakeSteps := []game.NightWakeStep(nil)
 	currentNightWakeIndex := 0
 	var currentNightWakeStep *game.NightWakeStep
-	if gs.phase == game.GamePhaseNight {
+	if gs.phase == game.GamePhaseNight && canSeeAll {
 		nightWakeSteps = gs.activeNightWakeStepsLocked()
 		currentNightWakeIndex = gs.nightWakeIndex
 		currentNightWakeStep = gs.currentNightWakeStepLocked()

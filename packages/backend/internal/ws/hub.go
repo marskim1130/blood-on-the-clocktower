@@ -1,7 +1,10 @@
 package ws
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -9,6 +12,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/your-org/blood-on-the-clocktower/internal/game"
+	"github.com/your-org/blood-on-the-clocktower/internal/session"
+	"github.com/your-org/blood-on-the-clocktower/internal/sessionstore"
 )
 
 var upgrader = websocket.Upgrader{
@@ -18,24 +23,78 @@ var upgrader = websocket.Upgrader{
 // Hub is the transport layer: WebSocket upgrade, message routing, broadcast dispatch.
 // Implements Broadcaster. No game logic, no room state.
 type Hub struct {
-	rm            *RoomManager
-	sessions      map[string]*GameSession // roomID -> GameSession
-	mu            sync.RWMutex
-	connToRoom    map[Connection]string // conn -> roomID (for disconnect lookup)
-	snapshotStore snapshotStore
+	rm                  *RoomManager
+	sessions            map[string]*GameSession // roomID -> GameSession
+	mu                  sync.RWMutex
+	connToRoom          map[Connection]string // conn -> roomID (for disconnect lookup)
+	snapshotStore       snapshotStore
+	registry            *session.Registry
+	active              *ActiveConnectionRegistry
+	allowLegacyProtocol bool
 }
 
 func NewHub() *Hub {
-	return newHub()
+	hub := newHubWithSessionStore(sessionstore.NewMemoryStore(), developmentCredentialKey())
+	hub.allowLegacyProtocol = true
+	return hub
+}
+
+func NewEphemeralProductionHub(credentialKey []byte) (*Hub, error) {
+	if len(credentialKey) < 32 {
+		return nil, fmt.Errorf("CLOCKTOWER_CREDENTIAL_KEY must be at least 32 bytes")
+	}
+	return newHubWithSessionStore(sessionstore.NewMemoryStore(), credentialKey), nil
 }
 
 func newHub() *Hub {
+	return NewHub()
+}
+
+func developmentCredentialKey() []byte {
+	sum := sha256.Sum256([]byte("clocktower-development-credential-key"))
+	return sum[:]
+}
+
+func newHubWithSessionStore(store session.Store, credentialKey []byte) *Hub {
+	registry := session.NewRegistry(store, session.NewHMACCredentialCodec(credentialKey), func(data []byte) (session.Engine, error) { return loadSessionGameEngine("", data) }, nil)
 	return &Hub{
 		rm:         NewRoomManager(),
 		sessions:   make(map[string]*GameSession),
 		connToRoom: make(map[Connection]string),
+		active:     NewActiveConnectionRegistry(),
+		registry:   registry,
 	}
 }
+
+func NewHubWithRoomRecordStore(store session.Store, credentialKey []byte) (*Hub, []error, error) {
+	if len(credentialKey) < 32 {
+		return nil, nil, fmt.Errorf("CLOCKTOWER_CREDENTIAL_KEY must be at least 32 bytes")
+	}
+	hub := newHubWithSessionStore(store, credentialKey)
+	recoveryErrors, err := hub.registry.Restore(context.Background())
+	if err != nil {
+		return nil, nil, err
+	}
+	return hub, recoveryErrors, nil
+}
+
+func NewHubWithFileRoomRecords(directory string, credentialKey []byte) (*Hub, []error, error) {
+	store, err := sessionstore.NewFileStore(directory)
+	if err != nil {
+		return nil, nil, err
+	}
+	return NewHubWithRoomRecordStore(store, credentialKey)
+}
+
+func NewHubWithRedisRoomRecords(redisURL, prefix string, credentialKey []byte) (*Hub, []error, error) {
+	store, err := sessionstore.NewRedisStore(redisURL, prefix)
+	if err != nil {
+		return nil, nil, err
+	}
+	return NewHubWithRoomRecordStore(store, credentialKey)
+}
+
+func (h *Hub) Healthy() bool { return h.registry == nil || h.registry.Healthy() }
 
 // HandleWebSocket handles WebSocket upgrade and message routing.
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +119,15 @@ func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		h.handleMessage(conn, msg)
+		if msg.ProtocolVersion != 2 && !(h.allowLegacyProtocol && msg.ProtocolVersion == 0) {
+			_ = conn.SendJSON(ServerMessage{Type: "ERROR", Code: "UNSUPPORTED_PROTOCOL", Error: "protocol version 2 is required"})
+			continue
+		}
+		if msg.ProtocolVersion == 2 {
+			h.handleMessageV2(conn, msg)
+		} else {
+			h.handleMessage(conn, msg)
+		}
 	}
 }
 

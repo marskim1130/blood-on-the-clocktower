@@ -312,6 +312,7 @@ export class GameWebSocketClient {
   private pendingIdentity: PendingIdentity | null = null;
   private nextClientSequence: number | null = null;
   private roomRevision: number | null = null;
+  private resyncInFlight = false;
   private pendingSequencedCommand: { readonly sequence: number; readonly message: ClientMessage } | null = null;
   private queuedSequencedCommands: SequencedClientMessage[] = [];
 
@@ -364,8 +365,9 @@ export class GameWebSocketClient {
     transport.onMessage((data) => {
       try {
         const msg: ServerMessage = JSON.parse(data);
-        this.captureProtocolState(msg);
-        this.handlers.forEach((handler) => handler(msg));
+        const acceptedMessage = this.acceptProjection(msg);
+        this.captureProtocolState(acceptedMessage);
+        this.handlers.forEach((handler) => handler(acceptedMessage));
       } catch {
         console.warn('Failed to parse WebSocket message');
       }
@@ -621,6 +623,38 @@ export class GameWebSocketClient {
       this.pendingSequencedCommand = null;
       this.flushSequencedCommand();
     }
+  }
+
+  private acceptProjection(msg: ServerMessage): ServerMessage {
+    if (!msg.state || typeof msg.roomRevision !== 'number') return msg;
+
+    const currentRevision = this.roomRevision;
+    const isFullProjection =
+      msg.type === 'CREATE_ROOM_RESULT' ||
+      msg.type === 'JOIN_ROOM_RESULT' ||
+      msg.type === 'RESUME_ROOM_RESULT' ||
+      msg.type === 'ROOM_STATE';
+
+    if (currentRevision !== null && msg.roomRevision <= currentRevision) {
+      const { state: _state, roomRevision: _roomRevision, ...messageWithoutProjection } = msg;
+      return messageWithoutProjection;
+    }
+
+    if (!isFullProjection && currentRevision !== null && msg.roomRevision > currentRevision + 1) {
+      if (!this.resyncInFlight) {
+        this.resyncInFlight = true;
+        try {
+          this.getRoomState();
+        } catch {
+          this.resyncInFlight = false;
+        }
+      }
+      const { state: _state, roomRevision: _roomRevision, ...messageWithoutProjection } = msg;
+      return messageWithoutProjection;
+    }
+
+    if (isFullProjection) this.resyncInFlight = false;
+    return msg;
   }
 
   private sendAuthenticated(msg: OutboundClientMessage): void {

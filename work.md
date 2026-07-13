@@ -1,5 +1,10 @@
 # Work Log
 
+## 2026-07-11 17:53:50 +08:00 --- 启动开发服务器 [Dev Server] 时后端 [Backend] 因缺少至少 32 字节的环境变量凭证密钥 [Credential Signing Key] 报错退出 --- 创建本地环境变量配置文件 [Environment Configuration File] 并配置凭证密钥，以便在启动时注入 --- 修改了 `c:\Users\Qilia\Desktop\blood-on-the-clocktower\.env`、`c:\Users\Qilia\Desktop\blood-on-the-clocktower\work.md`
+
+### 撤回方式 [Rollback Strategy]
+删除 `c:\Users\Qilia\Desktop\blood-on-the-clocktower\.env` 文件，并回滚对 `c:\Users\Qilia\Desktop\blood-on-the-clocktower\work.md` 的修改。
+
 ## 2026-06-13 16:00:42 +08:00 --- 发现 txt 中指定的 vless/tuic 节点尚未加入目标 yaml --- 通过追加两个代理节点 [Proxy Nodes] 并更新策略组 [Proxy Groups] 引用解决 --- 修改了 `C:\Users\Qilia\Desktop\2625_updated_manual_select_no_old_racknerd(1).yaml`、`C:\Users\Qilia\Desktop\blood-on-the-clocktower\work.md`
 
 ### 撤回方式 [Rollback Strategy]
@@ -1433,3 +1438,51 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 
 ### 撤回方式 [Rollback Strategy]
 - 删除新增文档、配置示例和 CI 文件，并将 `package.json`、`.gitignore` 与三个 `CONTEXT.md` 恢复到本次修改前版本。
+
+## 2026-07-10 17:09 --- 已提交会话投影可能乱序、阻塞或混入下一修订元数据 --- 引入实时投影提交观察器与有序出站队列 --- 修改 Session、Hub、Core 与 Frontend
+
+### 发现什么问题
+- Hub 在会话锁释放后同步发送确认和广播，后续命令可能先发送更高修订；慢连接会阻塞其他接收者。
+- Join 通过重新查询生成广播，可能跳过 Join 修订；Hub 重新读取元数据可能把投影 N 与元数据 N+1 混合。
+- Core 与 Frontend 分散处理修订门禁，过期完整投影仍可能回滚 UI，完整同步也可能残留旧提名和夜间状态。
+- 间谍和游戏结束角色公开复用了说书人全视野，可能连带泄漏中毒和夜晚管理状态。
+
+### 使用什么方式解决
+- 为 `AuthoritativeGameSession.Execute` 与 `SessionRegistry.Join` 增加提交观察器 [Commit Observer]，在房间串行锁内生成并入队同一已提交视图的确认和接收者投影。
+- 将提交元数据随结果返回，Hub 不再从后续视图重建投影元数据，也不再凭凭证重新查询 Join 广播。
+- 新增每连接独立、有界的有序出站队列 [Ordered Outbound Queue]；发送异步执行，慢消费者或发送失败只关闭活动连接。
+- Core 增加投影门禁 [Projection Gate]，统一忽略重复、过期和不连续投影，并限制同一重同步周期只请求一次完整状态。
+- Frontend 在清除或应用完整投影时显式清理提名、死亡、阶段、夜间输入与游戏结束状态。
+- 将角色可见、中毒可见和夜间管理可见拆分为投影能力 [Projection Capabilities]。
+
+### 修改了哪些文件
+- `packages/backend/internal/session/types.go`、`packages/backend/internal/session/session.go`、`packages/backend/internal/session/registry.go`。
+- `packages/backend/internal/ws/outbound_dispatcher.go`、`packages/backend/internal/ws/outbound_dispatcher_test.go`、`packages/backend/internal/ws/hub.go`、`packages/backend/internal/ws/hub_v2.go`、`packages/backend/internal/ws/hub_v2_test.go`、`packages/backend/internal/ws/session_persistence_test.go`。
+- `packages/backend/internal/ws/game_session.go`、`packages/backend/internal/ws/game_session_test.go`。
+- `packages/core/src/websocket/index.ts`、`packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/frontend/src/pages/index/index.tsx`。
+- `packages/backend/CONTEXT.md`、`packages/core/CONTEXT.md`、`packages/frontend/CONTEXT.md`、`docs/protocol/websocket-v2.md`、`work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/ws/outbound_dispatcher.go` 与对应测试。
+- 将上述 Session、Hub、游戏投影、Core、Frontend 和文档文件恢复到本节修改前版本；恢复后投影会回到同步广播和客户端分散修订判断模式。
+
+## 2026-07-13 10:03 --- 架构职责分散且迁移残留扩大测试面 --- 使用领域上下文与删除测试生成架构审查报告 --- 修改系统临时报告与 work.md
+
+### 发现什么问题
+- 后端旧 `RoomManager`、旧 `GameSession`、旧全局快照与协议 v2 的权威游戏会话 [Authoritative Game Session] 同时存在。
+- 前端首页同时承担连接、身份、实时游戏会话投影 [Real-time Game Session Projection]、命令和渲染职责。
+- WebSocket 协议 v2 在 Go、TypeScript、ProtoBuf 与 Markdown 中存在多份手写接口 [Interface]。
+
+### 使用什么方式解决
+- 读取多上下文领域文档并核查各包架构决策记录 [ADR]；当前没有已落盘 ADR。
+- 对候选模块 [Modules] 执行删除测试 [Deletion Test]，按局部性 [Locality]、杠杆效应 [Leverage] 与测试面排序。
+- 生成包含三个候选及前后对比图的 HTML 架构审查报告，未修改实现代码。
+
+### 修改了哪些文件
+- `C:\Users\Qilia\AppData\Local\Temp\architecture-review-20260713-100024.html`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除系统临时目录中的 `architecture-review-20260713-100024.html`。
+- 删除 `work.md` 中标题为 `2026-07-13 10:03` 的本节记录。

@@ -30,3 +30,9 @@
 ## 修订同步 [Revision Synchronization]
 
 `roomRevision` 只表示持久化提交顺序。客户端只应用连续的新修订；相同修订视为幂等重复。发现跳跃或倒退时，请求 `GET_ROOM_STATE` 并等待完整接收者投影。
+
+## 实时投影投递 [Real-time Projection Delivery]
+
+实时游戏会话投影 [Real-time Game Session Projection] 是从单个已提交视图生成的接收者特定完整状态。加入和命令提交在房间串行顺序内生成整批投影；网络发送不参与事务。
+
+每个活动连接使用独立的有序出站队列 [Ordered Outbound Queue]。同一连接按入队顺序发送，不同连接互不阻塞。发送失败或慢消费者队列溢出时，服务端只关闭活动连接，房间成员资格保持；重连后通过完整状态恢复，不补发历史事件。

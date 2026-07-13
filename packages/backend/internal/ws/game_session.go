@@ -2083,7 +2083,7 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
-	canSeeAll := gs.recipientCanSeeAllLocked(forceSeeAll, recipientID)
+	capabilities := gs.projectionCapabilitiesLocked(forceSeeAll, recipientID)
 	players := make([]game.Player, len(gs.players))
 	for i, player := range gs.players {
 		players[i] = player
@@ -2100,7 +2100,7 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 			players[i].PoisonedUntil = &poisonedUntil
 		}
 		// Hide character from non-storyteller recipients, and show the Drunk only their false Townsfolk.
-		if !canSeeAll {
+		if !capabilities.seeAllCharacters {
 			if player.ID == recipientID && player.Character != nil && player.Character.ID == "drunk" && player.ShownCharacter != nil {
 				shownCharacter := *player.ShownCharacter
 				players[i].Character = &shownCharacter
@@ -2110,7 +2110,7 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 			players[i].ShownCharacter = nil
 		}
 		// Hide PoisonedUntil from all non-storyteller recipients (including the poisoned player)
-		if !canSeeAll {
+		if !capabilities.seePoisoning {
 			players[i].PoisonedUntil = nil
 		}
 	}
@@ -2129,7 +2129,7 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 	nightWakeSteps := []game.NightWakeStep(nil)
 	currentNightWakeIndex := 0
 	var currentNightWakeStep *game.NightWakeStep
-	if gs.phase == game.GamePhaseNight && canSeeAll {
+	if gs.phase == game.GamePhaseNight && capabilities.seeNightManagement {
 		nightWakeSteps = gs.activeNightWakeStepsLocked()
 		currentNightWakeIndex = gs.nightWakeIndex
 		currentNightWakeStep = gs.currentNightWakeStepLocked()
@@ -2153,19 +2153,25 @@ func (gs *GameSession) stateForRoom(roomID string, forceSeeAll bool, recipientID
 	}
 }
 
-func (gs *GameSession) recipientCanSeeAllLocked(forceSeeAll bool, recipientID string) bool {
-	if forceSeeAll ||
-		(gs.storytellerID != "" && recipientID == gs.storytellerID) ||
-		gs.phase == game.GamePhaseFinished ||
-		gs.winner != nil {
-		return true
+type projectionCapabilities struct {
+	seeAllCharacters   bool
+	seePoisoning       bool
+	seeNightManagement bool
+}
+
+func (gs *GameSession) projectionCapabilitiesLocked(forceSeeAll bool, recipientID string) projectionCapabilities {
+	if forceSeeAll || (gs.storytellerID != "" && recipientID == gs.storytellerID) {
+		return projectionCapabilities{seeAllCharacters: true, seePoisoning: true, seeNightManagement: true}
+	}
+	if gs.phase == game.GamePhaseFinished || gs.winner != nil {
+		return projectionCapabilities{seeAllCharacters: true}
 	}
 	if gs.phase != game.GamePhaseNight {
-		return false
+		return projectionCapabilities{}
 	}
 	playerIdx := gs.findPlayerIndex(recipientID)
 	if playerIdx == -1 || !gs.players[playerIdx].IsAlive || gs.players[playerIdx].Character == nil {
-		return false
+		return projectionCapabilities{}
 	}
-	return gs.players[playerIdx].Character.ID == "spy" && !gs.playerIsPoisonedLocked(playerIdx)
+	return projectionCapabilities{seeAllCharacters: gs.players[playerIdx].Character.ID == "spy" && !gs.playerIsPoisonedLocked(playerIdx)}
 }

@@ -52,6 +52,10 @@ func (s *AuthoritativeGameSession) CredentialFor(playerID string) (string, bool)
 }
 
 func (s *AuthoritativeGameSession) Execute(ctx context.Context, actor Actor, command Command) (CommandResult, error) {
+	return s.ExecuteObserved(ctx, actor, command, nil)
+}
+
+func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Actor, command Command, observer CommitObserver) (CommandResult, error) {
 	s.commandMu.Lock()
 	defer s.commandMu.Unlock()
 	if s.conflict.Load() {
@@ -71,7 +75,11 @@ func (s *AuthoritativeGameSession) Execute(ctx context.Context, actor Actor, com
 		if command.Fingerprint != identity.LastFingerprint {
 			return CommandResult{}, ErrSequenceConflict
 		}
-		return CommandResult{AcceptedSequence: identity.LastResult.AcceptedSequence, NextClientSequence: identity.LastResult.NextClientSequence, RoomRevision: current.record.RoomRevision, Duplicate: true, DirectResponse: project(current, actor.PlayerID, retained)}, nil
+		result := CommandResult{AcceptedSequence: identity.LastResult.AcceptedSequence, NextClientSequence: identity.LastResult.NextClientSequence, RoomRevision: current.record.RoomRevision, Duplicate: true, DirectResponse: project(current, actor.PlayerID, retained), Metadata: metadataFromRecord(current.record)}
+		if observer != nil {
+			observer(result)
+		}
+		return result, nil
 	}
 	if actor.ClientSequence != identity.LastSequence+1 {
 		return CommandResult{}, ErrUnexpectedSequence
@@ -138,7 +146,11 @@ func (s *AuthoritativeGameSession) Execute(ctx context.Context, actor Actor, com
 		}
 		s.committed.Store(&committedView{record: candidate, engine: engine, closed: true})
 		result.RoomRevision = candidate.RoomRevision
+		result.Metadata = metadataFromRecord(candidate)
 		result.ConnectionEffects = []ConnectionEffect{CloseAll}
+		if observer != nil {
+			observer(result)
+		}
 		return result, nil
 	default:
 		if retained {
@@ -182,9 +194,13 @@ func (s *AuthoritativeGameSession) Execute(ctx context.Context, actor Actor, com
 	view := &committedView{record: candidate, engine: engine}
 	s.committed.Store(view)
 	result.RoomRevision = candidate.RoomRevision
+	result.Metadata = metadataFromRecord(candidate)
 	result.DirectResponse = project(view, actor.PlayerID, identity.State == IdentityRetained)
 	for playerID := range candidate.Members {
 		result.Deliveries = append(result.Deliveries, Delivery{PlayerID: playerID, Payload: engine.Project(playerID)})
+	}
+	if observer != nil {
+		observer(result)
 	}
 	return result, nil
 }
@@ -198,13 +214,17 @@ func (s *AuthoritativeGameSession) Query(actor Actor) (QueryResult, error) {
 	if err != nil {
 		return QueryResult{}, err
 	}
-	result := QueryResult{RoomRevision: view.record.RoomRevision, NextClientSequence: identity.LastSequence + 1}
+	result := QueryResult{RoomRevision: view.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, Metadata: metadataFromRecord(view.record)}
 	if retained {
 		result.Identity = &IdentityStatus{Status: IdentityRetained, CanRejoin: !view.record.ParticipantSetFrozen, NextClientSequence: identity.LastSequence + 1, ParticipantSetFrozen: view.record.ParticipantSetFrozen}
 	} else {
 		result.Room = view.engine.Project(actor.PlayerID)
 	}
 	return result, nil
+}
+
+func metadataFromRecord(record RoomRecord) RoomMetadata {
+	return RoomMetadata{RoomID: record.RoomID, CreatorID: record.CreatorID, MaxPlayers: record.MaxPlayers, ScriptID: record.ScriptID, ParticipantSetFrozen: record.ParticipantSetFrozen}
 }
 
 func authenticate(record RoomRecord, codec CredentialCodec, actor Actor) (Identity, bool, error) {

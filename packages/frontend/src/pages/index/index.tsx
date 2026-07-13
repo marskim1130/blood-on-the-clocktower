@@ -454,6 +454,14 @@ export default function IndexPage() {
   function clearRoomView(): void {
     setRoomState(null);
     setMyCharacter(null);
+    setGamePhase('setup');
+    setDayNumber(0);
+    setCurrentNomination(null);
+    setDeathRecords({});
+    setGhostVotesRemaining(new Set());
+    setNightActionType('');
+    setNightTargetIds([]);
+    setGameOver(null);
   }
 
   function updateMaxPlayersInput(value: string): void {
@@ -482,7 +490,7 @@ export default function IndexPage() {
         nomineeId: state.nomination.nomineeId,
         votes: state.nomination.votes ?? {},
       });
-    } else if (snapshotPhase !== 'voting') {
+    } else {
       setCurrentNomination(null);
     }
 
@@ -497,6 +505,9 @@ export default function IndexPage() {
     setGhostVotesRemaining(new Set(state.ghostVotesRemaining ?? []));
     if (state.currentNightWakeStep) {
       setNightActionType(state.currentNightWakeStep.actionType);
+      setNightTargetIds([]);
+    } else {
+      setNightActionType('');
       setNightTargetIds([]);
     }
 

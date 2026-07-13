@@ -997,6 +997,14 @@ func TestGameSessionSpySeesAllCharactersAtNight(t *testing.T) {
 			t.Fatalf("expected Spy to see %s character at night", player.ID)
 		}
 	}
+	if state.CurrentNightWakeStep != nil || len(state.NightWakeSteps) != 0 {
+		t.Fatal("Spy must not see storyteller night management")
+	}
+	for _, player := range state.Players {
+		if player.PoisonedUntil != nil {
+			t.Fatal("Spy must not see poisoning state")
+		}
+	}
 }
 
 func TestGameSessionSpyDoesNotSeeAllCharactersDuringDay(t *testing.T) {

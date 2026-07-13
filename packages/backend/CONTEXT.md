@@ -210,6 +210,14 @@ Go structs are generated from the same ProtoBuf definitions as TypeScript types.
 113. A deduplicated command response returns the current latest Room Revision
 114. Room Revision represents persisted commit order only and is distinct from game phase, event count, and Client Sequence
 115. Backend protocol support for Room Revision is in scope; automatic frontend resynchronization may be delivered as a later vertical slice
+116. A Real-time Game Session Projection is a privacy-safe, recipient-specific complete room state generated from exactly one committed view
+117. Projection Delivery begins only after persistence and atomic publication; delivery failure never changes the committed command result
+118. Join and command commits generate all recipient projections while holding the room command sequence, so a projection batch cannot mix revisions
+119. Projection metadata, game state, Room Revision, and next Client Sequence must come from the same committed view; Hub must not reconstruct metadata from a later view
+120. Every active connection has an Ordered Outbound Queue; messages for one connection preserve enqueue order while different connections drain independently
+121. A slow or failed consumer is disconnected without removing Room Membership; a bounded queue overflow follows the same rule
+122. Connection takeover discards the old connection's pending outbound queue before closing it
+123. Spy visibility and finished-game character reveal do not grant storyteller-only poisoning or night-management visibility
 
 ## Persistence
 

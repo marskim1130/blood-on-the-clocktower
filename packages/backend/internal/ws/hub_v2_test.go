@@ -1,10 +1,21 @@
 package ws
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func lastServerMessage(t *testing.T, connection *FakeConnection) ServerMessage {
 	t.Helper()
-	messages := connection.Messages()
+	deadline := time.Now().Add(time.Second)
+	var messages []any
+	for time.Now().Before(deadline) {
+		messages = connection.Messages()
+		if len(messages) > 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if len(messages) == 0 {
 		t.Fatal("expected server message")
 	}
@@ -26,7 +37,7 @@ func TestProtocolV2CreateResumeAndSequencedCommand(t *testing.T) {
 
 	creator.ClearMessages()
 	hub.handleMessageV2(creator, ClientMessage{ProtocolVersion: 2, Type: MsgUpdateRoomSettings, RoomID: created.RoomID, PlayerID: "creator", ResumeCredential: created.ResumeCredential, ClientSequence: 1, MaxPlayers: 7})
-	command := creator.Messages()[0].(ServerMessage)
+	command := lastServerMessage(t, creator)
 	if command.Type != "COMMAND_RESULT" || command.AcceptedSequence != 1 || command.NextClientSequence != 2 || command.RoomRevision != 2 {
 		t.Fatalf("unexpected command result: %+v", command)
 	}

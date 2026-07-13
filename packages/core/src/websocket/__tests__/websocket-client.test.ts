@@ -264,6 +264,31 @@ describe('GameWebSocketClient protocol v2', () => {
     client.disconnect();
   });
 
+  it('filters duplicate, gapped, and stale room projections before handlers', async () => {
+    const client = createClient();
+    const handled: ServerMessage[] = [];
+    client.onMessage((message) => handled.push(message));
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    server.clients.forEach((socket) => {
+      send(socket, { type: 'ROOM_STATE_CHANGED', roomRevision: 1, state: { roomId: 'creator-room', players: [] } });
+      send(socket, { type: 'ROOM_STATE_CHANGED', roomRevision: 3, state: { roomId: 'creator-room', players: [] } });
+      send(socket, { type: 'ROOM_STATE', roomRevision: 2, state: { roomId: 'creator-room', players: [] } });
+      send(socket, { type: 'ROOM_STATE', roomRevision: 4, state: { roomId: 'creator-room', players: [] } });
+    });
+
+    await waitFor(() => handled.filter((message) => message.type === 'ROOM_STATE').length === 2);
+    const duplicate = handled.find((message) => message.type === 'ROOM_STATE_CHANGED' && message.roomRevision === undefined);
+    const gapped = handled.filter((message) => message.type === 'ROOM_STATE_CHANGED' && message.state === undefined);
+    expect(duplicate?.state).toBeUndefined();
+    expect(gapped).toHaveLength(2);
+    expect(client.currentRoomRevision).toBe(4);
+    expect(receivedMessages.filter((message) => message.type === 'GET_ROOM_STATE')).toHaveLength(1);
+    client.disconnect();
+  });
+
   it('throws when sending on a disconnected client', () => {
     const client = createClient();
     expect(() => client.send({ type: 'GET_ROOM_STATE' })).toThrow('WebSocket is not connected');

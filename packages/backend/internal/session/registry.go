@@ -85,12 +85,15 @@ type CreateResult struct {
 	RoomID, PlayerID, ResumeCredential string
 	RoomRevision, NextClientSequence   uint64
 	State                              any
+	Metadata                           RoomMetadata
 }
 type JoinInput struct{ RequestID, RoomID, PlayerID, PlayerName, Fingerprint string }
 type JoinResult struct {
 	PlayerID, ResumeCredential       string
 	RoomRevision, NextClientSequence uint64
 	State                            any
+	Deliveries                       []Delivery
+	Metadata                         RoomMetadata
 }
 
 func (r *Registry) Create(ctx context.Context, input CreateInput) (CreateResult, error) {
@@ -106,7 +109,7 @@ func (r *Registry) Create(ctx context.Context, input CreateInput) (CreateResult,
 			return CreateResult{}, ErrIdempotencyConflict
 		}
 		identity := view.record.Members[record.PlayerID]
-		return CreateResult{RoomID: roomID, PlayerID: record.PlayerID, ResumeCredential: r.codec.Encode(roomID, record.PlayerID, identity.CredentialNonce), RoomRevision: view.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: view.engine.Project(record.PlayerID)}, nil
+		return CreateResult{RoomID: roomID, PlayerID: record.PlayerID, ResumeCredential: r.codec.Encode(roomID, record.PlayerID, identity.CredentialNonce), RoomRevision: view.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: view.engine.Project(record.PlayerID), Metadata: metadataFromRecord(view.record)}, nil
 	}
 	r.mu.RUnlock()
 
@@ -139,7 +142,7 @@ func (r *Registry) Create(ctx context.Context, input CreateInput) (CreateResult,
 		r.sessions[roomID] = s
 		r.creates[input.RequestID] = roomID
 		r.mu.Unlock()
-		return CreateResult{RoomID: roomID, PlayerID: input.PlayerID, ResumeCredential: credential, RoomRevision: 1, NextClientSequence: 1, State: input.Engine.Project(input.PlayerID)}, nil
+		return CreateResult{RoomID: roomID, PlayerID: input.PlayerID, ResumeCredential: credential, RoomRevision: 1, NextClientSequence: 1, State: input.Engine.Project(input.PlayerID), Metadata: metadataFromRecord(record)}, nil
 	}
 	return CreateResult{}, fmt.Errorf("create room: %w", ErrPersistenceUnavailable)
 }
@@ -163,6 +166,10 @@ func (r *Registry) Healthy() bool {
 }
 
 func (r *Registry) Join(ctx context.Context, input JoinInput) (JoinResult, error) {
+	return r.JoinObserved(ctx, input, nil)
+}
+
+func (r *Registry) JoinObserved(ctx context.Context, input JoinInput, observer JoinObserver) (JoinResult, error) {
 	s, ok := r.Get(input.RoomID)
 	if !ok {
 		return JoinResult{}, ErrRoomNotFound
@@ -175,7 +182,11 @@ func (r *Registry) Join(ctx context.Context, input JoinInput) (JoinResult, error
 			return JoinResult{}, ErrIdempotencyConflict
 		}
 		identity := current.record.Members[existing.PlayerID]
-		return JoinResult{PlayerID: identity.PlayerID, ResumeCredential: r.codec.Encode(input.RoomID, identity.PlayerID, identity.CredentialNonce), RoomRevision: current.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: current.engine.Project(identity.PlayerID)}, nil
+		result := JoinResult{PlayerID: identity.PlayerID, ResumeCredential: r.codec.Encode(input.RoomID, identity.PlayerID, identity.CredentialNonce), RoomRevision: current.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: current.engine.Project(identity.PlayerID), Metadata: metadataFromRecord(current.record)}
+		if observer != nil {
+			observer(result)
+		}
+		return result, nil
 	}
 	if current.record.ParticipantSetFrozen {
 		return JoinResult{}, ErrParticipantSetFrozen
@@ -218,7 +229,14 @@ func (r *Registry) Join(ctx context.Context, input JoinInput) (JoinResult, error
 		return JoinResult{}, ErrPersistenceUnavailable
 	}
 	s.committed.Store(&committedView{record: candidate, engine: engine})
-	return JoinResult{PlayerID: input.PlayerID, ResumeCredential: credential, RoomRevision: candidate.RoomRevision, NextClientSequence: 1, State: engine.Project(input.PlayerID)}, nil
+	result := JoinResult{PlayerID: input.PlayerID, ResumeCredential: credential, RoomRevision: candidate.RoomRevision, NextClientSequence: 1, State: engine.Project(input.PlayerID), Metadata: metadataFromRecord(candidate)}
+	for playerID := range candidate.Members {
+		result.Deliveries = append(result.Deliveries, Delivery{PlayerID: playerID, Payload: engine.Project(playerID)})
+	}
+	if observer != nil {
+		observer(result)
+	}
+	return result, nil
 }
 
 func (r *Registry) Remove(roomID string) {

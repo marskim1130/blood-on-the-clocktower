@@ -30,6 +30,7 @@ type Hub struct {
 	snapshotStore       snapshotStore
 	registry            *session.Registry
 	active              *ActiveConnectionRegistry
+	outbound            *outboundDispatcher
 	allowLegacyProtocol bool
 }
 
@@ -57,13 +58,15 @@ func developmentCredentialKey() []byte {
 
 func newHubWithSessionStore(store session.Store, credentialKey []byte) *Hub {
 	registry := session.NewRegistry(store, session.NewHMACCredentialCodec(credentialKey), func(data []byte) (session.Engine, error) { return loadSessionGameEngine("", data) }, nil)
-	return &Hub{
+	hub := &Hub{
 		rm:         NewRoomManager(),
 		sessions:   make(map[string]*GameSession),
 		connToRoom: make(map[Connection]string),
 		active:     NewActiveConnectionRegistry(),
 		registry:   registry,
 	}
+	hub.outbound = newOutboundDispatcher(func(connection Connection) { hub.active.Remove(connection) })
+	return hub
 }
 
 func NewHubWithRoomRecordStore(store session.Store, credentialKey []byte) (*Hub, []error, error) {
@@ -1018,6 +1021,12 @@ func (h *Hub) handleEndGame(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) handleDisconnect(conn Connection) {
+	if h.outbound != nil {
+		h.outbound.remove(conn)
+	}
+	if h.active != nil {
+		h.active.Remove(conn)
+	}
 	// Always clean up connToRoom, even if RemoveClientByConn fails
 	h.mu.Lock()
 	delete(h.connToRoom, conn)

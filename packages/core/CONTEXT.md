@@ -41,6 +41,8 @@ The `GameWebSocketClient` provides:
 - One in-flight sequenced state command at a time
 - Client sequence advancement only after authoritative acknowledgement
 - Room revision tracking for full-state resynchronization
+- A projection gate that strips duplicate, stale, or gapped room projections before application handlers run
+- At most one automatic full-state request while a revision resynchronization is in flight
 
 The Core client keeps identity in memory. Durable Resume Credential storage belongs to the Frontend adapter.
 

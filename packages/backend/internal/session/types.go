@@ -129,7 +129,10 @@ type CommandResult struct {
 	Deliveries         []Delivery
 	ConnectionEffects  []ConnectionEffect
 	TargetPlayerID     string
+	Metadata           RoomMetadata
 }
+
+type CommitObserver func(CommandResult)
 
 type IdentityStatus struct {
 	Status               IdentityState `json:"status"`
@@ -143,7 +146,10 @@ type QueryResult struct {
 	NextClientSequence uint64
 	Room               any
 	Identity           *IdentityStatus
+	Metadata           RoomMetadata
 }
+
+type JoinObserver func(JoinResult)
 
 type Engine interface {
 	Clone() Engine

@@ -45,31 +45,30 @@ func (h *Hub) handleCreateRoomV2(conn Connection, msg ClientMessage) {
 	generation, previous := h.active.Takeover(result.RoomID, result.PlayerID, conn)
 	_ = generation
 	if previous != nil {
+		h.outbound.remove(previous)
 		_ = previous.Close()
 	}
 	state, _ := result.State.(*RoomState)
-	if s, ok := h.registry.Get(result.RoomID); ok {
-		decorateRoomState(state, s.Metadata())
-	}
-	_ = conn.SendJSON(ServerMessage{Type: "CREATE_ROOM_RESULT", RoomID: result.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	decorateRoomState(state, result.Metadata)
+	h.outbound.send(conn, ServerMessage{Type: "CREATE_ROOM_RESULT", RoomID: result.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
-	result, err := h.registry.Join(context.Background(), session.JoinInput{RequestID: msg.JoinRequestID, RoomID: msg.RoomID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, Fingerprint: fingerprint(msg)})
+	_, err := h.registry.JoinObserved(context.Background(), session.JoinInput{RequestID: msg.JoinRequestID, RoomID: msg.RoomID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, Fingerprint: fingerprint(msg)}, func(result session.JoinResult) {
+		_, previous := h.active.Takeover(msg.RoomID, msg.PlayerID, conn)
+		if previous != nil {
+			h.outbound.remove(previous)
+			_ = previous.Close()
+		}
+		state, _ := result.State.(*RoomState)
+		decorateRoomState(state, result.Metadata)
+		h.outbound.send(conn, ServerMessage{Type: "JOIN_ROOM_RESULT", RoomID: msg.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+		h.enqueueDeliveries(msg.RoomID, msg.PlayerID, result.RoomRevision, result.Deliveries, result.Metadata)
+	})
 	if err != nil {
 		h.sendV2Error(conn, err, 0)
 		return
 	}
-	_, previous := h.active.Takeover(msg.RoomID, msg.PlayerID, conn)
-	if previous != nil {
-		_ = previous.Close()
-	}
-	state, _ := result.State.(*RoomState)
-	if s, ok := h.registry.Get(msg.RoomID); ok {
-		decorateRoomState(state, s.Metadata())
-	}
-	_ = conn.SendJSON(ServerMessage{Type: "JOIN_ROOM_RESULT", RoomID: msg.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
-	h.broadcastSessionState(msg.RoomID)
 }
 
 func (h *Hub) handleResumeRoomV2(conn Connection, msg ClientMessage) {
@@ -85,11 +84,12 @@ func (h *Hub) handleResumeRoomV2(conn Connection, msg ClientMessage) {
 	}
 	_, previous := h.active.Takeover(msg.RoomID, msg.PlayerID, conn)
 	if previous != nil {
+		h.outbound.remove(previous)
 		_ = previous.Close()
 	}
 	state, _ := result.Room.(*RoomState)
-	decorateRoomState(state, s.Metadata())
-	_ = conn.SendJSON(ServerMessage{Type: "RESUME_ROOM_RESULT", RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	decorateRoomState(state, result.Metadata)
+	h.outbound.send(conn, ServerMessage{Type: "RESUME_ROOM_RESULT", RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleGetRoomStateV2(conn Connection, msg ClientMessage) {
@@ -108,8 +108,8 @@ func (h *Hub) handleGetRoomStateV2(conn Connection, msg ClientMessage) {
 		return
 	}
 	state, _ := result.Room.(*RoomState)
-	decorateRoomState(state, s.Metadata())
-	_ = conn.SendJSON(ServerMessage{Type: "ROOM_STATE", RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	decorateRoomState(state, result.Metadata)
+	h.outbound.send(conn, ServerMessage{Type: "ROOM_STATE", RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
@@ -131,7 +131,12 @@ func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
 	var result session.CommandResult
 	execute := func() error {
 		var executeErr error
-		result, executeErr = s.Execute(context.Background(), session.Actor{PlayerID: msg.PlayerID, Credential: msg.ResumeCredential, ClientSequence: msg.ClientSequence, Detached: detached}, command)
+		result, executeErr = s.ExecuteObserved(context.Background(), session.Actor{PlayerID: msg.PlayerID, Credential: msg.ResumeCredential, ClientSequence: msg.ClientSequence, Detached: detached}, command, func(committed session.CommandResult) {
+			h.enqueueCommandResult(conn, msg.RoomID, committed)
+			if !committed.Duplicate {
+				h.enqueueDeliveries(msg.RoomID, msg.PlayerID, committed.RoomRevision, committed.Deliveries, committed.Metadata)
+			}
+		})
 		return executeErr
 	}
 	if detached {
@@ -153,48 +158,44 @@ func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
 	if msg.Type == MsgCloseRoom {
 		h.registry.Remove(msg.RoomID)
 	}
-	state, _ := result.DirectResponse.(*RoomState)
-	var identityStatus any
-	if status, ok := result.DirectResponse.(session.IdentityStatus); ok {
-		identityStatus = status
-	}
-	decorateRoomState(state, s.Metadata())
-	_ = conn.SendJSON(ServerMessage{Type: "COMMAND_RESULT", RoomID: msg.RoomID, State: state, IdentityStatus: identityStatus, RoomRevision: result.RoomRevision, AcceptedSequence: result.AcceptedSequence, NextClientSequence: result.NextClientSequence})
-	if !result.Duplicate {
-		h.broadcastCommittedResult(msg.RoomID, result, s.Metadata())
-	}
 	for _, effect := range result.ConnectionEffects {
 		switch effect {
 		case session.CloseSender:
-			_ = conn.Close()
-			h.active.Remove(conn)
+			h.outbound.closeWhenDrained(conn)
 		case session.CloseTarget:
 			if target, _, ok := h.active.Get(msg.RoomID, result.TargetPlayerID); ok {
-				_ = target.SendJSON(ServerMessage{Type: "KICKED", RoomID: msg.RoomID})
-				_ = target.Close()
-				h.active.Remove(target)
+				h.outbound.sendAndClose(target, ServerMessage{Type: "KICKED", RoomID: msg.RoomID})
 			}
 		case session.CloseAll:
 			for _, target := range h.active.RemoveRoom(msg.RoomID) {
-				_ = target.SendJSON(ServerMessage{Type: "ROOM_CLOSED", RoomID: msg.RoomID})
-				_ = target.Close()
+				h.outbound.sendAndClose(target, ServerMessage{Type: "ROOM_CLOSED", RoomID: msg.RoomID})
 			}
 		}
 	}
 }
 
-func (h *Hub) broadcastCommittedResult(roomID string, result session.CommandResult, metadata session.RoomMetadata) {
-	for _, delivery := range result.Deliveries {
+func (h *Hub) enqueueCommandResult(connection Connection, roomID string, result session.CommandResult) {
+	state, _ := result.DirectResponse.(*RoomState)
+	var identityStatus any
+	if status, ok := result.DirectResponse.(session.IdentityStatus); ok {
+		identityStatus = status
+	}
+	decorateRoomState(state, result.Metadata)
+	h.outbound.send(connection, ServerMessage{Type: "COMMAND_RESULT", RoomID: roomID, State: state, IdentityStatus: identityStatus, RoomRevision: result.RoomRevision, AcceptedSequence: result.AcceptedSequence, NextClientSequence: result.NextClientSequence})
+}
+
+func (h *Hub) enqueueDeliveries(roomID, excludePlayerID string, revision uint64, deliveries []session.Delivery, metadata session.RoomMetadata) {
+	for _, delivery := range deliveries {
+		if delivery.PlayerID == excludePlayerID {
+			continue
+		}
 		connection, _, ok := h.active.Get(roomID, delivery.PlayerID)
 		if !ok {
 			continue
 		}
 		state, _ := delivery.Payload.(*RoomState)
 		decorateRoomState(state, metadata)
-		if err := connection.SendJSON(ServerMessage{Type: "ROOM_STATE_CHANGED", RoomID: roomID, State: state, RoomRevision: result.RoomRevision}); err != nil {
-			_ = connection.Close()
-			h.active.Remove(connection)
-		}
+		h.outbound.send(connection, ServerMessage{Type: "ROOM_STATE_CHANGED", RoomID: roomID, State: state, RoomRevision: revision})
 	}
 }
 
@@ -267,25 +268,6 @@ func (h *Hub) currentConnection(conn Connection, roomID, playerID string) bool {
 	current, generation, ok := h.active.Get(roomID, playerID)
 	return ok && current == conn && h.active.IsCurrent(roomID, playerID, conn, generation)
 }
-func (h *Hub) broadcastSessionState(roomID string) {
-	s, ok := h.registry.Get(roomID)
-	if !ok {
-		return
-	}
-	for playerID, conn := range h.active.Room(roomID) {
-		result, err := s.Query(session.Actor{PlayerID: playerID, Credential: h.credentialFor(roomID, playerID)})
-		if err != nil {
-			continue
-		}
-		state, _ := result.Room.(*RoomState)
-		decorateRoomState(state, s.Metadata())
-		if err := conn.SendJSON(ServerMessage{Type: "ROOM_STATE_CHANGED", RoomID: roomID, State: state, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence}); err != nil {
-			_ = conn.Close()
-			h.active.Remove(conn)
-		}
-	}
-}
-
 func decorateRoomState(state *RoomState, metadata session.RoomMetadata) {
 	if state == nil {
 		return
@@ -298,14 +280,6 @@ func decorateRoomState(state *RoomState, metadata session.RoomMetadata) {
 	}
 }
 
-func (h *Hub) credentialFor(roomID, playerID string) string {
-	s, ok := h.registry.Get(roomID)
-	if !ok {
-		return ""
-	}
-	credential, _ := s.CredentialFor(playerID)
-	return credential
-}
 func fingerprint(msg ClientMessage) string {
 	copy := msg
 	copy.ResumeCredential = ""
@@ -337,5 +311,5 @@ func (h *Hub) sendV2Error(conn Connection, err error, nextClientSequence uint64)
 	case errors.Is(err, session.ErrPersistenceConflict):
 		code = "PERSISTENCE_CONFLICT"
 	}
-	_ = conn.SendJSON(ServerMessage{Type: "ERROR", Code: code, Error: err.Error(), NextClientSequence: nextClientSequence})
+	h.outbound.send(conn, ServerMessage{Type: "ERROR", Code: code, Error: err.Error(), NextClientSequence: nextClientSequence})
 }

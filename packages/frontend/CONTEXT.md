@@ -34,6 +34,7 @@ Uses Zustand with the core package's state machine. The frontend:
 5. Legacy room storage without a Resume Credential is cleared and requires an explicit new join
 6. Retained Identity can explicitly rejoin; kicked or closed identities are cleared
 7. A Room Revision gap or regression triggers `GET_ROOM_STATE`, and the inconsistent incremental payload is not applied
+8. Clearing or replacing a room projection must also clear stale nomination, death, night-action, phase, and winner UI state
 
 ## Dependencies
 

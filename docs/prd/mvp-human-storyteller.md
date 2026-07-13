@@ -125,13 +125,15 @@ type GameEvent =
 **WebSocket 消息格式：**
 ```json
 // 客户端 → 服务器
-{ "type": "JOIN_ROOM", "roomId": "ABC123", "playerName": "Alice" }
-{ "type": "SUBMIT_EVENT", "event": { "type": "VOTE_CAST", "voterId": "...", "targetId": "..." } }
+{ "protocolVersion": 2, "type": "JOIN_ROOM", "roomId": "...", "playerId": "...", "playerName": "Alice", "joinRequestId": "..." }
+{ "protocolVersion": 2, "type": "CAST_VOTE", "roomId": "...", "playerId": "...", "resumeCredential": "...", "clientSequence": 3, "targetPlayerId": "..." }
 
 // 服务器 → 客户端
-{ "type": "GAME_STATE_UPDATE", "state": { ... } }
-{ "type": "EVENT_BROADCAST", "event": { ... } }
+{ "type": "JOIN_ROOM_RESULT", "roomId": "...", "roomRevision": 2, "resumeCredential": "...", "state": { ... } }
+{ "type": "ROOM_STATE_CHANGED", "roomId": "...", "roomRevision": 3, "state": { ... } }
 ```
+
+服务端只发送接收者特定的完整权威投影 [Recipient-specific Authoritative Projection]；客户端不通过增量事件重建已提交状态。完整契约见 `docs/protocol/websocket-v2.md`。
 
 ### 关键交互流程
 
@@ -141,7 +143,7 @@ type GameEvent =
 4. **分配角色**：Storyteller 为每个玩家分配 Trouble Brewing 角色
 5. **白天阶段**：玩家讨论 → 提名 → 投票 → 处决
 6. **夜间阶段**：Storyteller 唤醒玩家 → 执行能力 → 记录结果
-7. **游戏结束**：满足胜利条件 → Storyteller 宣布结果 → 房间销毁
+7. **游戏结束**：满足胜利条件 → Storyteller 宣布结果 → 保留最终投影供成员重连查看；房主可显式关闭房间
 
 ## Testing Decisions
 

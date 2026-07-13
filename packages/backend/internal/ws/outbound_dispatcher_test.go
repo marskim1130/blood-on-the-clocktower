@@ -7,24 +7,42 @@ import (
 )
 
 type blockingSendConnection struct {
-	*FakeConnection
-	release chan struct{}
-	once    sync.Once
+	*fakeConnection
+	started     chan struct{}
+	release     chan struct{}
+	startedOnce sync.Once
+	releaseOnce sync.Once
 }
 
 func newBlockingSendConnection() *blockingSendConnection {
-	return &blockingSendConnection{FakeConnection: NewFakeConnection(), release: make(chan struct{})}
+	return &blockingSendConnection{
+		fakeConnection: newFakeConnection(),
+		started:        make(chan struct{}),
+		release:        make(chan struct{}),
+	}
 }
 
 func (c *blockingSendConnection) SendJSON(value any) error {
+	c.startedOnce.Do(func() { close(c.started) })
 	<-c.release
-	return c.FakeConnection.SendJSON(value)
+	return c.fakeConnection.SendJSON(value)
 }
 
-func (c *blockingSendConnection) unblock() { c.once.Do(func() { close(c.release) }) }
+func (c *blockingSendConnection) waitUntilBlocked(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.started:
+	case <-time.After(time.Second):
+		t.Fatal("sender did not start")
+	}
+}
+
+func (c *blockingSendConnection) unblock() {
+	c.releaseOnce.Do(func() { close(c.release) })
+}
 
 func TestOutboundDispatcherPreservesEnqueueOrder(t *testing.T) {
-	connection := NewFakeConnection()
+	connection := newFakeConnection()
 	dispatcher := newOutboundDispatcher(nil)
 	for revision := 1; revision <= 20; revision++ {
 		dispatcher.send(connection, revision)
@@ -46,7 +64,7 @@ func TestOutboundDispatcherPreservesEnqueueOrder(t *testing.T) {
 
 func TestSlowConnectionDoesNotBlockAnotherConnection(t *testing.T) {
 	slow := newBlockingSendConnection()
-	fast := NewFakeConnection()
+	fast := newFakeConnection()
 	dispatcher := newOutboundDispatcher(nil)
 	dispatcher.send(slow, "slow")
 	dispatcher.send(fast, "fast")
@@ -65,6 +83,7 @@ func TestOutboundDispatcherClosesSlowConsumerWhenQueueIsFull(t *testing.T) {
 	failed := make(chan struct{}, 1)
 	dispatcher := newOutboundDispatcher(func(Connection) { failed <- struct{}{} })
 	dispatcher.send(slow, "blocked")
+	slow.waitUntilBlocked(t)
 	for index := 0; index < outboundQueueCapacity; index++ {
 		dispatcher.send(slow, index)
 	}

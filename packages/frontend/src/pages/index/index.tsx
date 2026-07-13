@@ -7,14 +7,24 @@ import {
   getScriptWakeOrder,
   TROUBLE_BREWING_SCRIPT,
 } from '@clocktower/core';
-import type { ClientRoomIdentity, ConnectionStatus, GameCharacter, IdentityStatus, RoomState, ServerMessage } from '@clocktower/core';
+import type { ClientRoomIdentity, ConnectionStatus, RoomState, ServerMessage } from '@clocktower/core';
 import { createTaroWebSocketTransport } from '../../lib/taro-websocket-transport';
 import {
+  applyServerMessage,
+  clearRoomIdentityState,
+  clearRoomProjection,
+  createRoomExperienceState,
+  selectDeathAnnouncements,
+  selectDeathRecords,
+  selectGameOver,
+  selectGamePhase,
+  selectGhostVotes,
+  selectVisibleCharacter,
   type GamePhase,
+} from '../../lib/room-experience';
+import {
   type DeathCause,
   type InputEvent,
-  mapProtocolPhase,
-  normalizeWinner,
   eventValue,
   getStoredString,
   getStoredRoomIdentity,
@@ -52,7 +62,7 @@ const STATUS_LABELS: Record<ConnectionStatus, string> = {
   error: '连接异常',
 };
 
-const DEATH_CAUSE_LABELS: Record<DeathCause, string> = {
+const DEATH_CAUSE_LABELS: Readonly<Record<string, string>> = {
   execution: '处决',
   night_kill: '夜晚击杀',
   ability: '能力致死',
@@ -89,40 +99,12 @@ const CHARACTER_TYPE_LABELS: Record<string, string> = {
   demon: '恶魔',
 };
 
-// ─── Local Game State Types ──────────────────────────────────────
-
-interface NominationInfo {
-  readonly nominatorId: string;
-  readonly nomineeId: string;
-  readonly votes: Record<string, boolean>;
-}
-
-interface DeathRecord {
-  readonly cause: DeathCause;
-  readonly dayNumber: number;
-}
-
-interface NightActionRecord {
-  readonly actorId: string;
-  readonly actionType: string;
-  readonly targetIds: readonly string[];
-  readonly result: string | null;
-}
-
-interface GameOverInfo {
-  readonly winner: string;
-  readonly reason: string;
-  readonly description: string;
-}
-
 const SERVER_MESSAGE_LABELS: Readonly<Record<string, string>> = {
   ERROR: '错误',
   ROOM_STATE: '房间状态',
   ROOM_STATE_CHANGED: '房间状态更新',
-  IDENTITY_STATUS: '身份状态',
   KICKED: '被移出房间',
   ROOM_CLOSED: '房间已关闭',
-  EVENT: '游戏事件',
 };
 
 const SERVER_ERROR_CODE_LABELS: Readonly<Record<string, string>> = {
@@ -257,52 +239,33 @@ function chooseFortuneTellerRedHerring(assignments: Record<string, string>): str
 
 export default function IndexPage() {
   const clientRef = useRef<GameWebSocketClient | null>(null);
-  const roomRevisionRef = useRef<number | null>(null);
   const [wsUrl, setWsUrl] = useState(DEFAULT_WS_URL);
   const [playerId, setPlayerId] = useState('');
   const [playerName, setPlayerName] = useState('');
   const [roomIdInput, setRoomIdInput] = useState('');
   const [maxPlayersInput, setMaxPlayersInput] = useState('5');
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const [roomState, setRoomState] = useState<RoomState | null>(null);
+  const [experience, setExperience] = useState(createRoomExperienceState);
   const [roomIdentity, setRoomIdentity] = useState<ClientRoomIdentity | null>(null);
-  const [identityStatus, setIdentityStatus] = useState<IdentityStatus | null>(null);
-  const [roomRevision, setRoomRevision] = useState<number | null>(null);
-  const [myCharacter, setMyCharacter] = useState<GameCharacter | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [logs, setLogs] = useState<readonly string[]>([]);
-
-  // ─── Game Phase State ────────────────────────────────────────
-  const [gamePhase, setGamePhase] = useState<GamePhase>('setup');
-  const [dayNumber, setDayNumber] = useState(0);
-
-  // ─── Voting State ────────────────────────────────────────────
-  const [currentNomination, setCurrentNomination] = useState<NominationInfo | null>(null);
   const [nomineeIdInput, setNomineeIdInput] = useState('');
-  const [lastNominationResult, setLastNominationResult] = useState<{
-    readonly nomineeId: string;
-    readonly executed: boolean;
-    readonly yesVotes: number;
-    readonly noVotes: number;
-    readonly requiredVotes: number | null;
-  } | null>(null);
-
-  // ─── Death State ─────────────────────────────────────────────
-  const [deathRecords, setDeathRecords] = useState<Record<string, DeathRecord>>({});
-  const [ghostVotesRemaining, setGhostVotesRemaining] = useState<Set<string>>(new Set());
-  const [deathAnnouncements, setDeathAnnouncements] = useState<readonly string[]>([]);
   const [manualDeathTargetId, setManualDeathTargetId] = useState('');
   const [manualDeathCause, setManualDeathCause] = useState<DeathCause>('execution');
-
-  // ─── Night State ─────────────────────────────────────────────
-  const [nightActions, setNightActions] = useState<readonly NightActionRecord[]>([]);
   const [nightActionType, setNightActionType] = useState<string>(NIGHT_ACTION_TYPES[0].id);
   const [nightTargetIds, setNightTargetIds] = useState<readonly string[]>([]);
   const [nightResultInput, setNightResultInput] = useState('');
-
-  // ─── Win Condition State ─────────────────────────────────────
-  const [gameOver, setGameOver] = useState<GameOverInfo | null>(null);
   const [endGameDescriptionInput, setEndGameDescriptionInput] = useState('');
+
+  const { roomState, identityStatus, roomRevision } = experience;
+  const gamePhase = selectGamePhase(experience);
+  const dayNumber = roomState?.dayNumber ?? 0;
+  const currentNomination = roomState?.nomination ?? null;
+  const deathRecords = useMemo(() => selectDeathRecords(experience), [experience]);
+  const ghostVotesRemaining = useMemo(() => selectGhostVotes(experience), [experience]);
+  const deathAnnouncements = useMemo(() => selectDeathAnnouncements(experience), [experience]);
+  const nightActions = roomState?.nightActions ?? [];
+  const gameOver = selectGameOver(experience);
 
   useEffect(() => {
     const id = getOrCreatePlayerId();
@@ -333,10 +296,10 @@ export default function IndexPage() {
     () => roomState?.players.find((player) => player.id === playerId) ?? null,
     [playerId, roomState],
   );
-  const visibleCharacter = useMemo(() => {
-    if (myCharacter) return myCharacter;
-    return selfPlayer?.character ?? null;
-  }, [myCharacter, selfPlayer]);
+  const visibleCharacter = useMemo(
+    () => selectVisibleCharacter(experience, playerId),
+    [experience, playerId],
+  );
 
   const alivePlayers = useMemo(
     () => (roomState?.players ?? []).filter((player) => player.isAlive),
@@ -443,25 +406,16 @@ export default function IndexPage() {
 
   function clearRoomIdentity(clearRoomInput = true): void {
     setRoomIdentity(null);
-    setIdentityStatus(null);
-    setRoomRevision(null);
-    roomRevisionRef.current = null;
+    setExperience(clearRoomIdentityState());
     removeStoredValue(ROOM_IDENTITY_STORAGE_KEY);
     removeStoredValue(LAST_ROOM_ID_STORAGE_KEY);
     if (clearRoomInput) setRoomIdInput('');
   }
 
   function clearRoomView(): void {
-    setRoomState(null);
-    setMyCharacter(null);
-    setGamePhase('setup');
-    setDayNumber(0);
-    setCurrentNomination(null);
-    setDeathRecords({});
-    setGhostVotesRemaining(new Set());
+    setExperience((current) => clearRoomProjection(current));
     setNightActionType('');
     setNightTargetIds([]);
-    setGameOver(null);
   }
 
   function updateMaxPlayersInput(value: string): void {
@@ -469,90 +423,16 @@ export default function IndexPage() {
     persistString(MAX_PLAYERS_STORAGE_KEY, value);
   }
 
-  function syncRoomSnapshot(state: RoomState): void {
-    setRoomState(state);
-    if (typeof state.maxPlayers === 'number') {
-      setMaxPlayersInput(String(state.maxPlayers));
-      persistString(MAX_PLAYERS_STORAGE_KEY, String(state.maxPlayers));
-    }
-
-    const snapshotPhase = mapProtocolPhase(state.phase);
-    if (snapshotPhase) {
-      setGamePhase(snapshotPhase);
-    }
-    if (typeof state.dayNumber === 'number') {
-      setDayNumber(state.dayNumber);
-    }
-
-    if (state.nomination) {
-      setCurrentNomination({
-        nominatorId: state.nomination.nominatorId,
-        nomineeId: state.nomination.nomineeId,
-        votes: state.nomination.votes ?? {},
-      });
-    } else {
-      setCurrentNomination(null);
-    }
-
-    const nextDeathRecords = (state.deaths ?? []).reduce<Record<string, DeathRecord>>((records, death) => {
-      records[death.playerId] = {
-        cause: death.cause as DeathCause,
-        dayNumber: death.dayNumber,
-      };
-      return records;
-    }, {});
-    setDeathRecords(nextDeathRecords);
-    setGhostVotesRemaining(new Set(state.ghostVotesRemaining ?? []));
-    if (state.currentNightWakeStep) {
-      setNightActionType(state.currentNightWakeStep.actionType);
-      setNightTargetIds([]);
-    } else {
-      setNightActionType('');
-      setNightTargetIds([]);
-    }
-
-    const self = state.players.find((player) => player.id === playerId);
-    setMyCharacter(self?.character ?? null);
-
-    if (state.winner) {
-      setGameOver({
-        winner: normalizeWinner(state.winner.winner),
-        reason: state.winner.reason,
-        description: state.winner.description,
-      });
-      setGamePhase('finished');
-    } else if (snapshotPhase !== 'finished') {
-      setGameOver(null);
-    }
-  }
-
   function applyMessage(message: ServerMessage): void {
     appendLog(`收到${serverMessageLabel(message.type)}`);
-    if (typeof message.roomRevision === 'number') {
-      const previousRevision = roomRevisionRef.current;
-      const revisionHasGap = previousRevision !== null && (
-        message.roomRevision < previousRevision ||
-        message.roomRevision > previousRevision + 1
-      );
-      const isFullState = message.type === 'ROOM_STATE' || message.type === 'RESUME_ROOM_RESULT';
-      if (revisionHasGap && !isFullState) {
-        try {
-          clientRef.current?.getRoomState();
-          appendLog('检测到房间修订缺口，正在同步完整状态');
-        } catch {
-          appendLog('房间修订缺口自动同步失败');
-        }
-        return;
-      }
-      if (previousRevision !== null && message.roomRevision === previousRevision && message.type === 'ROOM_STATE_CHANGED') {
-        return;
-      }
-      roomRevisionRef.current = message.roomRevision;
-      setRoomRevision(message.roomRevision);
-    }
-    if (message.identityStatus) {
-      setIdentityStatus(message.identityStatus);
-      if (message.identityStatus.status === 'retained') clearRoomView();
+    setExperience((current) => applyServerMessage(current, message));
+
+    if (message.roomId) updateRoomIdInput(message.roomId);
+    if (message.state) {
+      setMaxPlayersInput(String(message.state.maxPlayers));
+      persistString(MAX_PLAYERS_STORAGE_KEY, String(message.state.maxPlayers));
+      setNightActionType(message.state.currentNightWakeStep?.actionType ?? '');
+      setNightTargetIds([]);
     }
 
     if (
@@ -562,8 +442,6 @@ export default function IndexPage() {
     ) {
       const identity = clientRef.current?.identity;
       if (identity) saveRoomIdentity(identity);
-      setIdentityStatus(message.identityStatus ?? { status: 'member', canRejoin: false, participantSetFrozen: false });
-      if (message.state) syncRoomSnapshot(message.state);
       setErrorMessage('');
       return;
     }
@@ -586,7 +464,6 @@ export default function IndexPage() {
 
     if (message.type === 'KICKED') {
       clearRoomIdentity();
-      clearRoomView();
       setErrorMessage('你已被房主移出房间');
       appendLog('已被房主移出房间');
       return;
@@ -594,193 +471,13 @@ export default function IndexPage() {
 
     if (message.type === 'ROOM_CLOSED') {
       clearRoomIdentity();
-      clearRoomView();
       setErrorMessage('房间已关闭');
       appendLog('房间已由创建者关闭');
       return;
     }
 
-    if (message.type === 'IDENTITY_STATUS') {
-      clearRoomView();
-      return;
-    }
+    setErrorMessage('');
 
-    if (message.type === 'ROOM_STATE' || message.type === 'ROOM_STATE_CHANGED' || message.type === 'COMMAND_RESULT') {
-      if (message.roomId) updateRoomIdInput(message.roomId);
-      if (message.state) syncRoomSnapshot(message.state);
-      if (message.state) setIdentityStatus({ status: 'member', canRejoin: false, participantSetFrozen: false });
-      return;
-    }
-
-    if (!message.event) return;
-
-    const event = message.event;
-
-    // ─── Player Joined ───────────────────────────────────────
-    if ('playerJoined' in event) {
-      const joinedPlayer = (event as { readonly playerJoined: { readonly player: { readonly id: string; readonly name: string; readonly isAlive: boolean } } }).playerJoined.player;
-      setRoomState((current) => {
-        if (!current || current.players.some((player) => player.id === joinedPlayer.id)) return current;
-        return { ...current, players: [...current.players, joinedPlayer] };
-      });
-      return;
-    }
-
-    // ─── Player Left ─────────────────────────────────────────
-    if ('playerLeft' in event) {
-      const leftPlayerId = (event as { readonly playerLeft: { readonly playerId: string } }).playerLeft.playerId;
-      setRoomState((current) => {
-        if (!current) return current;
-        return { ...current, players: current.players.filter((player) => player.id !== leftPlayerId) };
-      });
-      return;
-    }
-
-    // ─── Character Assigned ──────────────────────────────────
-    if ('characterAssigned' in event) {
-      const assignment = (event as {
-        readonly characterAssigned: {
-          readonly playerId: string;
-          readonly character: GameCharacter;
-          readonly shownCharacter?: GameCharacter | null;
-        };
-      }).characterAssigned;
-      if (assignment.playerId === playerId) {
-        setMyCharacter(assignment.character);
-      }
-      // Also update the roomState player character for storyteller view
-      setRoomState((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          players: current.players.map((player) =>
-            player.id === assignment.playerId
-              ? { ...player, character: assignment.character, shownCharacter: assignment.shownCharacter ?? null }
-              : player,
-          ),
-        };
-      });
-      return;
-    }
-
-    // ─── Phase Changed ───────────────────────────────────────
-    if ('phaseChanged' in event) {
-      const phaseValue = (event as { readonly phaseChanged: { readonly phase: number } }).phaseChanged.phase;
-      const mapped = mapProtocolPhase(phaseValue);
-      if (mapped) {
-        setGamePhase(mapped);
-        if (mapped === 'day') {
-          setDayNumber((current) => current + 1);
-        }
-        if (mapped === 'night') {
-          setNightActions([]);
-          setNightTargetIds([]);
-        }
-        if (mapped !== 'voting') {
-          setCurrentNomination(null);
-        }
-      }
-      appendLog(`阶段切换为${mapped ? PHASE_LABELS[mapped] : phaseValue}`);
-      return;
-    }
-
-    // ─── Player Died ─────────────────────────────────────────
-    if ('playerDied' in event) {
-      const deathEvent = (event as { readonly playerDied: { readonly playerId: string; readonly cause: string; readonly dayNumber: number } }).playerDied;
-      const deadPlayerId = deathEvent.playerId;
-      const cause = deathEvent.cause;
-      const deathDay = deathEvent.dayNumber;
-      setDeathRecords((current) => ({
-        ...current,
-        [deadPlayerId]: { cause: cause as DeathCause, dayNumber: deathDay },
-      }));
-      setGhostVotesRemaining((current) => {
-        const next = new Set(current);
-        next.add(deadPlayerId);
-        return next;
-      });
-      setDeathAnnouncements((current) => {
-        const label = DEATH_CAUSE_LABELS[cause as DeathCause] ?? cause;
-        const player = roomState?.players.find((player) => player.id === deadPlayerId);
-        const name = player?.name ?? deadPlayerId;
-        return [`第 ${deathDay} 天：${name} 死亡（${label}）`, ...current].slice(0, 20);
-      });
-      // Update roomState isAlive
-      setRoomState((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          players: current.players.map((player) =>
-            player.id === deadPlayerId ? { ...player, isAlive: false } : player,
-          ),
-        };
-      });
-      appendLog(`玩家死亡：${deadPlayerId}（${DEATH_CAUSE_LABELS[cause as DeathCause] ?? cause}）`);
-      return;
-    }
-
-    // ─── Nomination Started ──────────────────────────────────
-    if ('nominationStarted' in event) {
-      const nomination = (event as { readonly nominationStarted: { readonly nominatorId: string; readonly nomineeId: string } }).nominationStarted;
-      setCurrentNomination({ nominatorId: nomination.nominatorId, nomineeId: nomination.nomineeId, votes: {} });
-      setLastNominationResult(null);
-      setGamePhase('voting');
-      appendLog(`提名：${nomination.nominatorId} 提名 ${nomination.nomineeId}`);
-      return;
-    }
-
-    // ─── Vote Cast ───────────────────────────────────────────
-    if ('voteCast' in event) {
-      const voteData = (event as { readonly voteCast: { readonly voterId: string; readonly targetId?: string; readonly decision?: boolean } }).voteCast;
-      const decision = typeof voteData.decision === 'boolean'
-        ? voteData.decision
-        : voteData.targetId !== undefined && voteData.targetId !== '';
-      setCurrentNomination((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          votes: { ...current.votes, [voteData.voterId]: decision },
-        };
-      });
-      return;
-    }
-
-    // ─── Nomination Resolved ─────────────────────────────────
-    if ('nominationResolved' in event) {
-      const resolved = (event as { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number; readonly requiredVotes?: number } }).nominationResolved;
-      setLastNominationResult({
-        nomineeId: resolved.nomineeId,
-        executed: resolved.executed,
-        yesVotes: resolved.yesVotes,
-        noVotes: resolved.noVotes,
-        requiredVotes: resolved.requiredVotes ?? null,
-      });
-      setCurrentNomination(null);
-      const name = roomState?.players.find((player) => player.id === resolved.nomineeId)?.name ?? resolved.nomineeId;
-      appendLog(`投票结果: ${name} ${resolved.executed ? '被处决' : '幸存'} (${resolved.yesVotes}/${resolved.noVotes})`);
-      return;
-    }
-
-    // ─── Night Action ────────────────────────────────────────
-    if ('nightAction' in event || 'nightActionSubmitted' in event) {
-      const action = 'nightAction' in event
-        ? (event as { readonly nightAction: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result: string | null } }).nightAction
-        : (event as { readonly nightActionSubmitted: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result?: string | null } }).nightActionSubmitted;
-      setNightActions((current) => [...current, { actorId: action.actorId, actionType: action.actionType, targetIds: action.targetIds, result: action.result ?? null }]);
-      appendLog(`夜间行动: ${action.actionType} (${action.actorId})`);
-      return;
-    }
-
-    // ─── Game Over ───────────────────────────────────────────
-    if ('gameOver' in event || 'gameEnded' in event) {
-      const gameOverEvent = 'gameOver' in event
-        ? (event as { readonly gameOver: { readonly winner: number | string; readonly reason: string; readonly description: string } }).gameOver
-        : (event as { readonly gameEnded: { readonly winner: number | string; readonly reason: string; readonly description: string } }).gameEnded;
-      setGameOver({ winner: normalizeWinner(gameOverEvent.winner), reason: gameOverEvent.reason, description: gameOverEvent.description });
-      setGamePhase('finished');
-      appendLog(`游戏结束: ${gameOverEvent.winner} 胜利 - ${gameOverEvent.description}`);
-      return;
-    }
   }
 
   function connect(onConnected?: (client: GameWebSocketClient) => void, identityToResume = roomIdentity): void {
@@ -838,8 +535,7 @@ export default function IndexPage() {
     persistString(PLAYER_NAME_STORAGE_KEY, displayName);
     persistString(MAX_PLAYERS_STORAGE_KEY, maxPlayersInput);
     client.createRoom(playerId, displayName, Number.isNaN(maxPlayers) ? 5 : maxPlayers, DEFAULT_SCRIPT_ID);
-    setIdentityStatus(null);
-    setMyCharacter(null);
+    setExperience(clearRoomIdentityState());
     appendLog('已发送创建房间请求');
   }
 
@@ -857,8 +553,7 @@ export default function IndexPage() {
     persistString(PLAYER_NAME_STORAGE_KEY, displayName);
     updateRoomIdInput(roomId);
     client.joinRoom(roomId, playerId, displayName);
-    setIdentityStatus(null);
-    setMyCharacter(null);
+    setExperience(clearRoomIdentityState());
     appendLog(`已发送加入房间请求：${roomId}`);
   }
 
@@ -877,7 +572,7 @@ export default function IndexPage() {
 
     const resume = (client: GameWebSocketClient): void => {
       client.resumeRoom(identity.roomId, identity.playerId, identity.resumeCredential);
-      setMyCharacter(null);
+      clearRoomView();
       appendLog(`正在恢复房间身份：${identity.roomId}`);
     };
 
@@ -1001,7 +696,6 @@ export default function IndexPage() {
     const client = requireClient();
     if (!client) return;
     client.startGame();
-    setGameOver(null);
     appendLog('已发送开始游戏请求');
   }
 
@@ -1029,15 +723,6 @@ export default function IndexPage() {
     const client = requireClient();
     if (!client) return;
     client.castVote(decision);
-
-    // If I'm dead, consume my ghost vote locally
-    if (!roomState?.players.find((player) => player.id === playerId)?.isAlive) {
-      setGhostVotesRemaining((current) => {
-        const next = new Set(current);
-        next.delete(playerId);
-        return next;
-      });
-    }
     appendLog(`已投票: ${decision ? '赞成处决' : '反对处决'}`);
   }
 
@@ -1115,18 +800,7 @@ export default function IndexPage() {
   }
 
   function returnToLobby(): void {
-    setGamePhase('setup');
-    setDayNumber(0);
-    setRoomState(null);
-    setMyCharacter(null);
-    setCurrentNomination(null);
-    setLastNominationResult(null);
-    setDeathRecords({});
-    setGhostVotesRemaining(new Set());
-    setDeathAnnouncements([]);
-    setNightActions([]);
-    setNightTargetIds([]);
-    setGameOver(null);
+    clearRoomView();
     setEndGameDescriptionInput('');
     updateRoomIdInput('');
     appendLog('已返回大厅');
@@ -1514,23 +1188,6 @@ export default function IndexPage() {
           {isStoryteller && (
             <Button className='button primary' onClick={resolveNomination}>✓ 结算投票</Button>
           )}
-        </View>
-      )}
-
-      {/* ─── Last Nomination Result ────────────────────────── */}
-      {lastNominationResult && (
-        <View className='card'>
-          <Text className='sectionTitle'>= 投票结果</Text>
-          <View className={lastNominationResult.executed ? 'resultExecuted' : 'resultSpared'}>
-            <Text className='resultText'>
-              {roomState?.players.find((player) => player.id === lastNominationResult.nomineeId)?.name ?? lastNominationResult.nomineeId}
-              {lastNominationResult.executed ? ' 被处决了' : ' 幸存'}
-            </Text>
-            <Text className='hint'>
-              赞成: {lastNominationResult.yesVotes} | 反对: {lastNominationResult.noVotes}
-              {lastNominationResult.requiredVotes !== null ? ` | 处决阈值: ${lastNominationResult.requiredVotes}` : ''}
-            </Text>
-          </View>
         </View>
       )}
 

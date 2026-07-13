@@ -1,4 +1,4 @@
-package ws
+package gameplay
 
 import (
 	"testing"
@@ -49,7 +49,7 @@ func TestMayorDoesNotWinImmediatelyAfterNightKillLeavesThreeAlive(t *testing.T) 
 	if phase := gs.Phase(); phase != game.GamePhaseDay {
 		t.Fatalf("expected day phase after resolving night, got %d", phase)
 	}
-	if state := gs.StateForRoom("room-1"); state.Winner != nil {
+	if state := gs.Projection(); state.Winner != nil {
 		t.Fatalf("expected no winner after night kill to 3 alive, got %#v", state.Winner)
 	}
 }
@@ -108,7 +108,7 @@ func TestMayorTargetedByDemonNightKillSurvivesForStorytellerRedirection(t *testi
 		}
 	}
 
-	mayor := findPlayerInState(t, gs.StateForRoom("room-1"), "mayor")
+	mayor := findPlayerInState(t, gs.Projection(), "mayor")
 	if !mayor.IsAlive {
 		t.Fatal("expected Mayor to survive automatic demon night kill")
 	}
@@ -131,7 +131,7 @@ func TestPoisonedMayorTargetedByDemonNightKillDies(t *testing.T) {
 		t.Fatalf("expected poisoned Mayor night kill death event, got %#v", result.Events)
 	}
 
-	mayor := findPlayerInState(t, gs.StateForRoom("room-1"), "mayor")
+	mayor := findPlayerInState(t, gs.Projection(), "mayor")
 	if mayor.IsAlive {
 		t.Fatal("expected poisoned Mayor to die from demon night kill")
 	}
@@ -161,7 +161,7 @@ func TestStorytellerCanRedirectMayorNightKillWithManualDeath(t *testing.T) {
 		t.Fatalf("expected redirected night kill death event, got %#v", result.Events)
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	mayor := findPlayerInState(t, state, "mayor")
 	if !mayor.IsAlive {
 		t.Fatal("expected Mayor to remain alive after redirected death")
@@ -222,7 +222,7 @@ func TestPoisonedSaintExecutionDoesNotWinForEvil(t *testing.T) {
 	if phase := gs.Phase(); phase != game.GamePhaseDay {
 		t.Fatalf("expected phase to remain day after poisoned Saint execution, got %d", phase)
 	}
-	if winner := gs.StateForRoom("room-1").Winner; winner != nil {
+	if winner := gs.Projection().Winner; winner != nil {
 		t.Fatalf("expected no winner after poisoned Saint execution, got %#v", winner)
 	}
 }
@@ -240,7 +240,7 @@ func TestImpSelfKillMakesLivingMinionTheImp(t *testing.T) {
 		}
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	oldImp := findPlayerInState(t, state, "imp")
 	if oldImp.IsAlive {
 		t.Fatal("expected original Imp to be dead after self-kill")

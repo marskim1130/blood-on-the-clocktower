@@ -1,4 +1,4 @@
-package ws
+package gameplay
 
 import (
 	"testing"
@@ -291,7 +291,7 @@ func TestGameSessionUpdateRoomSettingsDuringSetup(t *testing.T) {
 		t.Fatal("expected room settings update to mark session updated")
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	if state.ScriptID != game.TroubleBrewingScriptID {
 		t.Fatalf("expected script %s, got %s", game.TroubleBrewingScriptID, state.ScriptID)
 	}
@@ -359,7 +359,7 @@ func TestGameSessionEndGameByStoryteller(t *testing.T) {
 		t.Fatalf("expected one game ended event, got %#v", result.Events)
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	if state.Phase != game.GamePhaseFinished {
 		t.Fatalf("expected finished phase, got %d", state.Phase)
 	}
@@ -425,7 +425,7 @@ func TestGameSessionScarletWomanBecomesImpWhenDemonDiesWithFiveAlive(t *testing.
 		}
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	if state.Phase == game.GamePhaseFinished {
 		t.Fatalf("expected game to continue after Scarlet Woman starpass, got phase %d", state.Phase)
 	}
@@ -467,7 +467,7 @@ func TestGameSessionPoisonedScarletWomanDoesNotStarpass(t *testing.T) {
 	if ended.Winner != game.TeamGood || ended.Reason != game.WinReasonImpExecuted {
 		t.Fatalf("expected good win when poisoned Scarlet Woman cannot starpass, got %#v", ended)
 	}
-	scarlet := findPlayerInState(t, gs.StateForRoom("room-1"), "scarlet")
+	scarlet := findPlayerInState(t, gs.Projection(), "scarlet")
 	if scarlet.Character == nil || scarlet.Character.ID != "scarletwoman" {
 		t.Fatalf("expected poisoned Scarlet Woman to remain unchanged, got %#v", scarlet.Character)
 	}
@@ -496,7 +496,7 @@ func TestGameSessionDemonDeathWinsWhenScarletWomanCannotStarpassWithFourAlive(t 
 		t.Fatalf("expected gameEnded after demon death without starpass, got %#v", result.Events)
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	if state.Phase != game.GamePhaseFinished {
 		t.Fatalf("expected finished phase, got %d", state.Phase)
 	}
@@ -526,7 +526,7 @@ func TestGameSessionResolveNightDoesNotKillMonkProtectedTarget(t *testing.T) {
 		}
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	protected := findPlayerInState(t, state, "p1")
 	if !protected.IsAlive {
 		t.Fatal("expected Monk-protected target to remain alive")
@@ -569,7 +569,7 @@ func TestGameSessionResolveNightDoesNotKillSoldier(t *testing.T) {
 		}
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	soldier := findPlayerInState(t, state, "soldier")
 	if !soldier.IsAlive {
 		t.Fatal("expected Soldier to remain alive after night kill")
@@ -625,7 +625,7 @@ func TestGameSessionSlayerAbilityKillsDemon(t *testing.T) {
 		t.Fatalf("expected ability death for Imp, got %#v", result.Events)
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	imp := findPlayerInState(t, state, "imp")
 	if imp.IsAlive {
 		t.Fatal("expected Imp to die from Slayer ability")
@@ -651,7 +651,7 @@ func TestGameSessionSlayerAbilityMissConsumesUse(t *testing.T) {
 	if !result.Updated {
 		t.Fatal("expected missed Slayer shot to update used ability state")
 	}
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	p1 := findPlayerInState(t, state, "p1")
 	if !p1.IsAlive {
 		t.Fatal("expected non-demon target to remain alive")
@@ -687,7 +687,7 @@ func TestGameSessionStorytellerCanKillPlayer(t *testing.T) {
 		t.Fatalf("expected p1 ability death event, got %#v", result.Events)
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	p1 := findPlayerInState(t, state, "p1")
 	if p1.IsAlive {
 		t.Fatal("expected p1 to be dead after storyteller kill")
@@ -718,7 +718,7 @@ func TestGameSessionKillPlayerRejectsNonStoryteller(t *testing.T) {
 		t.Fatalf("expected rejected kill to make no changes, got %#v", result)
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	p2 := findPlayerInState(t, state, "p2")
 	if !p2.IsAlive {
 		t.Fatal("expected p2 to remain alive after rejected manual kill")
@@ -830,7 +830,7 @@ func TestGameSessionVirginExecutesTownsfolkNominatorOnFirstNomination(t *testing
 	if nomination := gs.Nomination(); nomination != nil {
 		t.Fatalf("expected no active voting nomination after Virgin execution, got %#v", nomination)
 	}
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 	townsfolk := findPlayerInState(t, state, "townsfolk")
 	if townsfolk.IsAlive {
 		t.Fatal("expected townsfolk nominator to be dead")
@@ -940,17 +940,14 @@ func TestGameSessionRemovePlayer(t *testing.T) {
 	}
 }
 
-func TestGameSessionStateForRoom(t *testing.T) {
+func TestGameSessionProjection(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
 	gs.AddPlayer(game.Player{ID: "p2", Name: "Bob", IsAlive: true})
 
 	gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p2"})
 
-	state := gs.StateForRoom("room-1")
-	if state.RoomID != "room-1" {
-		t.Errorf("expected room-1, got %s", state.RoomID)
-	}
+	state := gs.Projection()
 	if state.StorytellerID != "p2" {
 		t.Errorf("expected storyteller=p2, got %s", state.StorytellerID)
 	}
@@ -967,7 +964,7 @@ func TestGameSessionFinishedStateRevealsCharactersToPlayers(t *testing.T) {
 		{ID: "p2", Name: "P2", IsAlive: false, Character: testCharacter(t, "imp")},
 	}
 
-	hiddenState := gs.StateForRoomForRecipient("room-1", "p1")
+	hiddenState := gs.ProjectionFor("p1")
 	hidden := findPlayerInState(t, hiddenState, "p2")
 	if hidden.Character != nil {
 		t.Fatalf("expected non-recipient character to be hidden before finish, got %#v", hidden.Character)
@@ -980,7 +977,7 @@ func TestGameSessionFinishedStateRevealsCharactersToPlayers(t *testing.T) {
 		Description: "The Demon is dead — good wins!",
 	}
 
-	revealedState := gs.StateForRoomForRecipient("room-1", "p1")
+	revealedState := gs.ProjectionFor("p1")
 	revealed := findPlayerInState(t, revealedState, "p2")
 	if revealed.Character == nil || revealed.Character.ID != "imp" {
 		t.Fatalf("expected finished state to reveal p2 character, got %#v", revealed.Character)
@@ -989,8 +986,11 @@ func TestGameSessionFinishedStateRevealsCharactersToPlayers(t *testing.T) {
 
 func TestGameSessionSpySeesAllCharactersAtNight(t *testing.T) {
 	gs := spyVisibilitySession(t)
+	gs.nightActions = []game.NightAction{
+		{ActorID: "storyteller", ActionType: game.NightActionKill, TargetIDs: []string{"imp"}},
+	}
 
-	state := gs.StateForRoomForRecipient("room-1", "spy")
+	state := gs.ProjectionFor("spy")
 
 	for _, player := range state.Players {
 		if player.Character == nil {
@@ -1000,6 +1000,9 @@ func TestGameSessionSpySeesAllCharactersAtNight(t *testing.T) {
 	if state.CurrentNightWakeStep != nil || len(state.NightWakeSteps) != 0 {
 		t.Fatal("Spy must not see storyteller night management")
 	}
+	if len(state.NightActions) != 0 {
+		t.Fatal("Spy must not see storyteller Night Action history")
+	}
 	for _, player := range state.Players {
 		if player.PoisonedUntil != nil {
 			t.Fatal("Spy must not see poisoning state")
@@ -1007,11 +1010,27 @@ func TestGameSessionSpySeesAllCharactersAtNight(t *testing.T) {
 	}
 }
 
+func TestGameSessionStorytellerSeesNightActionHistory(t *testing.T) {
+	gs := spyVisibilitySession(t)
+	gs.nightActions = []game.NightAction{
+		{ActorID: "storyteller", ActionType: game.NightActionKill, TargetIDs: []string{"imp"}},
+	}
+
+	state := gs.ProjectionFor("storyteller")
+
+	if len(state.NightActions) != 1 {
+		t.Fatalf("expected Storyteller to see Night Action history, got %#v", state.NightActions)
+	}
+	if state.NightActions[0].ActionType != game.NightActionKill {
+		t.Fatalf("expected kill Night Action, got %#v", state.NightActions[0])
+	}
+}
+
 func TestGameSessionSpyDoesNotSeeAllCharactersDuringDay(t *testing.T) {
 	gs := spyVisibilitySession(t)
 	gs.phase = game.GamePhaseDay
 
-	state := gs.StateForRoomForRecipient("room-1", "spy")
+	state := gs.ProjectionFor("spy")
 
 	visible := findPlayerInState(t, state, "spy")
 	if visible.Character == nil || visible.Character.ID != "spy" {
@@ -1028,7 +1047,7 @@ func TestGameSessionPoisonedSpyDoesNotSeeAllCharactersAtNight(t *testing.T) {
 	poisonedUntil := gs.dayNumber
 	gs.players[0].PoisonedUntil = &poisonedUntil
 
-	state := gs.StateForRoomForRecipient("room-1", "spy")
+	state := gs.ProjectionFor("spy")
 
 	visible := findPlayerInState(t, state, "spy")
 	if visible.Character == nil || visible.Character.ID != "spy" {
@@ -1040,7 +1059,7 @@ func TestGameSessionPoisonedSpyDoesNotSeeAllCharactersAtNight(t *testing.T) {
 	}
 }
 
-func TestGameSessionStateForRoomReturnsImmutableSnapshot(t *testing.T) {
+func TestGameSessionProjectionReturnsImmutableSnapshot(t *testing.T) {
 	gs := NewGameSession()
 	gs.players = []game.Player{
 		{ID: "p1", Name: "Alice", IsAlive: true},
@@ -1059,7 +1078,7 @@ func TestGameSessionStateForRoomReturnsImmutableSnapshot(t *testing.T) {
 		Description: "good wins",
 	}
 
-	state := gs.StateForRoom("room-1")
+	state := gs.Projection()
 
 	gs.nomination.Resolved = true
 	gs.nomination.Votes["p2"] = false

@@ -12,6 +12,14 @@ This package contains the Go backend server that manages game sessions, validate
 The sole owner of room membership, storyteller assignment, room settings, reconnect eligibility, and complete game state.
 _Avoid_: Room state split across Hub, RoomManager, and GameSession
 
+**Gameplay Session**:
+The deep in-memory game rules module composed behind the Authoritative Game Session. It owns phases, character abilities, nominations, voting, night actions, deaths, win conditions, snapshots, and recipient-specific Gameplay Projections. It has no knowledge of credentials, Room Records, connections, or WebSocket messages.
+_Avoid_: WebSocket handler, room lifecycle owner, one module per character
+
+**Gameplay Projection**:
+A privacy-safe game-only view for one recipient. The WebSocket adapter combines it with Authoritative Game Session metadata to produce the generated protocol `RoomState`.
+_Avoid_: Room Record, protocol envelope, incremental event stream
+
 **Room Member**:
 A player identity retained by the Authoritative Game Session independently of network connectivity. Disconnecting does not remove membership.
 _Avoid_: Connected client
@@ -82,13 +90,13 @@ The backend:
 
 ### Communication
 
-- **gRPC**: For type-safe API calls between frontend and backend
-- **WebSocket**: For real-time game events (alternative to gRPC streaming)
-- **ProtoBuf**: Single source of truth for data structures
+- **WebSocket v2**: The only supported room transport protocol; Hub is a thin transport adapter over Authoritative Game Session
+- **JSON Wire Format**: Runtime WebSocket messages use JSON encoding
+- **ProtoBuf Contract**: `proto/game.proto` generates the Go and TypeScript message contracts
 
 ### Type Synchronization
 
-Go structs are generated from the same ProtoBuf definitions as TypeScript types. This ensures:
+WebSocket contract structs and constants are generated from the same ProtoBuf definitions as TypeScript types. This ensures:
 - Identical data structures on both sides
 - Compile-time verification of type compatibility
 - Automatic code generation from `proto/game.proto`
@@ -218,6 +226,12 @@ Go structs are generated from the same ProtoBuf definitions as TypeScript types.
 121. A slow or failed consumer is disconnected without removing Room Membership; a bounded queue overflow follows the same rule
 122. Connection takeover discards the old connection's pending outbound queue before closing it
 123. Spy visibility and finished-game character reveal do not grant storyteller-only poisoning or night-management visibility
+124. During Night, the full Night Action history is included only in the Storyteller projection and is omitted from every player projection
+125. Hub accepts only protocol v2 and must not own a parallel room model, legacy protocol handler, or global snapshot lifecycle
+126. Gameplay Session lives in `internal/gameplay`; `internal/ws` must not own game rules
+127. Gameplay depends only on game domain types and must not import `internal/ws` or `internal/session`
+128. WebSocket session engine is the adapter from Gameplay Projection to the generated protocol Room State
+129. Role interactions remain inside one Gameplay Session module; character-specific public interfaces are not introduced without a real second adapter
 
 ## Persistence
 
@@ -250,4 +264,4 @@ service GameService {
 
 ### WebSocket Protocol
 
-Messages use the breaking JSON WebSocket protocol v2. The Hub is an adapter for protocol validation, active connection generations, session calls, and delivery. Membership, credentials, sequences, revisions, projection, and persistence live in `AuthoritativeGameSession`. See `docs/protocol/websocket-v2.md`.
+Messages use the breaking JSON WebSocket protocol v2. The Hub is an adapter for protocol validation, active connection generations, session calls, and delivery. Membership, credentials, sequences, revisions, and persistence live in `AuthoritativeGameSession`; game rules and recipient-specific game views live in `GameplaySession`. See `docs/protocol/websocket-v2.md`.

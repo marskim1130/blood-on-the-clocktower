@@ -20,5 +20,10 @@
     "@typescript-eslint/no-explicit-any": "warn",
     "no-console": "off"
   },
-  "ignorePatterns": ["dist", "node_modules", "*.js"]
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    "*.js",
+    "packages/core/src/types/generated/bundle.d.ts"
+  ]
 }

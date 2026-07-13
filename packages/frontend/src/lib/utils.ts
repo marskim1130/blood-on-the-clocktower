@@ -1,6 +1,5 @@
 import Taro from '@tarojs/taro';
-
-export type GamePhase = 'setup' | 'day' | 'voting' | 'night' | 'finished';
+export { mapProtocolPhase, normalizeWinner, type GamePhase } from './room-experience';
 
 export type DeathCause = 'execution' | 'night_kill' | 'ability';
 
@@ -15,25 +14,6 @@ export interface StoredRoomIdentity {
   readonly roomId: string;
   readonly playerId: string;
   readonly resumeCredential: string;
-}
-
-export function mapProtocolPhase(phase: number | undefined): GamePhase | null {
-  if (phase === undefined) return null;
-  const phaseMap: Record<number, GamePhase> = {
-    0: 'setup',
-    1: 'setup',
-    2: 'day',
-    3: 'night',
-    4: 'voting',
-    5: 'finished',
-  };
-  return phaseMap[phase] ?? null;
-}
-
-export function normalizeWinner(winner: number | string): string {
-  if (winner === 1 || winner === 'good') return 'good';
-  if (winner === 2 || winner === 'evil') return 'evil';
-  return String(winner);
 }
 
 export function eventValue(event: InputEvent): string {

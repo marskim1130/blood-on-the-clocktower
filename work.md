@@ -1486,3 +1486,107 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 ### 撤回方式 [Rollback Strategy]
 - 删除系统临时目录中的 `architecture-review-20260713-100024.html`。
 - 删除 `work.md` 中标题为 `2026-07-13 10:03` 的本节记录。
+
+## 2026-07-13 10:20 --- 后端同时维护协议 v0 与 v2 两套房间状态栈 --- 收拢为 v2 权威游戏会话并迁移关键测试 --- 修改 Backend WebSocket 模块与 work.md
+
+### 发现什么问题
+- `Hub` 同时持有旧 `RoomManager`、旧 `GameSession` 映射、连接映射、全局快照和新的权威游戏会话 [Authoritative Game Session] Registry。
+- 生产入口与协议文档只允许 v2，但大量测试仍通过协议 v0 驱动另一套实现。
+- 仍被 v2 Engine 使用的 `GameSession` 快照克隆逻辑混在旧 Hub 全局持久化文件中。
+
+### 使用什么方式解决
+- 将 `Hub` 深化为协议 v2 传输适配器 [Adapter]，只保留协议校验、Registry、活动连接和有序出站投递。
+- 删除协议 v0 处理器、`RoomManager`、旧全局快照与对应测试。
+- 将 `GameSession` 快照实现迁到独立模块，保留游戏规则持久化能力。
+- 新增 v2 加入投影、身份伪造、连接接管和真实 WebSocket 协议版本测试。
+
+### 修改了哪些文件
+- 重写 `packages/backend/internal/ws/hub.go`，修改 `conn.go`、`hub_v2_test.go`。
+- 新增 `game_session_snapshot.go`、`game_session_test_helpers_test.go`、`hub_transport_test.go`。
+- 删除 `broadcaster.go`、`room_manager.go`、`persistence.go` 及协议 v0 专属测试文件。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 从版本控制恢复本节删除的旧 Hub、RoomManager、全局快照与测试文件。
+- 删除三个新增文件，并将 `hub.go`、`conn.go`、`hub_v2_test.go` 恢复到本节修改前版本。
+- 删除 `work.md` 中标题为 `2026-07-13 10:20` 的本节记录。
+
+## 2026-07-13 10:45 --- 跨语言协议与前端投影仍由多处手写状态共同维护 --- 生成协议契约并深化房间体验投影模块 --- 修改 ProtoBuf、Core、Frontend、Backend 与文档
+
+### 发现什么问题
+- WebSocket v2 信封、枚举和错误码在 ProtoBuf、Go、TypeScript 与文档中重复手写，变更时可能发生契约漂移 [Contract Drift]。
+- 前端首页同时维护房间投影、提名、死亡、夜间行动、胜负和身份等并行状态，并解析增量事件重建服务端状态。
+- 夜间行动已由后端管理，但完整投影缺少该字段，前端只能依赖瞬时事件；同时需要明确验证玩家投影不会泄漏说书人夜间管理信息。
+
+### 使用什么方式解决
+- 扩展 `proto/game.proto`，以 ProtoBuf 作为 WebSocket JSON 契约的规范来源 [Canonical Source]；新增生成器同时输出 Go 与 TypeScript 契约，并以内容哈希和 `proto:check` 防止生成物漂移。
+- 新增纯函数房间体验投影模块 [Room Experience Projection Module]，用单一状态原子替换完整服务端投影并派生页面视图；删除页面内重复修订门禁、增量事件重建和并行领域状态。
+- 将夜间行动加入接收者特定投影，仅在夜晚向说书人暴露，并新增说书人与间谍投影的隐私边界测试。
+- 更新协议说明、三层领域上下文与统一验证入口，使架构约束可发现并可自动检查。
+
+### 修改了哪些文件
+- `proto/game.proto`、`proto/README.md`、`scripts/generate-types.mjs`、`scripts/generate-protocol-contracts.mjs`、`package.json`。
+- `packages/backend/internal/ws/protocol_generated.go`、`message.go`、`hub.go`、`hub_v2.go`、`game_session.go`、`game_session_test.go`。
+- `packages/core/src/websocket/protocol.generated.ts`、`index.ts`、`__tests__/websocket-client.test.ts`、`packages/core/src/types/generated/index.ts`、`packages/core/tsconfig.tsbuildinfo`。
+- `packages/frontend/src/lib/room-experience.ts`、`room-experience.test.ts`、`utils.ts`、`pages/index/index.tsx`、`packages/frontend/tsconfig.tsbuildinfo`。
+- `docs/protocol/websocket-v2.md`、`docs/prd/mvp-human-storyteller.md`、三个包的 `CONTEXT.md`、`work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除协议契约生成器与两个新生成文件，将 `game.proto`、`generate-types.mjs`、`package.json` 和 WebSocket 消费代码恢复到本节修改前版本。
+- 删除房间体验模块及测试，将首页和工具函数恢复为原有独立状态与事件解析实现。
+- 将 `game_session.go`、对应隐私测试、协议文档、三个 `CONTEXT.md` 与 `work.md` 恢复到本节修改前版本。
+
+## 2026-07-13 11:24 --- WebSocket 包同时承载传输与完整游戏规则 --- 深化 Gameplay Session 并清理测试专用生产代码 --- 修改 Backend 模块、测试、验证脚本与文档
+
+### 发现什么问题
+- `internal/ws` 的 32 个文件中有 21 个测试文件，数量本身合理；但 2,180 行的 `game_session.go` 以及 15 个角色规则测试都位于传输包，包名与领域所有权不一致。
+- `GameSession` 直接返回协议 `RoomState` 并接收 `roomId`，导致游戏规则模块知道传输元数据。
+- `FakeConnection` 只由测试使用却编译进生产包；`session_memory_store.go` 没有调用者。
+- 慢消费者队列测试没有等待发送协程真正阻塞，容量断言受调度时序影响。
+
+### 使用什么方式解决
+- 新增 Gameplay Session 模块 [Gameplay Session Module]，把游戏状态、快照、角色规则和领域测试迁入 `internal/gameplay`。
+- 将接收者视图收敛为不含房间元数据的游戏投影 [Gameplay Projection]；`ws/session_engine.go` 作为适配器 [Adapter] 转换为 ProtoBuf 生成的 `RoomState`。
+- 保持 `Apply(Command)` 单一深接口 [Deep Interface]，只按信息计算、白天、夜晚、胜负和投影拆分实现文件，不引入角色插件接缝。
+- 将测试连接迁入 `fake_connection_test.go` 并改为非导出实现，删除未使用的内存存储转发文件。
+- 为阻塞发送测试增加确定性同步信号，并把 `internal/gameplay` 纳入竞态检测 [Race Detection]。
+
+### 修改了哪些文件
+- 新增 `packages/backend/internal/gameplay/`，包含 `game_session.go`、`information.go`、`day.go`、`night.go`、`endgame.go`、`projection.go`、`game_session_snapshot.go` 及角色规则测试。
+- 修改 `packages/backend/internal/ws/session_engine.go`、`hub_v2.go`、`conn.go`、`fake_connection_test.go`、`outbound_dispatcher_test.go`、Hub 与连接测试。
+- 删除 `packages/backend/internal/ws/session_memory_store.go`，并从 `internal/ws` 迁出 Gameplay Session 与对应测试文件。
+- 修改 `package.json`、`packages/backend/CONTEXT.md`、`work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 将 `internal/gameplay` 中迁移的 GameSession、快照和角色测试移回 `internal/ws`，恢复包声明与原 `RoomState` 投影方法。
+- 将拆分的 Gameplay Session 实现合并回 `game_session.go`，恢复 `session_engine.go` 对原快照和命令类型的引用。
+- 把测试连接实现恢复到 `conn.go`，恢复 `session_memory_store.go` 与原队列测试时序。
+- 将 `package.json`、Backend `CONTEXT.md` 和 `work.md` 恢复到本节修改前版本。
+
+## 2026-07-13 11:55 --- 协议漂移检查覆盖不完整且字段可选性重复维护 --- 将 JSON 必填语义收回 ProtoBuf 并停止跟踪构建缓存 --- 修改协议生成流程、文档与 Git 跟踪项
+
+### 发现什么问题
+- `proto:check` 只检查 WebSocket 的 Go 与 TypeScript 生成物，没有检查被版本控制跟踪的领域类型 `packages/core/src/types/generated/index.ts`。
+- WebSocket 生成器在脚本内维护第二份 JSON 必填字段清单，`game.proto` 的字段存在性 [Field Presence] 变更无法自动同步。
+- 两个已被 `.gitignore` 忽略的 `tsconfig.tsbuildinfo` 增量构建缓存 [Incremental Build Cache] 仍被 Git 跟踪。
+
+### 使用什么方式解决
+- 为 `generate-types.mjs` 增加只读 `--check` 模式，并让统一的 `proto:check` 入口覆盖全部被跟踪的生成物。
+- 在 `game.proto` 定义 `json_required` 自定义字段选项 [Custom Field Option]，由 Go 与 TypeScript 契约生成器直接读取，删除脚本内的必填字段清单。
+- 将未被消费且已由 Git 忽略的 protobufjs 中间声明文件排除出 ESLint，避免标准描述类型产生无意义告警。
+- 从 Git 索引移除两个 `tsconfig.tsbuildinfo`，本地文件继续由 `.gitignore` 管理。
+
+### 修改了哪些文件
+- `proto/game.proto`、`proto/README.md`。
+- `scripts/generate-types.mjs`、`scripts/generate-protocol-contracts.mjs`、`package.json`。
+- `.eslintrc.json`。
+- 重新生成 `packages/core/src/websocket/protocol.generated.ts` 与 `packages/backend/internal/ws/protocol_generated.go`。
+- 从版本控制移除 `packages/core/tsconfig.tsbuildinfo`、`packages/frontend/tsconfig.tsbuildinfo`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `game.proto` 中的 `json_required` 扩展与字段标注，并恢复生成器内原有必填字段清单。
+- 将 `package.json` 的 `proto:check` 恢复为仅调用 `generate-protocol-contracts.mjs --check`，撤回 `generate-types.mjs` 的检查模式。
+- 从 `.eslintrc.json` 删除 protobufjs 中间声明文件的忽略项。
+- 使用 `git add -f packages/core/tsconfig.tsbuildinfo packages/frontend/tsconfig.tsbuildinfo` 恢复两个缓存文件的跟踪。
+- 重新运行 `pnpm proto:generate`，并删除 `work.md` 中标题为 `2026-07-13 11:55` 的本节记录。

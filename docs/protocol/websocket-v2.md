@@ -23,7 +23,7 @@
 
 ## 稳定错误码 [Stable Error Code]
 
-`UNSUPPORTED_PROTOCOL`、`ROOM_NOT_FOUND`、`INVALID_CREDENTIAL`、`STALE_CONNECTION`、`FORBIDDEN`、`PARTICIPANT_SET_FROZEN`、`UNEXPECTED_SEQUENCE`、`SEQUENCE_CONFLICT`、`IDEMPOTENCY_CONFLICT`、`PERSISTENCE_UNAVAILABLE`、`PERSISTENCE_CONFLICT`、`INTERNAL`。
+`UNSUPPORTED_PROTOCOL`、`INVALID_MESSAGE`、`ROOM_NOT_FOUND`、`INVALID_CREDENTIAL`、`STALE_CONNECTION`、`FORBIDDEN`、`PARTICIPANT_SET_FROZEN`、`UNEXPECTED_SEQUENCE`、`SEQUENCE_CONFLICT`、`IDEMPOTENCY_CONFLICT`、`PERSISTENCE_UNAVAILABLE`、`PERSISTENCE_CONFLICT`、`INTERNAL`。
 
 凭证错误、身份不存在、已离开和被封禁不得通过公开错误文本相互区分。
 
@@ -36,3 +36,9 @@
 实时游戏会话投影 [Real-time Game Session Projection] 是从单个已提交视图生成的接收者特定完整状态。加入和命令提交在房间串行顺序内生成整批投影；网络发送不参与事务。
 
 每个活动连接使用独立的有序出站队列 [Ordered Outbound Queue]。同一连接按入队顺序发送，不同连接互不阻塞。发送失败或慢消费者队列溢出时，服务端只关闭活动连接，房间成员资格保持；重连后通过完整状态恢复，不补发历史事件。
+
+## 契约生成 [Contract Generation]
+
+`proto/game.proto` 是客户端信封、服务端信封、稳定错误码和房间投影字段的规范来源 [Canonical Source]。WebSocket 继续使用 JSON 编码，不使用 ProtoBuf 二进制传输。
+
+`pnpm proto:generate` 生成 Go 与 TypeScript 契约；`pnpm proto:check` 检查生成物漂移 [Generated Artifact Drift]。生成文件不得手动维护。

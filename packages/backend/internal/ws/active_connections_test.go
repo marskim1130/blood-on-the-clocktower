@@ -4,8 +4,8 @@ import "testing"
 
 func TestActiveConnectionRegistryTakeoverInvalidatesPreviousConnection(t *testing.T) {
 	registry := NewActiveConnectionRegistry()
-	first := NewFakeConnection()
-	second := NewFakeConnection()
+	first := newFakeConnection()
+	second := newFakeConnection()
 
 	firstGeneration, previous := registry.Takeover("room", "player", first)
 	if previous != nil || !registry.IsCurrent("room", "player", first, firstGeneration) {
@@ -26,8 +26,8 @@ func TestActiveConnectionRegistryTakeoverInvalidatesPreviousConnection(t *testin
 
 func TestActiveConnectionRegistryRemoveDoesNotRemoveReplacement(t *testing.T) {
 	registry := NewActiveConnectionRegistry()
-	first := NewFakeConnection()
-	second := NewFakeConnection()
+	first := newFakeConnection()
+	second := newFakeConnection()
 	registry.Takeover("room", "player", first)
 	generation, _ := registry.Takeover("room", "player", second)
 

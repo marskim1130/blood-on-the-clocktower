@@ -51,7 +51,7 @@ function createMockServer(): WebSocketServer {
           rejectNextSequencedCommand = false;
           send(socket, {
             type: 'ERROR',
-            code: 'INVALID_GAME_STATE',
+            code: 'INTERNAL',
             error: 'rejected',
             nextClientSequence: Number(message.clientSequence) + 1,
           });
@@ -272,11 +272,21 @@ describe('GameWebSocketClient protocol v2', () => {
     await createIdentity(client);
     receivedMessages = [];
 
+    const emptyState = {
+      roomId: 'creator-room',
+      players: [],
+      maxPlayers: 5,
+      scriptId: 'trouble_brewing',
+      scriptName: 'Trouble Brewing',
+      phase: 1,
+      dayNumber: 0,
+    };
+
     server.clients.forEach((socket) => {
-      send(socket, { type: 'ROOM_STATE_CHANGED', roomRevision: 1, state: { roomId: 'creator-room', players: [] } });
-      send(socket, { type: 'ROOM_STATE_CHANGED', roomRevision: 3, state: { roomId: 'creator-room', players: [] } });
-      send(socket, { type: 'ROOM_STATE', roomRevision: 2, state: { roomId: 'creator-room', players: [] } });
-      send(socket, { type: 'ROOM_STATE', roomRevision: 4, state: { roomId: 'creator-room', players: [] } });
+      send(socket, { type: 'ROOM_STATE_CHANGED', roomRevision: 1, state: emptyState });
+      send(socket, { type: 'ROOM_STATE_CHANGED', roomRevision: 3, state: emptyState });
+      send(socket, { type: 'ROOM_STATE', roomRevision: 2, state: emptyState });
+      send(socket, { type: 'ROOM_STATE', roomRevision: 4, state: emptyState });
     });
 
     await waitFor(() => handled.filter((message) => message.type === 'ROOM_STATE').length === 2);

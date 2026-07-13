@@ -8,6 +8,7 @@ import (
 	"errors"
 
 	"github.com/your-org/blood-on-the-clocktower/internal/game"
+	"github.com/your-org/blood-on-the-clocktower/internal/gameplay"
 	"github.com/your-org/blood-on-the-clocktower/internal/session"
 )
 
@@ -50,7 +51,7 @@ func (h *Hub) handleCreateRoomV2(conn Connection, msg ClientMessage) {
 	}
 	state, _ := result.State.(*RoomState)
 	decorateRoomState(state, result.Metadata)
-	h.outbound.send(conn, ServerMessage{Type: "CREATE_ROOM_RESULT", RoomID: result.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgCreateRoomResult, RoomID: result.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
@@ -62,7 +63,7 @@ func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
 		}
 		state, _ := result.State.(*RoomState)
 		decorateRoomState(state, result.Metadata)
-		h.outbound.send(conn, ServerMessage{Type: "JOIN_ROOM_RESULT", RoomID: msg.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+		h.outbound.send(conn, ServerMessage{Type: ServerMsgJoinRoomResult, RoomID: msg.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 		h.enqueueDeliveries(msg.RoomID, msg.PlayerID, result.RoomRevision, result.Deliveries, result.Metadata)
 	})
 	if err != nil {
@@ -89,7 +90,7 @@ func (h *Hub) handleResumeRoomV2(conn Connection, msg ClientMessage) {
 	}
 	state, _ := result.Room.(*RoomState)
 	decorateRoomState(state, result.Metadata)
-	h.outbound.send(conn, ServerMessage{Type: "RESUME_ROOM_RESULT", RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgResumeRoomResult, RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleGetRoomStateV2(conn Connection, msg ClientMessage) {
@@ -109,7 +110,7 @@ func (h *Hub) handleGetRoomStateV2(conn Connection, msg ClientMessage) {
 	}
 	state, _ := result.Room.(*RoomState)
 	decorateRoomState(state, result.Metadata)
-	h.outbound.send(conn, ServerMessage{Type: "ROOM_STATE", RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgRoomState, RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
@@ -164,11 +165,11 @@ func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
 			h.outbound.closeWhenDrained(conn)
 		case session.CloseTarget:
 			if target, _, ok := h.active.Get(msg.RoomID, result.TargetPlayerID); ok {
-				h.outbound.sendAndClose(target, ServerMessage{Type: "KICKED", RoomID: msg.RoomID})
+				h.outbound.sendAndClose(target, ServerMessage{Type: ServerMsgKicked, RoomID: msg.RoomID})
 			}
 		case session.CloseAll:
 			for _, target := range h.active.RemoveRoom(msg.RoomID) {
-				h.outbound.sendAndClose(target, ServerMessage{Type: "ROOM_CLOSED", RoomID: msg.RoomID})
+				h.outbound.sendAndClose(target, ServerMessage{Type: ServerMsgRoomClosed, RoomID: msg.RoomID})
 			}
 		}
 	}
@@ -176,12 +177,12 @@ func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
 
 func (h *Hub) enqueueCommandResult(connection Connection, roomID string, result session.CommandResult) {
 	state, _ := result.DirectResponse.(*RoomState)
-	var identityStatus any
+	var identityStatus *session.IdentityStatus
 	if status, ok := result.DirectResponse.(session.IdentityStatus); ok {
-		identityStatus = status
+		identityStatus = &status
 	}
 	decorateRoomState(state, result.Metadata)
-	h.outbound.send(connection, ServerMessage{Type: "COMMAND_RESULT", RoomID: roomID, State: state, IdentityStatus: identityStatus, RoomRevision: result.RoomRevision, AcceptedSequence: result.AcceptedSequence, NextClientSequence: result.NextClientSequence})
+	h.outbound.send(connection, ServerMessage{Type: ServerMsgCommandResult, RoomID: roomID, State: state, IdentityStatus: identityStatus, RoomRevision: result.RoomRevision, AcceptedSequence: result.AcceptedSequence, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) enqueueDeliveries(roomID, excludePlayerID string, revision uint64, deliveries []session.Delivery, metadata session.RoomMetadata) {
@@ -195,7 +196,7 @@ func (h *Hub) enqueueDeliveries(roomID, excludePlayerID string, revision uint64,
 		}
 		state, _ := delivery.Payload.(*RoomState)
 		decorateRoomState(state, metadata)
-		h.outbound.send(connection, ServerMessage{Type: "ROOM_STATE_CHANGED", RoomID: roomID, State: state, RoomRevision: revision})
+		h.outbound.send(connection, ServerMessage{Type: ServerMsgRoomStateChanged, RoomID: roomID, State: state, RoomRevision: revision})
 	}
 }
 
@@ -212,7 +213,7 @@ func toSessionCommand(msg ClientMessage) (session.Command, error) {
 		command.Kind = session.CommandClose
 	case MsgUpdateRoomSettings:
 		command.Kind = session.CommandUpdateSettings
-		command.Payload = UpdateRoomSettingsCmd{SenderID: msg.PlayerID, MaxPlayers: msg.MaxPlayers, ScriptID: msg.ScriptID}
+		command.Payload = gameplay.UpdateRoomSettingsCmd{SenderID: msg.PlayerID, MaxPlayers: msg.MaxPlayers, ScriptID: msg.ScriptID}
 	default:
 		gameCommand, err := toGameCommand(msg)
 		if err != nil {
@@ -224,42 +225,42 @@ func toSessionCommand(msg ClientMessage) (session.Command, error) {
 	return command, nil
 }
 
-func toGameCommand(msg ClientMessage) (Command, error) {
+func toGameCommand(msg ClientMessage) (gameplay.Command, error) {
 	switch msg.Type {
 	case MsgSetStoryteller:
-		return SetStorytellerCmd{SenderID: msg.PlayerID, TargetPlayerID: msg.TargetPlayerID}, nil
+		return gameplay.SetStorytellerCmd{SenderID: msg.PlayerID, TargetPlayerID: msg.TargetPlayerID}, nil
 	case MsgAssignCharacters:
-		return AssignCharactersCmd{SenderID: msg.PlayerID, Assignments: msg.Assignments, ShownCharacters: msg.ShownCharacters, FortuneTellerRedHerringID: msg.FortuneTellerRedHerringID}, nil
+		return gameplay.AssignCharactersCmd{SenderID: msg.PlayerID, Assignments: msg.Assignments, ShownCharacters: msg.ShownCharacters, FortuneTellerRedHerringID: msg.FortuneTellerRedHerringID}, nil
 	case MsgSubmitEvent:
 		if msg.Event == nil {
 			return nil, errors.New("event is required")
 		}
-		return SubmitEventCmd{SenderID: msg.PlayerID, Event: *msg.Event}, nil
+		return gameplay.SubmitEventCmd{SenderID: msg.PlayerID, Event: *msg.Event}, nil
 	case MsgStartGame:
-		return StartGameCmd{SenderID: msg.PlayerID}, nil
+		return gameplay.StartGameCmd{SenderID: msg.PlayerID}, nil
 	case MsgChangePhase:
-		return ChangePhaseCmd{SenderID: msg.PlayerID, Phase: msg.Phase.GamePhase()}, nil
+		return gameplay.ChangePhaseCmd{SenderID: msg.PlayerID, Phase: msg.Phase.GamePhase()}, nil
 	case MsgNominate:
-		return NominateCmd{SenderID: msg.PlayerID, NomineeID: msg.NomineeID}, nil
+		return gameplay.NominateCmd{SenderID: msg.PlayerID, NomineeID: msg.NomineeID}, nil
 	case MsgCastVote:
 		if msg.Decision == nil {
 			return nil, errors.New("decision is required")
 		}
-		return CastVoteCmd{SenderID: msg.PlayerID, Decision: *msg.Decision}, nil
+		return gameplay.CastVoteCmd{SenderID: msg.PlayerID, Decision: *msg.Decision}, nil
 	case MsgResolveNomination:
-		return ResolveNominationCmd{SenderID: msg.PlayerID}, nil
+		return gameplay.ResolveNominationCmd{SenderID: msg.PlayerID}, nil
 	case MsgExecutePlayer:
-		return ExecutePlayerCmd{SenderID: msg.PlayerID, PlayerID: msg.targetPlayerID()}, nil
+		return gameplay.ExecutePlayerCmd{SenderID: msg.PlayerID, PlayerID: msg.targetPlayerID()}, nil
 	case MsgUseSlayerAbility:
-		return UseSlayerAbilityCmd{SenderID: msg.PlayerID, TargetPlayerID: msg.TargetPlayerID}, nil
+		return gameplay.UseSlayerAbilityCmd{SenderID: msg.PlayerID, TargetPlayerID: msg.TargetPlayerID}, nil
 	case MsgKillPlayer:
-		return KillPlayerCmd{SenderID: msg.PlayerID, PlayerID: msg.targetPlayerID(), Cause: msg.Cause.DeathCause()}, nil
+		return gameplay.KillPlayerCmd{SenderID: msg.PlayerID, PlayerID: msg.targetPlayerID(), Cause: msg.Cause.DeathCause()}, nil
 	case MsgSubmitNightAction:
-		return SubmitNightActionCmd{SenderID: msg.PlayerID, ActionType: msg.ActionType, TargetIDs: msg.TargetIDs, Result: msg.Result}, nil
+		return gameplay.SubmitNightActionCmd{SenderID: msg.PlayerID, ActionType: msg.ActionType, TargetIDs: msg.TargetIDs, Result: msg.Result}, nil
 	case MsgResolveNight:
-		return ResolveNightCmd{SenderID: msg.PlayerID}, nil
+		return gameplay.ResolveNightCmd{SenderID: msg.PlayerID}, nil
 	case MsgEndGame:
-		return EndGameCmd{SenderID: msg.PlayerID, Winner: msg.Winner.Team(), Reason: game.WinReasonStorytellerDecision, Description: msg.Description}, nil
+		return gameplay.EndGameCmd{SenderID: msg.PlayerID, Winner: msg.Winner.Team(), Reason: game.WinReasonStorytellerDecision, Description: msg.Description}, nil
 	}
 	return nil, errors.New("unsupported command")
 }
@@ -288,28 +289,28 @@ func fingerprint(msg ClientMessage) string {
 	return hex.EncodeToString(sum[:])
 }
 func (h *Hub) sendV2Error(conn Connection, err error, nextClientSequence uint64) {
-	code := "INTERNAL"
+	code := ProtocolErrorInternal
 	switch {
 	case errors.Is(err, session.ErrRoomNotFound):
-		code = "ROOM_NOT_FOUND"
+		code = ProtocolErrorRoomNotFound
 	case errors.Is(err, session.ErrInvalidCredential):
-		code = "INVALID_CREDENTIAL"
+		code = ProtocolErrorInvalidCredential
 	case errors.Is(err, session.ErrStaleConnection):
-		code = "STALE_CONNECTION"
+		code = ProtocolErrorStaleConnection
 	case errors.Is(err, session.ErrForbidden):
-		code = "FORBIDDEN"
+		code = ProtocolErrorForbidden
 	case errors.Is(err, session.ErrParticipantSetFrozen):
-		code = "PARTICIPANT_SET_FROZEN"
+		code = ProtocolErrorParticipantSetFrozen
 	case errors.Is(err, session.ErrUnexpectedSequence):
-		code = "UNEXPECTED_SEQUENCE"
+		code = ProtocolErrorUnexpectedSequence
 	case errors.Is(err, session.ErrSequenceConflict):
-		code = "SEQUENCE_CONFLICT"
+		code = ProtocolErrorSequenceConflict
 	case errors.Is(err, session.ErrIdempotencyConflict):
-		code = "IDEMPOTENCY_CONFLICT"
+		code = ProtocolErrorIdempotencyConflict
 	case errors.Is(err, session.ErrPersistenceUnavailable):
-		code = "PERSISTENCE_UNAVAILABLE"
+		code = ProtocolErrorPersistenceUnavailable
 	case errors.Is(err, session.ErrPersistenceConflict):
-		code = "PERSISTENCE_CONFLICT"
+		code = ProtocolErrorPersistenceConflict
 	}
-	h.outbound.send(conn, ServerMessage{Type: "ERROR", Code: code, Error: err.Error(), NextClientSequence: nextClientSequence})
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgError, Code: code, Error: err.Error(), NextClientSequence: nextClientSequence})
 }

@@ -1,4 +1,4 @@
-package ws
+package gameplay
 
 import (
 	"testing"
@@ -146,7 +146,7 @@ func TestPoisonedImpNightKillDoesNotKillTarget(t *testing.T) {
 			t.Fatalf("expected poisoned Imp kill not to kill anyone, got %#v", event.PlayerDied)
 		}
 	}
-	p1 := findPlayerInState(t, gs.StateForRoom("room-1"), "p1")
+	p1 := findPlayerInState(t, gs.Projection(), "p1")
 	if !p1.IsAlive {
 		t.Fatal("expected target to survive poisoned Imp kill")
 	}
@@ -216,7 +216,7 @@ func TestPoisonExpiresAtDusk(t *testing.T) {
 func TestStorytellerCanSeePoisonedState(t *testing.T) {
 	gs := setupPoisonedGameSession(t)
 
-	state := gs.StateForRoomForRecipient("room1", "storyteller")
+	state := gs.ProjectionFor("storyteller")
 
 	p2 := findPlayer(state.Players, "p2")
 	if p2.PoisonedUntil == nil {
@@ -233,7 +233,7 @@ func TestPlayerCannotSeePoisonedState(t *testing.T) {
 	gs := setupPoisonedGameSession(t)
 
 	// Test p1 (not poisoned) cannot see anyone's poison status
-	state := gs.StateForRoomForRecipient("room1", "p1")
+	state := gs.ProjectionFor("p1")
 	for _, player := range state.Players {
 		if player.PoisonedUntil != nil {
 			t.Errorf("expected p1 not to see any PoisonedUntil fields, but saw %s with PoisonedUntil=%d",
@@ -242,7 +242,7 @@ func TestPlayerCannotSeePoisonedState(t *testing.T) {
 	}
 
 	// Test p2 (poisoned) cannot see their own poison status
-	state = gs.StateForRoomForRecipient("room1", "p2")
+	state = gs.ProjectionFor("p2")
 	p2 := findPlayer(state.Players, "p2")
 	if p2.PoisonedUntil != nil {
 		t.Errorf("expected p2 not to see their own PoisonedUntil field, got %d", *p2.PoisonedUntil)

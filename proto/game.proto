@@ -2,25 +2,32 @@ syntax = "proto3";
 
 package clocktower;
 
+import "google/protobuf/descriptor.proto";
+
 option go_package = "github.com/your-org/blood-on-the-clocktower/internal/game";
+
+// json_required marks fields that must be present in the flattened JSON contract.
+extend google.protobuf.FieldOptions {
+  bool json_required = 50001;
+}
 
 // Player represents a player in the game
 message Player {
-  string id = 1;
-  string name = 2;
+  string id = 1 [(json_required) = true];
+  string name = 2 [(json_required) = true];
   optional Character character = 3;
-  bool is_alive = 4;
-  int32 votes = 5;
+  bool is_alive = 4 [(json_required) = true];
+  int32 votes = 5 [(json_required) = true];
   optional int32 poisoned_until = 6;
   optional Character shown_character = 7;
 }
 
 // Character represents a character role
 message Character {
-  string id = 1;
-  string name = 2;
-  Team team = 3;
-  string ability = 4;
+  string id = 1 [(json_required) = true];
+  string name = 2 [(json_required) = true];
+  Team team = 3 [(json_required) = true];
+  string ability = 4 [(json_required) = true];
 }
 
 // Team enum
@@ -79,6 +86,72 @@ enum WinReason {
   WIN_REASON_STORYTELLER_DECISION = 6;
 }
 
+// ClientMessageType is the protocol v2 client command discriminator.
+enum ClientMessageType {
+  CLIENT_MESSAGE_TYPE_UNSPECIFIED = 0;
+  CLIENT_MESSAGE_TYPE_CREATE_ROOM = 1;
+  CLIENT_MESSAGE_TYPE_JOIN_ROOM = 2;
+  CLIENT_MESSAGE_TYPE_RESUME_ROOM = 3;
+  CLIENT_MESSAGE_TYPE_REJOIN_ROOM = 4;
+  CLIENT_MESSAGE_TYPE_GET_ROOM_STATE = 5;
+  CLIENT_MESSAGE_TYPE_CLOSE_ROOM = 6;
+  CLIENT_MESSAGE_TYPE_LEAVE_ROOM = 7;
+  CLIENT_MESSAGE_TYPE_KICK_PLAYER = 8;
+  CLIENT_MESSAGE_TYPE_UPDATE_ROOM_SETTINGS = 9;
+  CLIENT_MESSAGE_TYPE_SET_STORYTELLER = 10;
+  CLIENT_MESSAGE_TYPE_ASSIGN_CHARACTERS = 11;
+  CLIENT_MESSAGE_TYPE_SUBMIT_EVENT = 12;
+  CLIENT_MESSAGE_TYPE_START_GAME = 13;
+  CLIENT_MESSAGE_TYPE_CHANGE_PHASE = 14;
+  CLIENT_MESSAGE_TYPE_NOMINATE = 15;
+  CLIENT_MESSAGE_TYPE_CAST_VOTE = 16;
+  CLIENT_MESSAGE_TYPE_RESOLVE_NOMINATION = 17;
+  CLIENT_MESSAGE_TYPE_EXECUTE_PLAYER = 18;
+  CLIENT_MESSAGE_TYPE_USE_SLAYER_ABILITY = 19;
+  CLIENT_MESSAGE_TYPE_KILL_PLAYER = 20;
+  CLIENT_MESSAGE_TYPE_SUBMIT_NIGHT_ACTION = 21;
+  CLIENT_MESSAGE_TYPE_RESOLVE_NIGHT = 22;
+  CLIENT_MESSAGE_TYPE_END_GAME = 23;
+}
+
+// ServerMessageType is the protocol v2 server message discriminator.
+enum ServerMessageType {
+  SERVER_MESSAGE_TYPE_UNSPECIFIED = 0;
+  SERVER_MESSAGE_TYPE_CREATE_ROOM_RESULT = 1;
+  SERVER_MESSAGE_TYPE_JOIN_ROOM_RESULT = 2;
+  SERVER_MESSAGE_TYPE_RESUME_ROOM_RESULT = 3;
+  SERVER_MESSAGE_TYPE_COMMAND_RESULT = 4;
+  SERVER_MESSAGE_TYPE_ROOM_STATE = 5;
+  SERVER_MESSAGE_TYPE_ROOM_STATE_CHANGED = 6;
+  SERVER_MESSAGE_TYPE_KICKED = 7;
+  SERVER_MESSAGE_TYPE_ROOM_CLOSED = 8;
+  SERVER_MESSAGE_TYPE_ERROR = 9;
+}
+
+// ProtocolErrorCode is the stable machine-readable protocol v2 error set.
+enum ProtocolErrorCode {
+  PROTOCOL_ERROR_CODE_UNSPECIFIED = 0;
+  PROTOCOL_ERROR_CODE_INVALID_MESSAGE = 1;
+  PROTOCOL_ERROR_CODE_UNSUPPORTED_PROTOCOL = 2;
+  PROTOCOL_ERROR_CODE_ROOM_NOT_FOUND = 3;
+  PROTOCOL_ERROR_CODE_INVALID_CREDENTIAL = 4;
+  PROTOCOL_ERROR_CODE_STALE_CONNECTION = 5;
+  PROTOCOL_ERROR_CODE_FORBIDDEN = 6;
+  PROTOCOL_ERROR_CODE_PARTICIPANT_SET_FROZEN = 7;
+  PROTOCOL_ERROR_CODE_UNEXPECTED_SEQUENCE = 8;
+  PROTOCOL_ERROR_CODE_SEQUENCE_CONFLICT = 9;
+  PROTOCOL_ERROR_CODE_IDEMPOTENCY_CONFLICT = 10;
+  PROTOCOL_ERROR_CODE_PERSISTENCE_UNAVAILABLE = 11;
+  PROTOCOL_ERROR_CODE_PERSISTENCE_CONFLICT = 12;
+  PROTOCOL_ERROR_CODE_INTERNAL = 13;
+}
+
+enum IdentityState {
+  IDENTITY_STATE_UNSPECIFIED = 0;
+  IDENTITY_STATE_MEMBER = 1;
+  IDENTITY_STATE_RETAINED = 2;
+}
+
 // GameState represents the complete state of a game
 message GameState {
   string id = 1;
@@ -110,23 +183,23 @@ message GameEvent {
 }
 
 message DeathRecord {
-  string player_id = 1;
-  DeathCause cause = 2;
-  int32 day_number = 3;
+  string player_id = 1 [(json_required) = true];
+  DeathCause cause = 2 [(json_required) = true];
+  int32 day_number = 3 [(json_required) = true];
   optional string killed_by = 4;
 }
 
 message Nomination {
-  string nominator_id = 1;
-  string nominee_id = 2;
-  map<string, bool> votes = 3;  // voter_id -> decision
-  bool resolved = 4;
+  string nominator_id = 1 [(json_required) = true];
+  string nominee_id = 2 [(json_required) = true];
+  map<string, bool> votes = 3 [(json_required) = true];  // voter_id -> decision
+  bool resolved = 4 [(json_required) = true];
 }
 
 message NightAction {
-  string actor_id = 1;
-  NightActionType action_type = 2;
-  repeated string target_ids = 3;
+  string actor_id = 1 [(json_required) = true];
+  NightActionType action_type = 2 [(json_required) = true];
+  repeated string target_ids = 3 [(json_required) = true];
   optional string result = 4;
 }
 
@@ -181,7 +254,88 @@ message NightActionSubmitted {
 }
 
 message GameEnded {
-  Team winner = 1;
-  WinReason reason = 2;
-  string description = 3;
+  Team winner = 1 [(json_required) = true];
+  WinReason reason = 2 [(json_required) = true];
+  string description = 3 [(json_required) = true];
+}
+
+// ClientMessage describes the flattened JSON envelope used on the wire.
+message ClientMessage {
+  int32 protocol_version = 1 [(json_required) = true];
+  ClientMessageType type = 2 [(json_required) = true];
+  optional string request_id = 3;
+  optional string join_request_id = 4;
+  optional string resume_credential = 5;
+  optional uint64 client_sequence = 6;
+  optional string room_id = 7;
+  optional string player_name = 8;
+  optional string player_id = 9;
+  optional string target_player_id = 10;
+  optional int32 max_players = 11;
+  optional string script_id = 12;
+  map<string, string> assignments = 13;
+  map<string, string> shown_characters = 14;
+  optional string fortune_teller_red_herring_id = 15;
+  optional GameEvent event = 16;
+  optional string nominee_id = 17;
+  optional bool decision = 18;
+  optional GamePhase phase = 19;
+  optional Team winner = 20;
+  optional string reason = 21;
+  optional string description = 22;
+  optional DeathCause cause = 23;
+  optional string action_type = 24;
+  repeated string target_ids = 25;
+  optional string result = 26;
+}
+
+message IdentityStatus {
+  IdentityState status = 1 [(json_required) = true];
+  bool can_rejoin = 2 [(json_required) = true];
+  bool participant_set_frozen = 3 [(json_required) = true];
+  optional uint64 next_client_sequence = 4;
+}
+
+message NightWakeStep {
+  string character_id = 1 [(json_required) = true];
+  optional string character_type = 2;
+  int32 order = 3 [(json_required) = true];
+  string action_type = 4 [(json_required) = true];
+  string prompt = 5 [(json_required) = true];
+  int32 min_targets = 6 [(json_required) = true];
+  int32 max_targets = 7 [(json_required) = true];
+}
+
+// RoomState is a complete recipient-specific real-time game session projection.
+message RoomState {
+  string room_id = 1 [(json_required) = true];
+  repeated Player players = 2 [(json_required) = true];
+  int32 max_players = 3 [(json_required) = true];
+  string script_id = 4 [(json_required) = true];
+  string script_name = 5 [(json_required) = true];
+  optional string creator_id = 6;
+  optional string storyteller_id = 7;
+  GamePhase phase = 8 [(json_required) = true];
+  int32 day_number = 9 [(json_required) = true];
+  optional Nomination nomination = 10;
+  repeated DeathRecord deaths = 11;
+  repeated string ghost_votes_remaining = 12;
+  repeated NightWakeStep night_wake_steps = 13;
+  int32 current_night_wake_index = 14;
+  optional NightWakeStep current_night_wake_step = 15;
+  optional GameEnded winner = 16;
+  repeated NightAction night_actions = 17;
+}
+
+message ServerMessage {
+  ServerMessageType type = 1 [(json_required) = true];
+  optional ProtocolErrorCode code = 2;
+  optional string room_id = 3;
+  optional RoomState state = 4;
+  optional IdentityStatus identity_status = 5;
+  optional string error = 6;
+  optional string resume_credential = 7;
+  optional uint64 room_revision = 8;
+  optional uint64 accepted_sequence = 9;
+  optional uint64 next_client_sequence = 10;
 }

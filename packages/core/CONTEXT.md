@@ -43,6 +43,9 @@ The `GameWebSocketClient` provides:
 - Room revision tracking for full-state resynchronization
 - A projection gate that strips duplicate, stale, or gapped room projections before application handlers run
 - At most one automatic full-state request while a revision resynchronization is in flight
+- Client and server envelope types generated from `proto/game.proto`
+
+The projection gate owns Room Revision filtering. Downstream consumers receive only accepted complete projections and must not implement a second revision gate or reconstruct state from incremental domain events.
 
 The Core client keeps identity in memory. Durable Resume Credential storage belongs to the Frontend adapter.
 

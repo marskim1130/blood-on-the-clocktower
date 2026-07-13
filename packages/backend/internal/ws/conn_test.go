@@ -6,11 +6,11 @@ import (
 	"time"
 )
 
-// TestFakeConnectionConcurrentSendJSON verifies that FakeConnection
+// TestFakeConnectionConcurrentSendJSON verifies that fakeConnection
 // handles concurrent SendJSON calls without data corruption.
-// This test establishes the baseline — FakeConnection already has a mutex.
+// This test establishes the baseline — fakeConnection already has a mutex.
 func TestFakeConnectionConcurrentSendJSON(t *testing.T) {
-	conn := NewFakeConnection()
+	conn := newFakeConnection()
 	const goroutines = 50
 	const messagesPerGoroutine = 100
 
@@ -42,7 +42,7 @@ func TestFakeConnectionConcurrentSendJSON(t *testing.T) {
 // when it is nil (the blocking-without-channel path).
 func TestFakeConnectionReadMessageClosePropagation(t *testing.T) {
 	t.Run("without incomingCh", func(t *testing.T) {
-		conn := NewFakeConnection()
+		conn := newFakeConnection()
 
 		done := make(chan error, 1)
 		go func() {
@@ -66,7 +66,7 @@ func TestFakeConnectionReadMessageClosePropagation(t *testing.T) {
 	})
 
 	t.Run("with incomingCh", func(t *testing.T) {
-		conn := NewFakeConnection()
+		conn := newFakeConnection()
 		conn.incomingCh = make(chan []byte)
 
 		done := make(chan error, 1)
@@ -94,7 +94,7 @@ func TestFakeConnectionReadMessageClosePropagation(t *testing.T) {
 // TestFakeConnectionReadMessageReturnsData verifies the happy path:
 // data written to incomingCh is returned correctly.
 func TestFakeConnectionReadMessageReturnsData(t *testing.T) {
-	conn := NewFakeConnection()
+	conn := newFakeConnection()
 	conn.incomingCh = make(chan []byte, 1)
 
 	testData := []byte(`{"type":"TEST"}`)

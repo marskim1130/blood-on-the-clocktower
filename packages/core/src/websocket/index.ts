@@ -1,174 +1,31 @@
-// Messages matching Go server protocol
-export interface ClientMessage {
-  readonly protocolVersion: 2;
-  readonly type:
-    | 'CREATE_ROOM'
-    | 'JOIN_ROOM'
-    | 'RESUME_ROOM'
-    | 'REJOIN_ROOM'
-    | 'GET_ROOM_STATE'
-    | 'CLOSE_ROOM'
-    | 'LEAVE_ROOM'
-    | 'KICK_PLAYER'
-    | 'UPDATE_ROOM_SETTINGS'
-    | 'SET_STORYTELLER'
-    | 'ASSIGN_CHARACTERS'
-    | 'SUBMIT_EVENT'
-    | 'START_GAME'
-    | 'CHANGE_PHASE'
-    | 'NOMINATE'
-    | 'CAST_VOTE'
-    | 'RESOLVE_NOMINATION'
-    | 'EXECUTE_PLAYER'
-    | 'USE_SLAYER_ABILITY'
-    | 'KILL_PLAYER'
-    | 'SUBMIT_NIGHT_ACTION'
-    | 'RESOLVE_NIGHT'
-    | 'END_GAME';
-  readonly roomId?: string;
-  readonly requestId?: string;
-  readonly joinRequestId?: string;
-  readonly resumeCredential?: string;
-  readonly clientSequence?: number;
-  readonly playerName?: string;
-  readonly playerId?: string;
-  readonly targetPlayerId?: string;
-  readonly maxPlayers?: number;
-  readonly scriptId?: string;
-  readonly assignments?: Record<string, string>;
-  readonly shownCharacters?: Record<string, string>;
-  readonly fortuneTellerRedHerringId?: string;
-  readonly event?: Record<string, unknown>;
-  /** Phase name for CHANGE_PHASE (e.g. 'day', 'night', 'voting'). */
-  readonly phase?: string;
-  /** Nominee player id for NOMINATE. */
-  readonly nomineeId?: string;
-  /** Boolean vote decision for CAST_VOTE: true = guilty, false = innocent. */
-  readonly decision?: boolean;
-  /** Legacy alias for EXECUTE_PLAYER; prefer targetPlayerId. */
-  readonly executePlayerId?: string;
-  /** Death cause for KILL_PLAYER (e.g. 'execution', 'night_kill', 'ability'). */
-  readonly cause?: string;
-  /** Night action type for SUBMIT_NIGHT_ACTION (e.g. 'kill', 'poison'). */
-  readonly actionType?: string;
-  /** Target player ids for SUBMIT_NIGHT_ACTION. */
-  readonly targetIds?: readonly string[];
-  /** Optional Storyteller-adjudicated result for SUBMIT_NIGHT_ACTION. */
-  readonly result?: string;
-  /** Winning team for END_GAME. */
-  readonly winner?: 'good' | 'evil';
-  /** Optional machine-readable reason for END_GAME. */
-  readonly reason?: string;
-  /** Optional human-readable explanation for END_GAME. */
-  readonly description?: string;
-}
+import type {
+  ClientMessage,
+  ServerMessage,
+} from './protocol.generated.js';
 
-export interface ServerMessage {
-  readonly type:
-    | 'CREATE_ROOM_RESULT'
-    | 'JOIN_ROOM_RESULT'
-    | 'RESUME_ROOM_RESULT'
-    | 'COMMAND_RESULT'
-    | 'ROOM_STATE'
-    | 'ROOM_STATE_CHANGED'
-    | 'IDENTITY_STATUS'
-    | 'KICKED'
-    | 'ROOM_CLOSED'
-    | 'EVENT_BROADCAST'
-    | 'ERROR';
-  readonly roomId?: string;
-  readonly state?: RoomState;
-  readonly event?: GameServerEvent;
-  readonly error?: string;
-  readonly code?: string;
-  readonly resumeCredential?: string;
-  readonly acceptedSequence?: number;
-  readonly nextClientSequence?: number;
-  readonly roomRevision?: number;
-  readonly identityStatus?: IdentityStatus;
-}
-
-export interface IdentityStatus {
-  readonly status: 'member' | 'retained';
-  readonly canRejoin: boolean;
-  readonly participantSetFrozen: boolean;
-}
-
-export interface RoomState {
-  readonly roomId: string;
-  readonly players: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly character?: GameCharacter | null;
-    readonly shownCharacter?: GameCharacter | null;
-    readonly isAlive: boolean;
-    readonly votes?: number;
-    readonly poisonedUntil?: number;
-  }>;
-  readonly maxPlayers?: number;
-  readonly scriptId?: string;
-  readonly scriptName?: string;
-  readonly creatorId?: string;
-  readonly storytellerId?: string;
-  readonly phase?: number;
-  readonly dayNumber?: number;
-  readonly nomination?: {
-    readonly nominatorId: string;
-    readonly nomineeId: string;
-    readonly votes?: Record<string, boolean>;
-  } | null;
-  readonly deaths?: ReadonlyArray<{
-    readonly playerId: string;
-    readonly cause: string;
-    readonly dayNumber: number;
-    readonly killedBy?: string;
-  }>;
-  readonly ghostVotesRemaining?: readonly string[];
-  readonly nightWakeSteps?: readonly RoomNightWakeStep[];
-  readonly currentNightWakeIndex?: number;
-  readonly currentNightWakeStep?: RoomNightWakeStep | null;
-  readonly winner?: GameEndedPayload | null;
-}
-
-export interface RoomNightWakeStep {
-  readonly characterId: string;
-  readonly characterType?: string;
-  readonly order: number;
-  readonly actionType: string;
-  readonly prompt: string;
-  readonly minTargets: number;
-  readonly maxTargets: number;
-}
-
-export interface GameCharacter {
-  readonly id: string;
-  readonly name: string;
-  readonly team: number;
-  readonly ability: string;
-}
-
-export type GameServerEvent =
-  | { readonly playerJoined: { readonly player: { readonly id: string; readonly name: string; readonly isAlive: boolean } } }
-  | { readonly playerLeft: { readonly playerId: string } }
-  | { readonly phaseChanged: { readonly phase: number } }
-  | { readonly voteCast: { readonly voterId: string; readonly targetId?: string; readonly decision?: boolean } }
-  | { readonly characterAssigned: { readonly playerId: string; readonly character: GameCharacter; readonly shownCharacter?: GameCharacter | null } }
-  | { readonly playerDied: { readonly playerId: string; readonly cause: string; readonly dayNumber: number } }
-  | { readonly nominationStarted: { readonly nominatorId: string; readonly nomineeId: string } }
-  | { readonly nominationResolved: { readonly nomineeId: string; readonly executed: boolean; readonly yesVotes: number; readonly noVotes: number; readonly requiredVotes?: number } }
-  | { readonly nightAction: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result: string | null } }
-  | { readonly nightActionSubmitted: { readonly actorId: string; readonly actionType: string; readonly targetIds: readonly string[]; readonly result?: string | null } }
-  | { readonly gameOver: GameEndedPayload }
-  | { readonly gameEnded: GameEndedPayload };
-
-export interface GameEndedPayload {
-  readonly winner: number | string;
-  readonly reason: string;
-  readonly description: string;
-}
+export type {
+  ClientMessage,
+  ClientMessageType,
+  GameCharacter,
+  GameEndedPayload,
+  IdentityState,
+  IdentityStatus,
+  ProtocolErrorCode,
+  RoomNightWakeStep,
+  RoomState,
+  ServerMessage,
+  ServerMessageType,
+} from './protocol.generated.js';
 
 type MessageHandler = (msg: ServerMessage) => void;
 type StatusHandler = (status: ConnectionStatus) => void;
+
+function withoutProjection(message: ServerMessage): ServerMessage {
+  const result = { ...message };
+  delete result.state;
+  delete result.roomRevision;
+  return result;
+}
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 const READY_STATE_CONNECTING = 0;
@@ -636,8 +493,7 @@ export class GameWebSocketClient {
       msg.type === 'ROOM_STATE';
 
     if (currentRevision !== null && msg.roomRevision <= currentRevision) {
-      const { state: _state, roomRevision: _roomRevision, ...messageWithoutProjection } = msg;
-      return messageWithoutProjection;
+      return withoutProjection(msg);
     }
 
     if (!isFullProjection && currentRevision !== null && msg.roomRevision > currentRevision + 1) {
@@ -649,8 +505,7 @@ export class GameWebSocketClient {
           this.resyncInFlight = false;
         }
       }
-      const { state: _state, roomRevision: _roomRevision, ...messageWithoutProjection } = msg;
-      return messageWithoutProjection;
+      return withoutProjection(msg);
     }
 
     if (isFullProjection) this.resyncInFlight = false;

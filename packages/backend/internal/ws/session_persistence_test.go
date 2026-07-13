@@ -13,7 +13,7 @@ func TestRoomRecordsRestoreCredentialSequenceAndState(t *testing.T) {
 	if err != nil || len(recoveryErrors) != 0 {
 		t.Fatalf("initialize: errors=%v err=%v", recoveryErrors, err)
 	}
-	creator := NewFakeConnection()
+	creator := newFakeConnection()
 	hub.handleMessageV2(creator, ClientMessage{ProtocolVersion: 2, Type: MsgCreateRoom, RequestID: "create", PlayerID: "creator", PlayerName: "Alice", MaxPlayers: 5, ScriptID: "trouble_brewing"})
 	created := lastServerMessage(t, creator)
 	creator.ClearMessages()
@@ -26,7 +26,7 @@ func TestRoomRecordsRestoreCredentialSequenceAndState(t *testing.T) {
 	if err != nil || len(recoveryErrors) != 0 {
 		t.Fatalf("restore: errors=%v err=%v", recoveryErrors, err)
 	}
-	connection := NewFakeConnection()
+	connection := newFakeConnection()
 	restored.handleMessageV2(connection, ClientMessage{ProtocolVersion: 2, Type: MsgResumeRoom, RoomID: created.RoomID, PlayerID: "creator", ResumeCredential: created.ResumeCredential})
 	resumed := lastServerMessage(t, connection)
 	if resumed.Code != "" || resumed.RoomRevision != 2 || resumed.NextClientSequence != 2 || resumed.State == nil || resumed.State.MaxPlayers != 7 {

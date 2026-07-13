@@ -19,6 +19,12 @@ Uses Zustand with the core package's state machine. The frontend:
 - Connects to the WebSocket server
 - Dispatches user actions as `GameEvent`s
 
+### Room Experience
+
+`src/lib/room-experience.ts` owns the frontend Room Experience projection state. It atomically replaces the complete authoritative room projection, derives phase-specific view data, and clears all projection-derived data when identity is retained, kicked, invalid, or the room closes.
+
+The page owns transport side effects and rendering only. It must not reconstruct committed room state from incremental events, maintain parallel nomination/death/night/winner stores, or repeat the Core Room Revision gate.
+
 ### Component Architecture
 
 - **Pages**: Route-level components (lobby, game, settings)
@@ -35,6 +41,7 @@ Uses Zustand with the core package's state machine. The frontend:
 6. Retained Identity can explicitly rejoin; kicked or closed identities are cleared
 7. A Room Revision gap or regression triggers `GET_ROOM_STATE`, and the inconsistent incremental payload is not applied
 8. Clearing or replacing a room projection must also clear stale nomination, death, night-action, phase, and winner UI state
+9. Night Action history is rendered only from the Storyteller's complete authoritative projection; players never receive it
 
 ## Dependencies
 

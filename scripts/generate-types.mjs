@@ -9,7 +9,7 @@
  * Usage: node scripts/generate-types.mjs
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,33 +18,44 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const PROTO_DIR = join(ROOT, 'proto');
 const OUTPUT_DIR = join(ROOT, 'packages/core/src/types/generated');
+const CLEAN_OUTPUT = join(OUTPUT_DIR, 'index.ts');
+const CHECK = process.argv.includes('--check');
 
-// Ensure output directory exists
-mkdirSync(OUTPUT_DIR, { recursive: true });
-
-console.log('Generating TypeScript types from ProtoBuf definitions...');
+console.log(CHECK
+  ? 'Checking generated types from ProtoBuf definitions...'
+  : 'Generating TypeScript types from ProtoBuf definitions...');
 
 // Using pbts/pbjs from protobufjs-cli
 // Install: pnpm add -D protobufjs protobufjs-cli
 try {
-  // Generate static module
-  execSync(
-    `npx pbjs -t static-module -w es6 -o ${join(OUTPUT_DIR, 'bundle.js')} ${join(PROTO_DIR, 'game.proto')}`,
-    { cwd: ROOT, stdio: 'inherit' }
+  if (!CHECK) {
+    mkdirSync(OUTPUT_DIR, { recursive: true });
+
+    // Generate ignored protobufjs runtime artifacts used during local development.
+    execSync(
+      `npx pbjs -t static-module -w es6 -o ${join(OUTPUT_DIR, 'bundle.js')} ${join(PROTO_DIR, 'game.proto')}`,
+      { cwd: ROOT, stdio: 'inherit' }
+    );
+
+    execSync(
+      `npx pbts -o ${join(OUTPUT_DIR, 'bundle.d.ts')} ${join(OUTPUT_DIR, 'bundle.js')}`,
+      { cwd: ROOT, stdio: 'inherit' }
+    );
+  }
+
+  emitCleanTypes(generateCleanTypes());
+
+  execFileSync(
+    process.execPath,
+    ['scripts/generate-protocol-contracts.mjs', ...(CHECK ? ['--check'] : [])],
+    { cwd: ROOT, stdio: 'inherit' },
   );
 
-  // Generate TypeScript definitions
-  execSync(
-    `npx pbts -o ${join(OUTPUT_DIR, 'bundle.d.ts')} ${join(OUTPUT_DIR, 'bundle.js')}`,
-    { cwd: ROOT, stdio: 'inherit' }
-  );
-
-  // Generate clean TypeScript interfaces from the proto file
-  generateCleanTypes();
-
-  console.log('TypeScript types generated successfully!');
+  if (!process.exitCode) {
+    console.log(CHECK ? 'Generated types are current.' : 'TypeScript types generated successfully!');
+  }
 } catch (error) {
-  console.error('Failed to generate types:', error.message);
+  console.error(CHECK ? 'Failed to check generated types:' : 'Failed to generate types:', error.message);
   process.exit(1);
 }
 
@@ -167,6 +178,24 @@ export type ProtoGameEvent =
   | { readonly gameEnded: { readonly winner: Team; readonly reason: WinReason; readonly description: string } };
 `;
 
-  writeFileSync(join(OUTPUT_DIR, 'index.ts'), cleanTypes, 'utf-8');
-  console.log('Generated clean TypeScript interfaces');
+  return cleanTypes;
+}
+
+function emitCleanTypes(content) {
+  if (CHECK) {
+    let existing = '';
+    try {
+      existing = readFileSync(CLEAN_OUTPUT, 'utf8');
+    } catch {
+      // Report the missing generated artifact below.
+    }
+    if (existing !== content) {
+      console.error(`Generated contract is stale: ${CLEAN_OUTPUT}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
+  writeFileSync(CLEAN_OUTPUT, content, 'utf8');
+  console.log(`Generated ${CLEAN_OUTPUT}`);
 }

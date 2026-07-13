@@ -1,4 +1,4 @@
-package ws
+package gameplay
 
 import (
 	"testing"
@@ -89,7 +89,7 @@ func TestDrunkVisibilityUsesShownCharacterForDrunkOnly(t *testing.T) {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
 
-	storytellerState := gs.StateForRoomForRecipient("room", "storyteller")
+	storytellerState := gs.ProjectionFor("storyteller")
 	storytellerView := playerByID(t, storytellerState.Players, "p1")
 	if storytellerView.Character == nil || storytellerView.Character.ID != "drunk" {
 		t.Fatalf("expected storyteller to see actual Drunk, got %#v", storytellerView.Character)
@@ -98,7 +98,7 @@ func TestDrunkVisibilityUsesShownCharacterForDrunkOnly(t *testing.T) {
 		t.Fatalf("expected storyteller to see shown Washerwoman, got %#v", storytellerView.ShownCharacter)
 	}
 
-	drunkState := gs.StateForRoomForRecipient("room", "p1")
+	drunkState := gs.ProjectionFor("p1")
 	drunkView := playerByID(t, drunkState.Players, "p1")
 	if drunkView.Character == nil || drunkView.Character.ID != "washerwoman" {
 		t.Fatalf("expected Drunk player to see Washerwoman, got %#v", drunkView.Character)
@@ -107,7 +107,7 @@ func TestDrunkVisibilityUsesShownCharacterForDrunkOnly(t *testing.T) {
 		t.Fatalf("expected Drunk player not to see shownCharacter metadata, got %#v", drunkView.ShownCharacter)
 	}
 
-	otherState := gs.StateForRoomForRecipient("room", "p2")
+	otherState := gs.ProjectionFor("p2")
 	hiddenView := playerByID(t, otherState.Players, "p1")
 	if hiddenView.Character != nil || hiddenView.ShownCharacter != nil {
 		t.Fatalf("expected other players not to see Drunk identity, got character=%#v shown=%#v", hiddenView.Character, hiddenView.ShownCharacter)

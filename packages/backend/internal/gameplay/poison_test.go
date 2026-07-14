@@ -60,7 +60,7 @@ func TestPoisonPlayerSetsPoisonedUntil(t *testing.T) {
 		t.Fatal("expected state to be updated after poison action")
 	}
 
-	// Verify p2 is poisoned until day 2
+	// Verify p2 is poisoned through day 1. The first night uses dayNumber=0.
 	players := gs.Players()
 	var p2 *game.Player
 	for i := range players {
@@ -78,7 +78,7 @@ func TestPoisonPlayerSetsPoisonedUntil(t *testing.T) {
 		t.Fatal("expected p2 to be poisoned, but PoisonedUntil is nil")
 	}
 
-	expectedExpiration := int32(2) // dayNumber is 1, poison expires at day 2
+	expectedExpiration := int32(1)
 	if *p2.PoisonedUntil != expectedExpiration {
 		t.Errorf("expected PoisonedUntil=%d, got %d", expectedExpiration, *p2.PoisonedUntil)
 	}
@@ -180,7 +180,7 @@ func completeFullFirstNight(t *testing.T, gs *GameSession) {
 func TestPoisonExpiresAtDusk(t *testing.T) {
 	gs := setupPoisonedGameSession(t)
 
-	// p2 is poisoned until day 2
+	// p2 is poisoned through day 1
 	// Fast-forward through first night (ResolveNight automatically transitions to Day)
 	completeFirstNight(t, gs)
 
@@ -191,7 +191,7 @@ func TestPoisonExpiresAtDusk(t *testing.T) {
 
 	players := gs.Players()
 	p2 := findPlayer(players, "p2")
-	if p2.PoisonedUntil == nil || *p2.PoisonedUntil != 2 {
+	if p2.PoisonedUntil == nil || *p2.PoisonedUntil != 1 {
 		t.Fatal("expected p2 to still be poisoned during day 1")
 	}
 
@@ -223,8 +223,8 @@ func TestStorytellerCanSeePoisonedState(t *testing.T) {
 		t.Fatal("expected storyteller to see p2's PoisonedUntil field")
 	}
 
-	if *p2.PoisonedUntil != 2 {
-		t.Errorf("expected storyteller to see PoisonedUntil=2, got %d", *p2.PoisonedUntil)
+	if *p2.PoisonedUntil != 1 {
+		t.Errorf("expected storyteller to see PoisonedUntil=1, got %d", *p2.PoisonedUntil)
 	}
 }
 
@@ -286,7 +286,7 @@ func TestRepoisonUpdatesExpiration(t *testing.T) {
 		t.Fatal("expected p2 to be re-poisoned, but PoisonedUntil is nil")
 	}
 
-	expectedExpiration := int32(3) // dayNumber is 2, poison expires at day 3
+	expectedExpiration := int32(2)
 	if *p2.PoisonedUntil != expectedExpiration {
 		t.Errorf("expected re-poisoned PoisonedUntil=%d, got %d", expectedExpiration, *p2.PoisonedUntil)
 	}

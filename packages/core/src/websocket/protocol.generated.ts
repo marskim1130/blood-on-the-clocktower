@@ -1,9 +1,9 @@
-// Code generated from proto/game.proto (1ee07aa92f967825). DO NOT EDIT.
+// Code generated from proto/game.proto (b836f9c2b639b731). DO NOT EDIT.
 // Run: pnpm proto:generate
 
 export type ClientMessageType = 'CREATE_ROOM' | 'JOIN_ROOM' | 'RESUME_ROOM' | 'REJOIN_ROOM' | 'GET_ROOM_STATE' | 'CLOSE_ROOM' | 'LEAVE_ROOM' | 'KICK_PLAYER' | 'UPDATE_ROOM_SETTINGS' | 'SET_STORYTELLER' | 'ASSIGN_CHARACTERS' | 'SUBMIT_EVENT' | 'START_GAME' | 'CHANGE_PHASE' | 'NOMINATE' | 'CAST_VOTE' | 'RESOLVE_NOMINATION' | 'EXECUTE_PLAYER' | 'USE_SLAYER_ABILITY' | 'KILL_PLAYER' | 'SUBMIT_NIGHT_ACTION' | 'RESOLVE_NIGHT' | 'END_GAME';
 export type ServerMessageType = 'CREATE_ROOM_RESULT' | 'JOIN_ROOM_RESULT' | 'RESUME_ROOM_RESULT' | 'COMMAND_RESULT' | 'ROOM_STATE' | 'ROOM_STATE_CHANGED' | 'KICKED' | 'ROOM_CLOSED' | 'ERROR';
-export type ProtocolErrorCode = 'INVALID_MESSAGE' | 'UNSUPPORTED_PROTOCOL' | 'ROOM_NOT_FOUND' | 'INVALID_CREDENTIAL' | 'STALE_CONNECTION' | 'FORBIDDEN' | 'PARTICIPANT_SET_FROZEN' | 'UNEXPECTED_SEQUENCE' | 'SEQUENCE_CONFLICT' | 'IDEMPOTENCY_CONFLICT' | 'PERSISTENCE_UNAVAILABLE' | 'PERSISTENCE_CONFLICT' | 'INTERNAL';
+export type ProtocolErrorCode = 'INVALID_MESSAGE' | 'UNSUPPORTED_PROTOCOL' | 'ROOM_NOT_FOUND' | 'INVALID_CREDENTIAL' | 'STALE_CONNECTION' | 'FORBIDDEN' | 'PARTICIPANT_SET_FROZEN' | 'UNEXPECTED_SEQUENCE' | 'SEQUENCE_CONFLICT' | 'IDEMPOTENCY_CONFLICT' | 'PERSISTENCE_UNAVAILABLE' | 'PERSISTENCE_CONFLICT' | 'INTERNAL' | 'ROOM_FULL' | 'INVALID_COMMAND';
 export type IdentityState = 'member' | 'retained';
 
 export interface GameCharacter {
@@ -85,6 +85,9 @@ export interface RoomState {
   readonly currentNightWakeStep?: RoomNightWakeStep;
   readonly winner?: GameEndedPayload;
   readonly nightActions?: readonly RoomNightAction[];
+  readonly storytellerName?: string;
+  readonly nightNumber: number;
+  readonly fortuneTellerRedHerringId?: string;
 }
 
 export interface ClientMessage {

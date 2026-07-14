@@ -19,6 +19,8 @@ var (
 	ErrIdempotencyConflict    = errors.New("idempotency conflict")
 	ErrPersistenceConflict    = errors.New("persistence conflict")
 	ErrPersistenceUnavailable = errors.New("persistence unavailable")
+	ErrRoomFull               = errors.New("room full")
+	ErrInvalidCommand         = errors.New("invalid command")
 )
 
 type StoreRecord = sessionstore.Record
@@ -108,8 +110,9 @@ type Command struct {
 }
 
 type Delivery struct {
-	PlayerID string
-	Payload  any
+	PlayerID           string
+	Payload            any
+	NextClientSequence uint64
 }
 
 type ConnectionEffect string
@@ -156,6 +159,7 @@ type Engine interface {
 	SetRoomID(roomID string)
 	AddPlayer(playerID, name string) error
 	RemovePlayer(playerID string)
+	Finished() bool
 	Execute(actorID string, payload any) (updated bool, err error)
 	Project(recipientID string) any
 	Marshal() ([]byte, error)

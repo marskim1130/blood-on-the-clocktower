@@ -5,6 +5,7 @@ import {
   createRoomExperienceState,
   selectDeathAnnouncements,
   selectDeathRecords,
+  selectActingPlayerId,
   selectGameOver,
   selectGamePhase,
   selectGhostVotes,
@@ -19,6 +20,7 @@ function roomState(overrides: Partial<RoomState> = {}): RoomState {
     scriptName: 'Trouble Brewing',
     phase: 1,
     dayNumber: 0,
+    nightNumber: 0,
     ...overrides,
   };
 }
@@ -72,6 +74,20 @@ describe('room experience projection', () => {
     expect(selectGameOver(replaced)).toBeNull();
   });
 
+  it('preserves the authoritative participant freeze status', () => {
+    const state = apply({
+      type: 'COMMAND_RESULT',
+      state: roomState(),
+      identityStatus: {
+        status: 'member',
+        canRejoin: false,
+        participantSetFrozen: true,
+      },
+    });
+
+    expect(state.identityStatus?.participantSetFrozen).toBe(true);
+  });
+
   it('clears the projection for retained and terminal identities', () => {
     const member = apply({ type: 'ROOM_STATE', roomRevision: 2, state: roomState() });
     const retained = applyServerMessage(member, {
@@ -84,5 +100,19 @@ describe('room experience projection', () => {
 
     const kicked = applyServerMessage(member, { type: 'KICKED', roomId: 'room-1' });
     expect(kicked).toEqual({ ...createRoomExperienceState(), terminalReason: 'kicked' });
+
+    const missing = applyServerMessage(member, { type: 'ERROR', code: 'ROOM_NOT_FOUND', error: 'room not found' });
+    expect(missing).toEqual({ ...createRoomExperienceState(), terminalReason: 'closed' });
+  });
+
+  it('matches night actors by actual or shown character', () => {
+    const players = [
+      { id: 'drunk', character: { id: 'drunk' }, shownCharacter: { id: 'monk' } },
+      { id: 'butler', character: { id: 'butler' } },
+    ];
+
+    expect(selectActingPlayerId(players, 'monk')).toBe('drunk');
+    expect(selectActingPlayerId(players, 'butler')).toBe('butler');
+    expect(selectActingPlayerId(players, 'imp')).toBeUndefined();
   });
 });

@@ -42,17 +42,21 @@ export function applyServerMessage(
   if (message.type === 'ERROR' && message.code === 'INVALID_CREDENTIAL') {
     return { ...createRoomExperienceState(), terminalReason: 'invalid-credential' };
   }
+  if (message.type === 'ERROR' && message.code === 'ROOM_NOT_FOUND') {
+    return { ...createRoomExperienceState(), terminalReason: 'closed' };
+  }
 
   const identityStatus = message.identityStatus ?? current.identityStatus;
   const retained = identityStatus?.status === 'retained';
   const memberResult = message.type === 'CREATE_ROOM_RESULT' || message.type === 'JOIN_ROOM_RESULT';
   const memberProjection = Boolean(message.state);
+  const memberIdentity = identityStatus?.status === 'member'
+    ? identityStatus
+    : { status: 'member' as const, canRejoin: false, participantSetFrozen: false };
 
   return {
     roomState: retained ? null : (message.state ?? current.roomState),
-    identityStatus: memberResult || memberProjection
-      ? { status: 'member', canRejoin: false, participantSetFrozen: false }
-      : identityStatus,
+    identityStatus: memberResult || memberProjection ? memberIdentity : identityStatus,
     roomRevision: message.roomRevision ?? current.roomRevision,
     terminalReason: null,
   };
@@ -94,6 +98,20 @@ export function selectVisibleCharacter(
   playerId: string,
 ): GameCharacter | null {
   return state.roomState?.players.find((player) => player.id === playerId)?.character ?? null;
+}
+
+export function selectActingPlayerId(
+  players: readonly {
+    readonly id: string;
+    readonly character?: { readonly id: string };
+    readonly shownCharacter?: { readonly id: string };
+  }[],
+  characterId?: string,
+): string | undefined {
+  if (!characterId) return undefined;
+  return players.find(
+    (player) => player.character?.id === characterId || player.shownCharacter?.id === characterId,
+  )?.id;
 }
 
 export function selectDeathRecords(

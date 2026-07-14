@@ -8,6 +8,12 @@ const port = 18765;
 let receivedMessages: Array<Record<string, unknown>> = [];
 let server: WebSocketServer;
 let rejectNextSequencedCommand = false;
+let dropNextCreateResponse = false;
+let dropNextJoinResponse = false;
+let dropNextSequencedResponse = false;
+let holdNextResumeResponse = false;
+let retainNextLeaveIdentity = false;
+let rejectNextIdentityRequest = false;
 
 function send(socket: WsWebSocket, message: ServerMessage): void {
   socket.send(JSON.stringify(message));
@@ -21,6 +27,16 @@ function createMockServer(): WebSocketServer {
       receivedMessages.push(message);
 
       if (message.type === 'CREATE_ROOM') {
+        if (rejectNextIdentityRequest) {
+          rejectNextIdentityRequest = false;
+          send(socket, { type: 'ERROR', code: 'INVALID_COMMAND', error: 'rejected' });
+          return;
+        }
+        if (dropNextCreateResponse) {
+          dropNextCreateResponse = false;
+          socket.close();
+          return;
+        }
         send(socket, {
           type: 'CREATE_ROOM_RESULT',
           roomId: `${message.playerId}-room`,
@@ -29,6 +45,11 @@ function createMockServer(): WebSocketServer {
           roomRevision: 1,
         });
       } else if (message.type === 'JOIN_ROOM') {
+        if (dropNextJoinResponse) {
+          dropNextJoinResponse = false;
+          socket.close();
+          return;
+        }
         send(socket, {
           type: 'JOIN_ROOM_RESULT',
           roomId: String(message.roomId),
@@ -37,6 +58,7 @@ function createMockServer(): WebSocketServer {
           roomRevision: 2,
         });
       } else if (message.type === 'RESUME_ROOM') {
+        if (holdNextResumeResponse) return;
         send(socket, {
           type: 'RESUME_ROOM_RESULT',
           roomId: String(message.roomId),
@@ -47,6 +69,11 @@ function createMockServer(): WebSocketServer {
         typeof message.clientSequence === 'number' &&
         message.type !== 'FAIL_COMMAND'
       ) {
+        if (dropNextSequencedResponse) {
+          dropNextSequencedResponse = false;
+          socket.close();
+          return;
+        }
         if (rejectNextSequencedCommand) {
           rejectNextSequencedCommand = false;
           send(socket, {
@@ -57,11 +84,21 @@ function createMockServer(): WebSocketServer {
           });
           return;
         }
+        const identityStatus = message.type === 'LEAVE_ROOM' && retainNextLeaveIdentity
+          ? {
+              status: 'retained' as const,
+              canRejoin: true,
+              participantSetFrozen: false,
+              nextClientSequence: Number(message.clientSequence) + 1,
+            }
+          : undefined;
+        retainNextLeaveIdentity = false;
         send(socket, {
           type: 'COMMAND_RESULT',
           acceptedSequence: message.clientSequence,
           nextClientSequence: message.clientSequence + 1,
           roomRevision: Number(message.clientSequence) + 2,
+          ...(identityStatus ? { identityStatus } : {}),
         });
       }
     });
@@ -97,6 +134,12 @@ describe('GameWebSocketClient protocol v2', () => {
   beforeEach(() => {
     receivedMessages = [];
     rejectNextSequencedCommand = false;
+    dropNextCreateResponse = false;
+    dropNextJoinResponse = false;
+    dropNextSequencedResponse = false;
+    holdNextResumeResponse = false;
+    retainNextLeaveIdentity = false;
+    rejectNextIdentityRequest = false;
   });
 
   afterAll(() => {
@@ -146,6 +189,53 @@ describe('GameWebSocketClient protocol v2', () => {
     client.disconnect();
   });
 
+  it('replays CREATE_ROOM with the same request id when its response is lost', async () => {
+    const client = createClient({ reconnectInterval: 10, maxReconnectAttempts: 2 });
+    await connect(client);
+    dropNextCreateResponse = true;
+
+    client.createRoom('creator', 'Alice', 5, 'trouble_brewing', 'create-replay');
+    await waitFor(() => client.identity !== null);
+
+    const creates = receivedMessages.filter((message) => message.type === 'CREATE_ROOM');
+    expect(creates).toHaveLength(2);
+    expect(creates.map((message) => message.requestId)).toEqual(['create-replay', 'create-replay']);
+    expect(client.hasPendingRequest).toBe(false);
+    client.disconnect();
+  });
+
+  it('replays JOIN_ROOM with the same join request id when its response is lost', async () => {
+    const client = createClient({ reconnectInterval: 10, maxReconnectAttempts: 2 });
+    await connect(client);
+    dropNextJoinResponse = true;
+
+    client.joinRoom('room-1', 'member', 'Bob', 'join-replay');
+    await waitFor(() => client.identity !== null);
+
+    const joins = receivedMessages.filter((message) => message.type === 'JOIN_ROOM');
+    expect(joins).toHaveLength(2);
+    expect(joins.map((message) => message.joinRequestId)).toEqual(['join-replay', 'join-replay']);
+    expect(client.hasPendingRequest).toBe(false);
+    client.disconnect();
+  });
+
+  it('clears a pending identity request after an explicit error', async () => {
+    const client = createClient();
+    let errorReceived = false;
+    client.onMessage((message) => {
+      if (message.type === 'ERROR') errorReceived = true;
+    });
+    await connect(client);
+    rejectNextIdentityRequest = true;
+
+    client.createRoom('creator', 'Alice', 5, 'trouble_brewing', 'create-rejected');
+    await waitFor(() => errorReceived);
+
+    expect(client.hasPendingRequest).toBe(false);
+    expect(client.identity).toBeNull();
+    client.disconnect();
+  });
+
   it('uses RESUME_ROOM with the saved credential after reconnecting', async () => {
     const client = createClient({ reconnectInterval: 10, maxReconnectAttempts: 2 });
     await connect(client);
@@ -161,6 +251,47 @@ describe('GameWebSocketClient protocol v2', () => {
       playerId: 'creator',
       resumeCredential: 'creator-credential',
     });
+    client.disconnect();
+  });
+
+  it('preloads resume identity while disconnected and sends one RESUME_ROOM after open', async () => {
+    const client = createClient();
+
+    expect(() => client.resumeRoom('room-1', 'member', 'saved-credential')).not.toThrow();
+    expect(client.hasPendingRequest).toBe(true);
+    await connect(client);
+    await waitFor(() => client.hasPendingRequest === false);
+
+    expect(receivedMessages.filter((message) => message.type === 'RESUME_ROOM')).toHaveLength(1);
+    expect(client.identity).toEqual({
+      roomId: 'room-1',
+      playerId: 'member',
+      resumeCredential: 'saved-credential',
+    });
+    client.disconnect();
+  });
+
+  it('keeps pending true while RESUME_ROOM is reconciling an unconfirmed command', async () => {
+    const client = createClient({ reconnectInterval: 10, maxReconnectAttempts: 2 });
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+    dropNextSequencedResponse = true;
+    holdNextResumeResponse = true;
+
+    client.startGame();
+    await waitFor(() => receivedMessages.some((message) => message.type === 'RESUME_ROOM'));
+    expect(client.hasPendingRequest).toBe(true);
+
+    holdNextResumeResponse = false;
+    server.clients.forEach((socket) => send(socket, {
+      type: 'RESUME_ROOM_RESULT',
+      roomId: 'creator-room',
+      nextClientSequence: 1,
+      roomRevision: 2,
+    }));
+    await waitFor(() => client.hasPendingRequest === false);
+    expect(receivedMessages.filter((message) => message.type === 'START_GAME')).toHaveLength(2);
     client.disconnect();
   });
 
@@ -253,6 +384,58 @@ describe('GameWebSocketClient protocol v2', () => {
     client.disconnect();
   });
 
+  it('clears saved identity after ROOM_NOT_FOUND', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+
+    server.clients.forEach((socket) => send(socket, {
+      type: 'ERROR',
+      code: 'ROOM_NOT_FOUND',
+      error: 'room not found',
+    }));
+    await waitFor(() => client.identity === null);
+
+    expect(client.nextSequence).toBeNull();
+    expect(client.hasPendingRequest).toBe(false);
+    client.disconnect();
+  });
+
+  it('clears terminal leave identity and does not resume it on a later connection', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+
+    client.leaveRoom();
+    await waitFor(() => client.identity === null);
+    client.disconnect();
+    receivedMessages = [];
+    await connect(client);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(receivedMessages.filter((message) => message.type === 'RESUME_ROOM')).toHaveLength(0);
+    expect(client.nextSequence).toBeNull();
+    client.disconnect();
+  });
+
+  it('retains leave identity and resumes it on a later connection', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    retainNextLeaveIdentity = true;
+
+    client.leaveRoom();
+    await waitFor(() => client.hasPendingRequest === false && client.nextSequence === 2);
+    expect(client.identity).not.toBeNull();
+    client.disconnect();
+    receivedMessages = [];
+    await connect(client);
+    await waitFor(() => receivedMessages.some((message) => message.type === 'RESUME_ROOM'));
+
+    expect(client.identity?.resumeCredential).toBe('creator-credential');
+    client.disconnect();
+  });
+
   it('preserves the transport seam for raw protocol messages', async () => {
     const client = createClient();
     await connect(client);
@@ -280,6 +463,7 @@ describe('GameWebSocketClient protocol v2', () => {
       scriptName: 'Trouble Brewing',
       phase: 1,
       dayNumber: 0,
+      nightNumber: 0,
     };
 
     server.clients.forEach((socket) => {

@@ -67,12 +67,13 @@ func (testCodec) Verify(roomID, playerID, nonce, credential string) bool {
 }
 
 type testEngine struct {
-	Players map[string]string `json:"players"`
-	Value   int               `json:"value"`
+	Players      map[string]string `json:"players"`
+	Value        int               `json:"value"`
+	FinishedFlag bool              `json:"finished"`
 }
 
 func (e *testEngine) Clone() Engine {
-	clone := &testEngine{Players: map[string]string{}, Value: e.Value}
+	clone := &testEngine{Players: map[string]string{}, Value: e.Value, FinishedFlag: e.FinishedFlag}
 	for k, v := range e.Players {
 		clone.Players[k] = v
 	}
@@ -81,6 +82,7 @@ func (e *testEngine) Clone() Engine {
 func (e *testEngine) SetRoomID(string)                {}
 func (e *testEngine) AddPlayer(id, name string) error { e.Players[id] = name; return nil }
 func (e *testEngine) RemovePlayer(id string)          { delete(e.Players, id) }
+func (e *testEngine) Finished() bool                  { return e.FinishedFlag }
 func (e *testEngine) Execute(_ string, payload any) (bool, error) {
 	delta := payload.(int)
 	e.Value += delta
@@ -94,8 +96,8 @@ func (e *testEngine) Marshal() ([]byte, error) { return json.Marshal(e) }
 func newTestSession(t *testing.T) (*AuthoritativeGameSession, *memoryStore, Actor) {
 	t.Helper()
 	store := newMemoryStore()
-	engine := &testEngine{Players: map[string]string{"creator": "Creator"}}
-	record := RoomRecord{SchemaVersion: 1, RoomID: "room", RoomRevision: 1, CreatorID: "creator", MaxPlayers: 5, Members: map[string]Identity{"creator": {PlayerID: "creator", Name: "Creator", CredentialNonce: "nonce", State: IdentityMember}}, Retained: map[string]Identity{}, Bans: map[string]bool{}, CreateRequests: map[string]IdempotencyRecord{}, JoinRequests: map[string]IdempotencyRecord{}}
+	engine := &testEngine{Players: map[string]string{"creator": "Creator", "member": "Member"}}
+	record := RoomRecord{SchemaVersion: 1, RoomID: "room", RoomRevision: 1, CreatorID: "creator", MaxPlayers: 5, Members: map[string]Identity{"creator": {PlayerID: "creator", Name: "Creator", CredentialNonce: "nonce", State: IdentityMember}, "member": {PlayerID: "member", Name: "Member", CredentialNonce: "nonce", State: IdentityMember}}, Retained: map[string]Identity{}, Bans: map[string]bool{}, CreateRequests: map[string]IdempotencyRecord{}, JoinRequests: map[string]IdempotencyRecord{}}
 	record.Game, _ = engine.Marshal()
 	data, _ := json.Marshal(record)
 	_ = store.Create(context.Background(), StoreRecord{RoomID: "room", Revision: 1, Data: data})
@@ -141,12 +143,13 @@ func TestExecuteDeduplicatesAcceptedSequence(t *testing.T) {
 }
 
 func TestLeaveRequiresExplicitRejoin(t *testing.T) {
-	session, _, actor := newTestSession(t)
+	session, _, _ := newTestSession(t)
+	actor := Actor{PlayerID: "member", Credential: "room:member:nonce", ClientSequence: 1}
 	leave, err := session.Execute(context.Background(), actor, Command{Kind: CommandLeave, Fingerprint: "leave"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, err := session.Query(Actor{PlayerID: "creator", Credential: actor.Credential})
+	query, err := session.Query(Actor{PlayerID: "member", Credential: actor.Credential})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,9 +161,47 @@ func TestLeaveRequiresExplicitRejoin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	query, _ = session.Query(Actor{PlayerID: "creator", Credential: actor.Credential})
+	query, _ = session.Query(Actor{PlayerID: "member", Credential: actor.Credential})
 	if query.Room == nil {
 		t.Fatal("expected member room projection")
+	}
+}
+
+func TestCreatorCannotLeaveRoom(t *testing.T) {
+	session, _, actor := newTestSession(t)
+	_, err := session.Execute(context.Background(), actor, Command{Kind: CommandLeave, Fingerprint: "leave"})
+	if !errors.Is(err, ErrForbidden) {
+		t.Fatalf("expected creator leave to be forbidden, got %v", err)
+	}
+}
+
+func TestFinishedMemberLeaveRevokesIdentityAndPreservesSnapshot(t *testing.T) {
+	session, _, _ := newTestSession(t)
+	current := session.committed.Load()
+	record := cloneRecord(current.record)
+	record.ParticipantSetFrozen = true
+	record.JoinRequests["join-member"] = IdempotencyRecord{Fingerprint: "join", PlayerID: "member"}
+	engine := current.engine.(*testEngine)
+	engine.FinishedFlag = true
+	session.committed.Store(&committedView{record: record, engine: engine})
+
+	actor := Actor{PlayerID: "member", Credential: "room:member:nonce", ClientSequence: 1}
+	result, err := session.Execute(context.Background(), actor, Command{Kind: CommandLeave, Fingerprint: "final-leave"})
+	if err != nil {
+		t.Fatalf("finished member leave failed: %v", err)
+	}
+	if len(result.ConnectionEffects) != 1 || result.ConnectionEffects[0] != CloseSender {
+		t.Fatalf("expected sender connection to close, got %#v", result.ConnectionEffects)
+	}
+	projection := result.DirectResponse.(map[string]any)
+	if projection["players"].(int) != 2 {
+		t.Fatalf("expected final snapshot to retain both players, got %#v", projection)
+	}
+	if _, err := session.Query(Actor{PlayerID: "member", Credential: actor.Credential}); !errors.Is(err, ErrInvalidCredential) {
+		t.Fatalf("expected credential to be revoked, got %v", err)
+	}
+	if _, ok := session.committed.Load().record.JoinRequests["join-member"]; ok {
+		t.Fatal("expected departed member join idempotency record to be removed")
 	}
 }
 

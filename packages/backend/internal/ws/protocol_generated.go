@@ -1,4 +1,4 @@
-// Code generated from proto/game.proto (1ee07aa92f967825). DO NOT EDIT.
+// Code generated from proto/game.proto (b836f9c2b639b731). DO NOT EDIT.
 // Run: pnpm proto:generate
 
 package ws
@@ -56,6 +56,8 @@ const (
 	ProtocolErrorPersistenceUnavailable = "PERSISTENCE_UNAVAILABLE"
 	ProtocolErrorPersistenceConflict    = "PERSISTENCE_CONFLICT"
 	ProtocolErrorInternal               = "INTERNAL"
+	ProtocolErrorRoomFull               = "ROOM_FULL"
+	ProtocolErrorInvalidCommand         = "INVALID_COMMAND"
 )
 
 type ClientMessage struct {
@@ -101,21 +103,24 @@ type ServerMessage struct {
 }
 
 type RoomState struct {
-	RoomID                string               `json:"roomId"`
-	Players               []game.Player        `json:"players"`
-	MaxPlayers            int                  `json:"maxPlayers"`
-	ScriptID              string               `json:"scriptId"`
-	ScriptName            string               `json:"scriptName"`
-	CreatorID             string               `json:"creatorId,omitempty"`
-	StorytellerID         string               `json:"storytellerId,omitempty"`
-	Phase                 game.GamePhase       `json:"phase"`
-	DayNumber             int32                `json:"dayNumber"`
-	Nomination            *game.Nomination     `json:"nomination,omitempty"`
-	Deaths                []game.DeathRecord   `json:"deaths,omitempty"`
-	GhostVotesRemaining   []string             `json:"ghostVotesRemaining,omitempty"`
-	NightWakeSteps        []game.NightWakeStep `json:"nightWakeSteps,omitempty"`
-	CurrentNightWakeIndex int                  `json:"currentNightWakeIndex,omitempty"`
-	CurrentNightWakeStep  *game.NightWakeStep  `json:"currentNightWakeStep,omitempty"`
-	Winner                *game.GameEndedEvent `json:"winner,omitempty"`
-	NightActions          []game.NightAction   `json:"nightActions,omitempty"`
+	RoomID                    string               `json:"roomId"`
+	Players                   []game.Player        `json:"players"`
+	MaxPlayers                int                  `json:"maxPlayers"`
+	ScriptID                  string               `json:"scriptId"`
+	ScriptName                string               `json:"scriptName"`
+	CreatorID                 string               `json:"creatorId,omitempty"`
+	StorytellerID             string               `json:"storytellerId,omitempty"`
+	Phase                     game.GamePhase       `json:"phase"`
+	DayNumber                 int32                `json:"dayNumber"`
+	Nomination                *game.Nomination     `json:"nomination,omitempty"`
+	Deaths                    []game.DeathRecord   `json:"deaths,omitempty"`
+	GhostVotesRemaining       []string             `json:"ghostVotesRemaining,omitempty"`
+	NightWakeSteps            []game.NightWakeStep `json:"nightWakeSteps,omitempty"`
+	CurrentNightWakeIndex     int                  `json:"currentNightWakeIndex,omitempty"`
+	CurrentNightWakeStep      *game.NightWakeStep  `json:"currentNightWakeStep,omitempty"`
+	Winner                    *game.GameEndedEvent `json:"winner,omitempty"`
+	NightActions              []game.NightAction   `json:"nightActions,omitempty"`
+	StorytellerName           string               `json:"storytellerName,omitempty"`
+	NightNumber               int32                `json:"nightNumber"`
+	FortuneTellerRedHerringID string               `json:"fortuneTellerRedHerringId,omitempty"`
 }

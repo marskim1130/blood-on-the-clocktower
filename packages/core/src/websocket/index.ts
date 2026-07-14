@@ -145,6 +145,7 @@ export interface ClientRoomIdentity {
 interface PendingIdentity {
   readonly playerId: string;
   readonly requestKind: 'create' | 'join';
+  readonly message: ClientMessage;
 }
 
 type OutboundClientMessage = Omit<ClientMessage, 'protocolVersion'> & { readonly protocolVersion?: 2 };
@@ -167,6 +168,8 @@ export class GameWebSocketClient {
   private _status: ConnectionStatus = 'disconnected';
   private resumeSession: ClientRoomIdentity | null = null;
   private pendingIdentity: PendingIdentity | null = null;
+  private resumeRequestPending = false;
+  private resumeRequestSent = false;
   private nextClientSequence: number | null = null;
   private roomRevision: number | null = null;
   private resyncInFlight = false;
@@ -199,6 +202,13 @@ export class GameWebSocketClient {
     return this.roomRevision;
   }
 
+  get hasPendingRequest(): boolean {
+    return this.pendingIdentity !== null ||
+      this.resumeRequestPending ||
+      this.pendingSequencedCommand !== null ||
+      this.queuedSequencedCommands.length > 0;
+  }
+
   connect(): void {
     if (
       this.transport?.readyState === READY_STATE_OPEN ||
@@ -209,17 +219,23 @@ export class GameWebSocketClient {
 
     this.intentionalDisconnect = false;
     this.setStatus('connecting');
+    if (this.resumeSession && !this.pendingIdentity) {
+      this.resumeRequestPending = true;
+      this.resumeRequestSent = false;
+    }
 
     const transport = this.options.transportFactory(this.options.url);
     this.transport = transport;
 
     transport.onOpen(() => {
+      if (this.transport !== transport) return;
       this.setStatus('connected');
       this.reconnectAttempts = 0;
-      this.resumeRoomIfNeeded();
+      this.replayIdentityRequestIfNeeded();
     });
 
     transport.onMessage((data) => {
+      if (this.transport !== transport) return;
       try {
         const msg: ServerMessage = JSON.parse(data);
         const acceptedMessage = this.acceptProjection(msg);
@@ -231,7 +247,12 @@ export class GameWebSocketClient {
     });
 
     transport.onClose(() => {
+      if (this.transport !== transport) return;
       this.transport = null;
+      this.resumeRequestSent = false;
+      if (!this.intentionalDisconnect && this.resumeSession && !this.pendingIdentity) {
+        this.resumeRequestPending = true;
+      }
       this.setStatus('disconnected');
       if (!this.intentionalDisconnect) {
         this.tryReconnect();
@@ -239,6 +260,7 @@ export class GameWebSocketClient {
     });
 
     transport.onError(() => {
+      if (this.transport !== transport) return;
       this.setStatus('error');
     });
 
@@ -263,25 +285,39 @@ export class GameWebSocketClient {
   }
 
   createRoom(playerId: string, playerName: string, maxPlayers: number, scriptId?: string, requestId = this.options.requestIdFactory()): void {
-    this.pendingIdentity = { playerId, requestKind: 'create' };
-    this.send({
+    const message: ClientMessage = {
+      protocolVersion: 2,
       type: 'CREATE_ROOM',
       requestId,
       playerId,
       playerName,
       maxPlayers,
       ...(scriptId ? { scriptId } : {}),
-    });
+    };
+    this.pendingIdentity = { playerId, requestKind: 'create', message };
+    this.send(message);
   }
 
   joinRoom(roomId: string, playerId: string, playerName: string, joinRequestId = this.options.requestIdFactory()): void {
-    this.pendingIdentity = { playerId, requestKind: 'join' };
-    this.send({ type: 'JOIN_ROOM', joinRequestId, roomId, playerId, playerName });
+    const message: ClientMessage = {
+      protocolVersion: 2,
+      type: 'JOIN_ROOM',
+      joinRequestId,
+      roomId,
+      playerId,
+      playerName,
+    };
+    this.pendingIdentity = { playerId, requestKind: 'join', message };
+    this.send(message);
   }
 
   resumeRoom(roomId: string, playerId: string, resumeCredential: string): void {
     this.resumeSession = { roomId, playerId, resumeCredential };
-    this.send({ type: 'RESUME_ROOM', roomId, playerId, resumeCredential });
+    this.resumeRequestPending = true;
+    this.resumeRequestSent = false;
+    if (this.transport?.readyState === READY_STATE_OPEN) {
+      this.replayIdentityRequestIfNeeded();
+    }
   }
 
   rejoinRoom(): void {
@@ -423,20 +459,28 @@ export class GameWebSocketClient {
       this.roomRevision = msg.roomRevision;
     }
 
-    if (msg.type === 'KICKED' || msg.type === 'ROOM_CLOSED' || (msg.type === 'ERROR' && msg.code === 'INVALID_CREDENTIAL')) {
-      this.resumeSession = null;
-      this.pendingIdentity = null;
-      this.nextClientSequence = null;
-      this.pendingSequencedCommand = null;
-      this.queuedSequencedCommands = [];
+    if (
+      msg.type === 'KICKED' ||
+      msg.type === 'ROOM_CLOSED' ||
+      (msg.type === 'ERROR' && (msg.code === 'INVALID_CREDENTIAL' || msg.code === 'ROOM_NOT_FOUND'))
+    ) {
+      this.clearRoomIdentity();
       return;
+    }
+
+    if (msg.type === 'ERROR') {
+      this.pendingIdentity = null;
+      this.resumeRequestPending = false;
+      this.resumeRequestSent = false;
     }
 
     if (
       (msg.type === 'CREATE_ROOM_RESULT' || msg.type === 'JOIN_ROOM_RESULT') &&
       msg.roomId &&
       msg.resumeCredential &&
-      this.pendingIdentity
+      this.pendingIdentity &&
+      ((msg.type === 'CREATE_ROOM_RESULT' && this.pendingIdentity.requestKind === 'create') ||
+        (msg.type === 'JOIN_ROOM_RESULT' && this.pendingIdentity.requestKind === 'join'))
     ) {
       this.resumeSession = {
         roomId: msg.roomId,
@@ -444,6 +488,13 @@ export class GameWebSocketClient {
         resumeCredential: msg.resumeCredential,
       };
       this.pendingIdentity = null;
+      this.resumeRequestPending = false;
+      this.resumeRequestSent = false;
+    }
+
+    if (msg.type === 'RESUME_ROOM_RESULT') {
+      this.resumeRequestPending = false;
+      this.resumeRequestSent = false;
     }
 
     if (
@@ -459,7 +510,12 @@ export class GameWebSocketClient {
       msg.acceptedSequence === this.pendingSequencedCommand.sequence &&
       typeof msg.nextClientSequence === 'number'
     ) {
+      const completedCommand = this.pendingSequencedCommand.message;
       this.pendingSequencedCommand = null;
+      if (completedCommand.type === 'LEAVE_ROOM' && msg.identityStatus?.status !== 'retained') {
+        this.clearRoomIdentity();
+        return;
+      }
       this.flushSequencedCommand();
     }
 
@@ -557,9 +613,31 @@ export class GameWebSocketClient {
     return this.resumeSession;
   }
 
-  private resumeRoomIfNeeded(): void {
-    if (!this.resumeSession) return;
+  private clearRoomIdentity(): void {
+    this.resumeSession = null;
+    this.pendingIdentity = null;
+    this.resumeRequestPending = false;
+    this.resumeRequestSent = false;
+    this.nextClientSequence = null;
+    this.roomRevision = null;
+    this.resyncInFlight = false;
+    this.pendingSequencedCommand = null;
+    this.queuedSequencedCommands = [];
+  }
 
+  private replayIdentityRequestIfNeeded(): void {
+    if (this.pendingIdentity) {
+      try {
+        this.send(this.pendingIdentity.message);
+      } catch {
+        this.setStatus('error');
+      }
+      return;
+    }
+
+    if (!this.resumeSession || !this.resumeRequestPending || this.resumeRequestSent) return;
+
+    this.resumeRequestSent = true;
     try {
       this.send({
         type: 'RESUME_ROOM',
@@ -568,6 +646,7 @@ export class GameWebSocketClient {
         resumeCredential: this.resumeSession.resumeCredential,
       });
     } catch {
+      this.resumeRequestSent = false;
       this.setStatus('error');
     }
   }

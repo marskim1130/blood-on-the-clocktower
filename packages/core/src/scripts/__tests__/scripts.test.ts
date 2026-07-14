@@ -5,12 +5,22 @@ import {
   getExpectedRoleCount,
   getScriptById,
   getScriptWakeOrder,
+  randomizeScriptAssignments,
+  swapScriptAssignments,
   TROUBLE_BREWING_SCRIPT,
   validateScriptAssignment,
+  validateScriptSetup,
 } from '../index.js';
 
 function players(count: number): readonly { readonly id: string }[] {
   return Array.from({ length: count }, (_, index) => ({ id: `p${index + 1}` }));
+}
+
+function seededRandom(seed: number): () => number {
+  return () => {
+    seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
+    return seed / 0x1_0000_0000;
+  };
 }
 
 describe('script catalog', () => {
@@ -99,5 +109,103 @@ describe('script catalog', () => {
     expect(subsequentNightIds).toContain('fortuneteller');
     expect(firstNightIds).not.toContain('fortune_teller');
     expect(subsequentNightIds).not.toContain('fortune_teller');
+  });
+
+  it.each([5, 15])('randomizes a valid setup for %i players', (playerCount) => {
+    const setup = randomizeScriptAssignments(
+      players(playerCount),
+      'trouble_brewing',
+      seededRandom(playerCount),
+    );
+
+    expect(Object.keys(setup.assignments)).toHaveLength(playerCount);
+    expect(new Set(Object.values(setup.assignments))).toHaveLength(playerCount);
+    expect(validateScriptSetup(setup, players(playerCount))).toMatchObject({ ok: true });
+  });
+
+  it('selects outsiders using the Baron-adjusted role count', () => {
+    const values = [0.99, 0, 0.99];
+    const setup = randomizeScriptAssignments(players(5), 'trouble_brewing', () => {
+      return values.shift() ?? 0.99;
+    });
+
+    expect(Object.values(setup.assignments)).toContain('baron');
+    expect(countCharacterTypes(Object.values(setup.assignments))).toEqual({
+      townsfolk: 1,
+      outsiders: 2,
+      minions: 1,
+      demons: 1,
+    });
+    expect(Object.values(setup.shownCharacters)).toHaveLength(1);
+    expect(validateScriptSetup(setup, players(5))).toMatchObject({ ok: true });
+  });
+
+  it('validates the Drunk shown character and Fortune Teller red herring', () => {
+    const drunkSetup = {
+      assignments: {
+        p1: 'washerwoman',
+        p2: 'butler',
+        p3: 'drunk',
+        p4: 'baron',
+        p5: 'imp',
+      },
+      shownCharacters: { p3: 'chef' },
+      fortuneTellerRedHerringId: null,
+    };
+    const fortuneTellerSetup = {
+      assignments: {
+        p1: 'fortuneteller',
+        p2: 'chef',
+        p3: 'empath',
+        p4: 'poisoner',
+        p5: 'imp',
+      },
+      shownCharacters: {},
+      fortuneTellerRedHerringId: 'p2',
+    };
+
+    expect(validateScriptSetup(drunkSetup, players(5))).toMatchObject({ ok: true });
+    expect(validateScriptSetup(fortuneTellerSetup, players(5))).toMatchObject({ ok: true });
+    expect(
+      validateScriptSetup(
+        { ...drunkSetup, shownCharacters: { p3: 'washerwoman' } },
+        players(5),
+      ),
+    ).toMatchObject({ ok: false, code: 'INVALID_DRUNK_SHOWN_CHARACTER' });
+    expect(
+      validateScriptSetup(
+        { ...fortuneTellerSetup, fortuneTellerRedHerringId: 'p4' },
+        players(5),
+      ),
+    ).toMatchObject({ ok: false, code: 'INVALID_FORTUNE_TELLER_RED_HERRING' });
+  });
+
+  it('swaps two assignments without mutating or losing characters', () => {
+    const original = buildDefaultScriptAssignments(players(5));
+    const swapped = swapScriptAssignments(original, 'p1', 'p5');
+
+    expect(swapped).not.toBe(original);
+    expect(swapped.p1).toBe(original.p5);
+    expect(swapped.p5).toBe(original.p1);
+    expect(Object.values(swapped).sort()).toEqual(Object.values(original).sort());
+    expect(new Set(Object.values(swapped))).toHaveLength(5);
+  });
+
+  it('rejects invalid setup and randomization inputs', () => {
+    const setup = randomizeScriptAssignments(players(5), 'trouble_brewing', seededRandom(5));
+
+    expect(
+      validateScriptSetup(setup, [...players(4), { id: 'different-player' }]),
+    ).toMatchObject({ ok: false, code: 'PLAYER_ASSIGNMENT_MISMATCH' });
+    expect(() => randomizeScriptAssignments(players(4))).toThrow('Unsupported player count');
+    expect(() => randomizeScriptAssignments([{ id: 'same' }, { id: 'same' }, ...players(3)])).toThrow(
+      'Player ids must be unique',
+    );
+    expect(() => randomizeScriptAssignments(players(5), 'trouble_brewing', () => 1)).toThrow(
+      'Random source must return a finite number in [0, 1)',
+    );
+    expect(() => swapScriptAssignments(setup.assignments, 'p1', 'missing')).toThrow(
+      'Unknown assigned player: missing',
+    );
   });
 });

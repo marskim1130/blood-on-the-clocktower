@@ -144,6 +144,8 @@ enum ProtocolErrorCode {
   PROTOCOL_ERROR_CODE_PERSISTENCE_UNAVAILABLE = 11;
   PROTOCOL_ERROR_CODE_PERSISTENCE_CONFLICT = 12;
   PROTOCOL_ERROR_CODE_INTERNAL = 13;
+  PROTOCOL_ERROR_CODE_ROOM_FULL = 14;
+  PROTOCOL_ERROR_CODE_INVALID_COMMAND = 15;
 }
 
 enum IdentityState {
@@ -325,6 +327,9 @@ message RoomState {
   optional NightWakeStep current_night_wake_step = 15;
   optional GameEnded winner = 16;
   repeated NightAction night_actions = 17;
+  optional string storyteller_name = 18;
+  int32 night_number = 19 [(json_required) = true];
+  optional string fortune_teller_red_herring_id = 20;
 }
 
 message ServerMessage {

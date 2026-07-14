@@ -11,6 +11,7 @@ const defaultMaxPlayers = 10
 type gameSessionSnapshot struct {
 	Players                   []game.Player        `json:"players"`
 	StorytellerID             string               `json:"storytellerId"`
+	StorytellerName           string               `json:"storytellerName"`
 	OriginalPlayers           int                  `json:"originalPlayers"`
 	ScriptID                  string               `json:"scriptId"`
 	Phase                     game.GamePhase       `json:"phase"`
@@ -53,6 +54,7 @@ func (gs *GameSession) snapshot() gameSessionSnapshot {
 	return gameSessionSnapshot{
 		Players:                   clonePlayers(gs.players),
 		StorytellerID:             gs.storytellerID,
+		StorytellerName:           gs.storytellerName,
 		OriginalPlayers:           gs.originalPlayers,
 		ScriptID:                  gs.scriptID,
 		Phase:                     gs.phase,
@@ -81,6 +83,7 @@ func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
 	return &GameSession{
 		players:                   clonePlayers(snapshot.Players),
 		storytellerID:             snapshot.StorytellerID,
+		storytellerName:           snapshot.StorytellerName,
 		originalPlayers:           snapshot.OriginalPlayers,
 		scriptID:                  scriptID,
 		phase:                     snapshot.Phase,
@@ -151,7 +154,7 @@ func cloneNightActions(actions []game.NightAction) []game.NightAction {
 	result := make([]game.NightAction, len(actions))
 	for i, action := range actions {
 		result[i] = action
-		result[i].TargetIDs = append([]string(nil), action.TargetIDs...)
+		result[i].TargetIDs = append([]string{}, action.TargetIDs...)
 	}
 	return result
 }

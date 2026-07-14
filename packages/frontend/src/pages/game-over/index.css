@@ -1,0 +1,83 @@
+.resultBanner {
+  padding: 30px 24px;
+  border: 2px solid #d5b45c;
+  background: #202523;
+  color: #ffffff;
+  text-align: center;
+}
+
+.resultTeam,
+.resultReason,
+.resultDescription,
+.revealRole,
+.revealAbility,
+.deathCause {
+  display: block;
+}
+
+.resultTeam {
+  font-size: 40px;
+  font-weight: 700;
+}
+
+.resultReason {
+  margin-top: 10px;
+  color: #9dc9bf;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.resultDescription {
+  max-width: 680px;
+  margin: 12px auto 0;
+  color: #d7dcda;
+  font-size: 20px;
+  line-height: 30px;
+}
+
+.revealList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.revealItem {
+  flex: 1 1 360px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #cfd4d2;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.revealHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.revealRole {
+  margin-top: 9px;
+  color: #7b2028;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.revealAbility {
+  margin-top: 7px;
+  color: #66706d;
+  font-size: 18px;
+  line-height: 25px;
+}
+
+.deathCause {
+  color: #66706d;
+  font-size: 19px;
+}
+
+.resultMissing {
+  border-color: #d8a0a5;
+  background: #fff4f5;
+}

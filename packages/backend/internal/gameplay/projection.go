@@ -5,20 +5,23 @@ import "github.com/your-org/blood-on-the-clocktower/internal/game"
 // Projection is the privacy-safe game view for one recipient.
 // Room lifecycle metadata is added by the WebSocket adapter.
 type Projection struct {
-	Players               []game.Player
-	ScriptID              string
-	ScriptName            string
-	StorytellerID         string
-	Phase                 game.GamePhase
-	DayNumber             int32
-	Nomination            *game.Nomination
-	Deaths                []game.DeathRecord
-	GhostVotesRemaining   []string
-	NightWakeSteps        []game.NightWakeStep
-	CurrentNightWakeIndex int
-	CurrentNightWakeStep  *game.NightWakeStep
-	Winner                *game.GameEndedEvent
-	NightActions          []game.NightAction
+	Players                   []game.Player
+	ScriptID                  string
+	ScriptName                string
+	StorytellerID             string
+	StorytellerName           string
+	Phase                     game.GamePhase
+	DayNumber                 int32
+	NightNumber               int32
+	Nomination                *game.Nomination
+	Deaths                    []game.DeathRecord
+	GhostVotesRemaining       []string
+	NightWakeSteps            []game.NightWakeStep
+	CurrentNightWakeIndex     int
+	CurrentNightWakeStep      *game.NightWakeStep
+	Winner                    *game.GameEndedEvent
+	NightActions              []game.NightAction
+	FortuneTellerRedHerringID string
 }
 
 // Projection builds a complete game projection for trusted internal use.
@@ -83,6 +86,10 @@ func (gs *GameSession) project(forceSeeAll bool, recipientID string) *Projection
 	currentNightWakeIndex := 0
 	var currentNightWakeStep *game.NightWakeStep
 	var nightActions []game.NightAction
+	fortuneTellerRedHerringID := ""
+	if forceSeeAll || (gs.storytellerID != "" && recipientID == gs.storytellerID) {
+		fortuneTellerRedHerringID = gs.fortuneTellerRedHerringID
+	}
 	if gs.phase == game.GamePhaseNight && capabilities.seeNightManagement {
 		nightWakeSteps = gs.activeNightWakeStepsLocked()
 		currentNightWakeIndex = gs.nightWakeIndex
@@ -91,20 +98,23 @@ func (gs *GameSession) project(forceSeeAll bool, recipientID string) *Projection
 	}
 
 	return &Projection{
-		Players:               players,
-		ScriptID:              gs.scriptID,
-		ScriptName:            scriptName,
-		StorytellerID:         gs.storytellerID,
-		Phase:                 gs.phase,
-		DayNumber:             gs.dayNumber,
-		Nomination:            cloneNomination(gs.nomination),
-		Deaths:                cloneDeaths(gs.deaths),
-		GhostVotesRemaining:   ghostVotesRemaining,
-		NightWakeSteps:        nightWakeSteps,
-		CurrentNightWakeIndex: currentNightWakeIndex,
-		CurrentNightWakeStep:  currentNightWakeStep,
-		Winner:                cloneWinner(gs.winner),
-		NightActions:          nightActions,
+		Players:                   players,
+		ScriptID:                  gs.scriptID,
+		ScriptName:                scriptName,
+		StorytellerID:             gs.storytellerID,
+		StorytellerName:           gs.storytellerName,
+		Phase:                     gs.phase,
+		DayNumber:                 gs.dayNumber,
+		NightNumber:               gs.nightNumber,
+		Nomination:                cloneNomination(gs.nomination),
+		Deaths:                    cloneDeaths(gs.deaths),
+		GhostVotesRemaining:       ghostVotesRemaining,
+		NightWakeSteps:            nightWakeSteps,
+		CurrentNightWakeIndex:     currentNightWakeIndex,
+		CurrentNightWakeStep:      currentNightWakeStep,
+		Winner:                    cloneWinner(gs.winner),
+		NightActions:              nightActions,
+		FortuneTellerRedHerringID: fortuneTellerRedHerringID,
 	}
 }
 

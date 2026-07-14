@@ -54,6 +54,26 @@ export type ScriptAssignmentValidation =
       readonly actual?: RoleCount;
     };
 
+export interface ScriptSetup {
+  readonly assignments: Readonly<Record<string, string>>;
+  readonly shownCharacters: Readonly<Record<string, string>>;
+  readonly fortuneTellerRedHerringId: string | null;
+}
+
+export type ScriptSetupValidation =
+  | Extract<ScriptAssignmentValidation, { readonly ok: true }>
+  | Extract<ScriptAssignmentValidation, { readonly ok: false }>
+  | {
+      readonly ok: false;
+      readonly code:
+        | 'PLAYER_ASSIGNMENT_MISMATCH'
+        | 'INVALID_DRUNK_SHOWN_CHARACTER'
+        | 'INVALID_FORTUNE_TELLER_RED_HERRING';
+      readonly message: string;
+    };
+
+export type RandomSource = () => number;
+
 const TROUBLE_BREWING_ID = 'trouble_brewing';
 
 export const TROUBLE_BREWING_SCRIPT: ScriptDefinition = {
@@ -546,6 +566,212 @@ export function validateScriptAssignment(
   return { ok: true, expected, actual };
 }
 
+export function validateScriptSetup(
+  setup: ScriptSetup,
+  players: readonly { readonly id: string }[],
+  scriptId = TROUBLE_BREWING_ID,
+): ScriptSetupValidation {
+  const assignmentValidation = validateScriptAssignment(
+    setup.assignments,
+    players.length,
+    scriptId,
+  );
+  if (!assignmentValidation.ok) return assignmentValidation;
+
+  const playerIds = players.map((player) => player.id);
+  const assignedPlayerIds = Object.keys(setup.assignments);
+  const playerIdSet = new Set(playerIds);
+  if (
+    playerIdSet.size !== playerIds.length ||
+    assignedPlayerIds.some((playerId) => !playerIdSet.has(playerId)) ||
+    playerIds.some((playerId) => !hasOwn(setup.assignments, playerId))
+  ) {
+    return {
+      ok: false,
+      code: 'PLAYER_ASSIGNMENT_MISMATCH',
+      message: 'Assignments must contain each player exactly once',
+    };
+  }
+
+  const characterIds = Object.values(setup.assignments);
+  const drunkPlayerId = assignedPlayerIds.find(
+    (playerId) => setup.assignments[playerId] === 'drunk',
+  );
+  const shownEntries = Object.entries(setup.shownCharacters);
+  if (!drunkPlayerId) {
+    if (shownEntries.length > 0) {
+      return {
+        ok: false,
+        code: 'INVALID_DRUNK_SHOWN_CHARACTER',
+        message: 'Shown characters are only valid when the Drunk is in play',
+      };
+    }
+  } else {
+    const shownCharacterId = setup.shownCharacters[drunkPlayerId];
+    const shownDefinition = shownCharacterId
+      ? getScriptCharacterById(shownCharacterId, scriptId)
+      : null;
+    if (
+      shownEntries.length !== 1 ||
+      !shownCharacterId ||
+      !shownDefinition ||
+      shownDefinition.type !== 'townsfolk' ||
+      characterIds.includes(shownCharacterId)
+    ) {
+      return {
+        ok: false,
+        code: 'INVALID_DRUNK_SHOWN_CHARACTER',
+        message: 'The Drunk must be shown an out-of-play Townsfolk character',
+      };
+    }
+  }
+
+  const fortuneTellerPlayerId = assignedPlayerIds.find(
+    (playerId) => setup.assignments[playerId] === 'fortuneteller',
+  );
+  if (!fortuneTellerPlayerId) {
+    if (setup.fortuneTellerRedHerringId !== null) {
+      return {
+        ok: false,
+        code: 'INVALID_FORTUNE_TELLER_RED_HERRING',
+        message: 'A red herring is only valid when the Fortune Teller is in play',
+      };
+    }
+  } else {
+    const redHerringId = setup.fortuneTellerRedHerringId;
+    const redHerringCharacterId = redHerringId ? setup.assignments[redHerringId] : null;
+    const redHerringDefinition = redHerringCharacterId
+      ? getScriptCharacterById(redHerringCharacterId, scriptId)
+      : null;
+    if (
+      !redHerringId ||
+      redHerringId === fortuneTellerPlayerId ||
+      !redHerringDefinition ||
+      redHerringDefinition.team !== 'good'
+    ) {
+      return {
+        ok: false,
+        code: 'INVALID_FORTUNE_TELLER_RED_HERRING',
+        message: 'The Fortune Teller red herring must be another good player',
+      };
+    }
+  }
+
+  return assignmentValidation;
+}
+
+export function randomizeScriptAssignments(
+  players: readonly { readonly id: string }[],
+  scriptId = TROUBLE_BREWING_ID,
+  random: RandomSource = Math.random,
+): ScriptSetup {
+  const script = getScriptById(scriptId);
+  if (!script) throw new Error(`Unknown script: ${scriptId}`);
+
+  const baseRoleCount = getBaseRoleCount(players.length);
+  if (!baseRoleCount) {
+    throw new Error(`Unsupported player count: ${players.length}`);
+  }
+
+  const playerIds = players.map((player) => player.id);
+  if (new Set(playerIds).size !== playerIds.length) {
+    throw new Error('Player ids must be unique');
+  }
+
+  const demons = selectRandomCharacterIds(
+    getScriptCharactersByType('demon', scriptId),
+    baseRoleCount.demons,
+    random,
+  );
+  const minions = selectRandomCharacterIds(
+    getScriptCharactersByType('minion', scriptId),
+    baseRoleCount.minions,
+    random,
+  );
+  const expected = getExpectedRoleCount(players.length, [...demons, ...minions]);
+  if (!expected) {
+    throw new Error(`Unsupported player count: ${players.length}`);
+  }
+
+  const townsfolk = selectRandomCharacterIds(
+    getScriptCharactersByType('townsfolk', scriptId),
+    expected.townsfolk,
+    random,
+  );
+  const outsiders = selectRandomCharacterIds(
+    getScriptCharactersByType('outsider', scriptId),
+    expected.outsiders,
+    random,
+  );
+  const characterIds = shuffle([...townsfolk, ...outsiders, ...minions, ...demons], random);
+
+  const assignments = playerIds.reduce<Record<string, string>>((result, playerId, index) => {
+    const characterId = characterIds[index];
+    if (!characterId) throw new Error(`Missing character for player: ${playerId}`);
+    result[playerId] = characterId;
+    return result;
+  }, {});
+
+  const shownCharacters: Record<string, string> = {};
+  const drunkPlayerId = playerIds.find((playerId) => assignments[playerId] === 'drunk');
+  if (drunkPlayerId) {
+    const outOfPlayTownsfolk = getScriptCharactersByType('townsfolk', scriptId).filter(
+      (character) => !characterIds.includes(character.id),
+    );
+    const shownCharacter = selectRandomCharacterIds(outOfPlayTownsfolk, 1, random)[0];
+    if (!shownCharacter) throw new Error('No out-of-play Townsfolk is available for the Drunk');
+    shownCharacters[drunkPlayerId] = shownCharacter;
+  }
+
+  const fortuneTellerPlayerId = playerIds.find(
+    (playerId) => assignments[playerId] === 'fortuneteller',
+  );
+  let fortuneTellerRedHerringId: string | null = null;
+  if (fortuneTellerPlayerId) {
+    const candidates = playerIds.filter((playerId) => {
+      if (playerId === fortuneTellerPlayerId) return false;
+      const characterId = assignments[playerId];
+      return characterId
+        ? getScriptCharacterById(characterId, scriptId)?.team === 'good'
+        : false;
+    });
+    fortuneTellerRedHerringId = shuffle(candidates, random)[0] ?? null;
+    if (!fortuneTellerRedHerringId) {
+      throw new Error('No good player is available as the Fortune Teller red herring');
+    }
+  }
+
+  const setup: ScriptSetup = {
+    assignments,
+    shownCharacters,
+    fortuneTellerRedHerringId,
+  };
+  const validation = validateScriptSetup(setup, players, scriptId);
+  if (!validation.ok) {
+    throw new Error(`Generated invalid script setup: ${validation.message}`);
+  }
+  return setup;
+}
+
+export function swapScriptAssignments(
+  assignments: Readonly<Record<string, string>>,
+  firstPlayerId: string,
+  secondPlayerId: string,
+): Record<string, string> {
+  if (!hasOwn(assignments, firstPlayerId)) {
+    throw new Error(`Unknown assigned player: ${firstPlayerId}`);
+  }
+  if (!hasOwn(assignments, secondPlayerId)) {
+    throw new Error(`Unknown assigned player: ${secondPlayerId}`);
+  }
+
+  return {
+    ...assignments,
+    [firstPlayerId]: assignments[secondPlayerId]!,
+    [secondPlayerId]: assignments[firstPlayerId]!,
+  };
+}
+
 export function buildDefaultScriptAssignments(
   players: readonly { readonly id: string }[],
   scriptId = TROUBLE_BREWING_ID,
@@ -593,4 +819,35 @@ function roleCountsEqual(left: RoleCount, right: RoleCount): boolean {
     left.minions === right.minions &&
     left.demons === right.demons
   );
+}
+
+function selectRandomCharacterIds(
+  characters: readonly ScriptCharacterDefinition[],
+  count: number,
+  random: RandomSource,
+): string[] {
+  if (characters.length < count) {
+    throw new Error(`Expected at least ${count} characters, got ${characters.length}`);
+  }
+  return shuffle(
+    characters.map((character) => character.id),
+    random,
+  ).slice(0, count);
+}
+
+function shuffle<T>(values: readonly T[], random: RandomSource): T[] {
+  const result = [...values];
+  for (let index = result.length - 1; index > 0; index--) {
+    const value = random();
+    if (!Number.isFinite(value) || value < 0 || value >= 1) {
+      throw new Error('Random source must return a finite number in [0, 1)');
+    }
+    const swapIndex = Math.floor(value * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex]!, result[index]!];
+  }
+  return result;
+}
+
+function hasOwn(record: Readonly<Record<string, string>>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
 }

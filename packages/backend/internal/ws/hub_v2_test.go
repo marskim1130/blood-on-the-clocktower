@@ -3,6 +3,8 @@ package ws
 import (
 	"testing"
 	"time"
+
+	"github.com/your-org/blood-on-the-clocktower/internal/session"
 )
 
 func lastServerMessage(t *testing.T, connection *fakeConnection) ServerMessage {
@@ -53,8 +55,8 @@ func TestProtocolV2CreateResumeAndSequencedCommand(t *testing.T) {
 	if command.Type != "COMMAND_RESULT" || command.AcceptedSequence != 1 || command.NextClientSequence != 2 || command.RoomRevision != 2 {
 		t.Fatalf("unexpected command result: %+v", command)
 	}
-	if command.IdentityStatus != nil {
-		t.Fatalf("member command must not expose room state as identity status: %+v", command.IdentityStatus)
+	if command.IdentityStatus == nil || command.IdentityStatus.Status != session.IdentityMember || command.IdentityStatus.NextClientSequence != 2 || command.IdentityStatus.ParticipantSetFrozen {
+		t.Fatalf("member command must include its authoritative identity status: %+v", command.IdentityStatus)
 	}
 
 	replacement := newFakeConnection()
@@ -65,6 +67,9 @@ func TestProtocolV2CreateResumeAndSequencedCommand(t *testing.T) {
 	resumed := lastServerMessage(t, replacement)
 	if resumed.Type != "RESUME_ROOM_RESULT" || resumed.NextClientSequence != 2 || resumed.RoomRevision != 2 {
 		t.Fatalf("unexpected resume result: %+v", resumed)
+	}
+	if resumed.IdentityStatus == nil || resumed.IdentityStatus.Status != session.IdentityMember || resumed.IdentityStatus.NextClientSequence != 2 {
+		t.Fatalf("resume must restore member identity status: %+v", resumed.IdentityStatus)
 	}
 
 	replacement.ClearMessages()

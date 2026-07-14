@@ -30,6 +30,8 @@ func (e *sessionGameEngine) AddPlayer(playerID, name string) error {
 
 func (e *sessionGameEngine) RemovePlayer(playerID string) { e.session.RemovePlayer(playerID) }
 
+func (e *sessionGameEngine) Finished() bool { return e.session.Finished() }
+
 func (e *sessionGameEngine) Execute(actorID string, payload any) (bool, error) {
 	command, ok := payload.(gameplay.Command)
 	if !ok {
@@ -58,20 +60,23 @@ func roomStateFromProjection(roomID string, projection *gameplay.Projection) *Ro
 		return nil
 	}
 	return &RoomState{
-		RoomID:                roomID,
-		Players:               projection.Players,
-		ScriptID:              projection.ScriptID,
-		ScriptName:            projection.ScriptName,
-		StorytellerID:         projection.StorytellerID,
-		Phase:                 projection.Phase,
-		DayNumber:             projection.DayNumber,
-		Nomination:            projection.Nomination,
-		Deaths:                projection.Deaths,
-		GhostVotesRemaining:   projection.GhostVotesRemaining,
-		NightWakeSteps:        projection.NightWakeSteps,
-		CurrentNightWakeIndex: projection.CurrentNightWakeIndex,
-		CurrentNightWakeStep:  projection.CurrentNightWakeStep,
-		Winner:                projection.Winner,
-		NightActions:          projection.NightActions,
+		RoomID:                    roomID,
+		Players:                   projection.Players,
+		ScriptID:                  projection.ScriptID,
+		ScriptName:                projection.ScriptName,
+		StorytellerID:             projection.StorytellerID,
+		StorytellerName:           projection.StorytellerName,
+		Phase:                     projection.Phase,
+		DayNumber:                 projection.DayNumber,
+		NightNumber:               projection.NightNumber,
+		Nomination:                projection.Nomination,
+		Deaths:                    projection.Deaths,
+		GhostVotesRemaining:       projection.GhostVotesRemaining,
+		NightWakeSteps:            projection.NightWakeSteps,
+		CurrentNightWakeIndex:     projection.CurrentNightWakeIndex,
+		CurrentNightWakeStep:      projection.CurrentNightWakeStep,
+		Winner:                    projection.Winner,
+		NightActions:              projection.NightActions,
+		FortuneTellerRedHerringID: projection.FortuneTellerRedHerringID,
 	}
 }

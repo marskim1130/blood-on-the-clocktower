@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -86,6 +87,7 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 	}
 
 	result := CommandResult{AcceptedSequence: actor.ClientSequence, NextClientSequence: actor.ClientSequence + 1, TargetPlayerID: command.TargetID}
+	identityRevoked := false
 	switch command.Kind {
 	case CommandRejoin:
 		if !retained || candidate.ParticipantSetFrozen {
@@ -98,8 +100,26 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 			return CommandResult{}, err
 		}
 	case CommandLeave:
-		if retained || candidate.ParticipantSetFrozen {
-			return CommandResult{}, ErrParticipantSetFrozen
+		if actor.PlayerID == candidate.CreatorID {
+			return CommandResult{}, ErrForbidden
+		}
+		if retained {
+			return CommandResult{}, ErrInvalidCommand
+		}
+		if candidate.ParticipantSetFrozen {
+			if !engine.Finished() {
+				return CommandResult{}, ErrParticipantSetFrozen
+			}
+			delete(candidate.Members, actor.PlayerID)
+			delete(candidate.Retained, actor.PlayerID)
+			for requestID, request := range candidate.JoinRequests {
+				if request.PlayerID == actor.PlayerID {
+					delete(candidate.JoinRequests, requestID)
+				}
+			}
+			identityRevoked = true
+			result.ConnectionEffects = []ConnectionEffect{CloseSender}
+			break
 		}
 		delete(candidate.Members, actor.PlayerID)
 		identity.State = IdentityRetained
@@ -130,8 +150,15 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 		}
 		if command.Payload != nil {
 			if _, err := engine.Execute(actor.PlayerID, command.Payload); err != nil {
-				return CommandResult{}, err
+				return CommandResult{}, invalidCommand(err)
 			}
+		}
+	case CommandSetStoryteller:
+		if actor.PlayerID != candidate.CreatorID || retained {
+			return CommandResult{}, ErrForbidden
+		}
+		if _, err := engine.Execute(actor.PlayerID, command.Payload); err != nil {
+			return CommandResult{}, invalidCommand(err)
 		}
 	case CommandClose:
 		if actor.PlayerID != candidate.CreatorID {
@@ -158,7 +185,7 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 		}
 		updated, err := engine.Execute(actor.PlayerID, command.Payload)
 		if err != nil {
-			return CommandResult{}, err
+			return CommandResult{}, invalidCommand(err)
 		}
 		_ = updated
 		if command.FreezeParticipants {
@@ -170,7 +197,10 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 	identity.LastFingerprint = command.Fingerprint
 	candidate.RoomRevision++
 	identity.LastResult = ResultSummary{RoomRevision: candidate.RoomRevision, AcceptedSequence: actor.ClientSequence, NextClientSequence: actor.ClientSequence + 1}
-	if identity.State == IdentityRetained {
+	if identityRevoked {
+		delete(candidate.Members, actor.PlayerID)
+		delete(candidate.Retained, actor.PlayerID)
+	} else if identity.State == IdentityRetained {
 		candidate.Retained[actor.PlayerID] = identity
 	} else {
 		candidate.Members[actor.PlayerID] = identity
@@ -195,14 +225,23 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 	s.committed.Store(view)
 	result.RoomRevision = candidate.RoomRevision
 	result.Metadata = metadataFromRecord(candidate)
-	result.DirectResponse = project(view, actor.PlayerID, identity.State == IdentityRetained)
+	if identityRevoked {
+		result.DirectResponse = engine.Project(actor.PlayerID)
+	} else {
+		result.DirectResponse = project(view, actor.PlayerID, identity.State == IdentityRetained)
+	}
 	for playerID := range candidate.Members {
-		result.Deliveries = append(result.Deliveries, Delivery{PlayerID: playerID, Payload: engine.Project(playerID)})
+		member := candidate.Members[playerID]
+		result.Deliveries = append(result.Deliveries, Delivery{PlayerID: playerID, Payload: engine.Project(playerID), NextClientSequence: member.LastSequence + 1})
 	}
 	if observer != nil {
 		observer(result)
 	}
 	return result, nil
+}
+
+func invalidCommand(err error) error {
+	return fmt.Errorf("%w: %v", ErrInvalidCommand, err)
 }
 
 func (s *AuthoritativeGameSession) Query(actor Actor) (QueryResult, error) {
@@ -219,6 +258,7 @@ func (s *AuthoritativeGameSession) Query(actor Actor) (QueryResult, error) {
 		result.Identity = &IdentityStatus{Status: IdentityRetained, CanRejoin: !view.record.ParticipantSetFrozen, NextClientSequence: identity.LastSequence + 1, ParticipantSetFrozen: view.record.ParticipantSetFrozen}
 	} else {
 		result.Room = view.engine.Project(actor.PlayerID)
+		result.Identity = &IdentityStatus{Status: IdentityMember, CanRejoin: false, NextClientSequence: identity.LastSequence + 1, ParticipantSetFrozen: view.record.ParticipantSetFrozen}
 	}
 	return result, nil
 }

@@ -128,6 +128,7 @@ type GameSession struct {
 	mu              sync.Mutex
 	players         []game.Player
 	storytellerID   string
+	storytellerName string
 	originalPlayers int
 	scriptID        string
 
@@ -227,6 +228,7 @@ func (gs *GameSession) RemovePlayer(playerID string) {
 	defer gs.mu.Unlock()
 	if playerID == gs.storytellerID {
 		gs.storytellerID = ""
+		gs.storytellerName = ""
 	}
 	for i, p := range gs.players {
 		if p.ID == playerID {
@@ -262,6 +264,12 @@ func (gs *GameSession) StorytellerID() string {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 	return gs.storytellerID
+}
+
+func (gs *GameSession) Finished() bool {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	return gs.phase == game.GamePhaseFinished
 }
 
 func (gs *GameSession) OriginalPlayers() int {
@@ -355,9 +363,11 @@ func (gs *GameSession) applySetStoryteller(cmd SetStorytellerCmd) (ApplyResult, 
 	}
 
 	found := false
+	storytellerName := ""
 	for _, p := range gs.players {
 		if p.ID == cmd.TargetPlayerID {
 			found = true
+			storytellerName = p.Name
 			break
 		}
 	}
@@ -366,6 +376,7 @@ func (gs *GameSession) applySetStoryteller(cmd SetStorytellerCmd) (ApplyResult, 
 	}
 
 	gs.storytellerID = cmd.TargetPlayerID
+	gs.storytellerName = storytellerName
 	gs.originalPlayers = len(gs.players)
 
 	// Remove storyteller from player list
@@ -383,6 +394,9 @@ func (gs *GameSession) applySetStoryteller(cmd SetStorytellerCmd) (ApplyResult, 
 func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResult, error) {
 	if gs.storytellerID == "" || cmd.SenderID != gs.storytellerID {
 		return ApplyResult{}, fmt.Errorf("only storyteller can assign characters")
+	}
+	if gs.hasAssignedCharactersLocked() {
+		return ApplyResult{}, fmt.Errorf("characters have already been assigned")
 	}
 
 	// Verify all playerIDs in assignments match actual players
@@ -556,6 +570,7 @@ func (gs *GameSession) applyKickPlayer(cmd KickPlayerCmd) (ApplyResult, error) {
 	found := false
 	if gs.storytellerID == cmd.TargetPlayerID {
 		gs.storytellerID = ""
+		gs.storytellerName = ""
 		gs.originalPlayers = 0
 		found = true
 	}

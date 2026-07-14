@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/your-org/blood-on-the-clocktower/internal/game"
 	"github.com/your-org/blood-on-the-clocktower/internal/gameplay"
@@ -37,8 +39,20 @@ func (h *Hub) handleCreateRoomV2(conn Connection, msg ClientMessage) {
 		h.sendV2Error(conn, errors.New("requestId and playerId are required"), 0)
 		return
 	}
-	engine := newSessionGameEngine("", msg.ScriptID)
-	result, err := h.registry.Create(context.Background(), session.CreateInput{RequestID: msg.RequestID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, MaxPlayers: msg.MaxPlayers, ScriptID: msg.ScriptID, Fingerprint: fingerprint(msg), Engine: engine})
+	if msg.MaxPlayers < 5 || msg.MaxPlayers > 15 {
+		h.sendV2Error(conn, fmt.Errorf("%w: maxPlayers must be between 5 and 15", session.ErrInvalidCommand), 0)
+		return
+	}
+	scriptID := strings.TrimSpace(msg.ScriptID)
+	if scriptID == "" {
+		scriptID = game.TroubleBrewingScriptID
+	}
+	if game.GetScriptByID(scriptID) == nil {
+		h.sendV2Error(conn, fmt.Errorf("%w: unsupported script", session.ErrInvalidCommand), 0)
+		return
+	}
+	engine := newSessionGameEngine("", scriptID)
+	result, err := h.registry.Create(context.Background(), session.CreateInput{RequestID: msg.RequestID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, MaxPlayers: msg.MaxPlayers, ScriptID: scriptID, Fingerprint: fingerprint(msg), Engine: engine})
 	if err != nil {
 		h.sendV2Error(conn, err, 0)
 		return
@@ -51,7 +65,7 @@ func (h *Hub) handleCreateRoomV2(conn Connection, msg ClientMessage) {
 	}
 	state, _ := result.State.(*RoomState)
 	decorateRoomState(state, result.Metadata)
-	h.outbound.send(conn, ServerMessage{Type: ServerMsgCreateRoomResult, RoomID: result.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgCreateRoomResult, RoomID: result.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
@@ -63,7 +77,7 @@ func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
 		}
 		state, _ := result.State.(*RoomState)
 		decorateRoomState(state, result.Metadata)
-		h.outbound.send(conn, ServerMessage{Type: ServerMsgJoinRoomResult, RoomID: msg.RoomID, State: state, ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+		h.outbound.send(conn, ServerMessage{Type: ServerMsgJoinRoomResult, RoomID: msg.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 		h.enqueueDeliveries(msg.RoomID, msg.PlayerID, result.RoomRevision, result.Deliveries, result.Metadata)
 	})
 	if err != nil {
@@ -180,6 +194,8 @@ func (h *Hub) enqueueCommandResult(connection Connection, roomID string, result 
 	var identityStatus *session.IdentityStatus
 	if status, ok := result.DirectResponse.(session.IdentityStatus); ok {
 		identityStatus = &status
+	} else if state != nil && !hasConnectionEffect(result.ConnectionEffects, session.CloseSender) {
+		identityStatus = memberIdentityStatus(result.Metadata, result.NextClientSequence)
 	}
 	decorateRoomState(state, result.Metadata)
 	h.outbound.send(connection, ServerMessage{Type: ServerMsgCommandResult, RoomID: roomID, State: state, IdentityStatus: identityStatus, RoomRevision: result.RoomRevision, AcceptedSequence: result.AcceptedSequence, NextClientSequence: result.NextClientSequence})
@@ -196,12 +212,30 @@ func (h *Hub) enqueueDeliveries(roomID, excludePlayerID string, revision uint64,
 		}
 		state, _ := delivery.Payload.(*RoomState)
 		decorateRoomState(state, metadata)
-		h.outbound.send(connection, ServerMessage{Type: ServerMsgRoomStateChanged, RoomID: roomID, State: state, RoomRevision: revision})
+		h.outbound.send(connection, ServerMessage{Type: ServerMsgRoomStateChanged, RoomID: roomID, State: state, IdentityStatus: memberIdentityStatus(metadata, delivery.NextClientSequence), RoomRevision: revision})
 	}
 }
 
+func memberIdentityStatus(metadata session.RoomMetadata, nextClientSequence uint64) *session.IdentityStatus {
+	return &session.IdentityStatus{
+		Status:               session.IdentityMember,
+		CanRejoin:            false,
+		NextClientSequence:   nextClientSequence,
+		ParticipantSetFrozen: metadata.ParticipantSetFrozen,
+	}
+}
+
+func hasConnectionEffect(effects []session.ConnectionEffect, target session.ConnectionEffect) bool {
+	for _, effect := range effects {
+		if effect == target {
+			return true
+		}
+	}
+	return false
+}
+
 func toSessionCommand(msg ClientMessage) (session.Command, error) {
-	command := session.Command{Fingerprint: fingerprint(msg), TargetID: msg.targetPlayerID(), MaxPlayers: msg.MaxPlayers, ScriptID: msg.ScriptID, FreezeParticipants: msg.Type == MsgStartGame}
+	command := session.Command{Fingerprint: fingerprint(msg), TargetID: msg.targetPlayerID(), MaxPlayers: msg.MaxPlayers, ScriptID: msg.ScriptID, FreezeParticipants: msg.Type == MsgAssignCharacters}
 	switch msg.Type {
 	case MsgRejoinRoom:
 		command.Kind = session.CommandRejoin
@@ -214,6 +248,9 @@ func toSessionCommand(msg ClientMessage) (session.Command, error) {
 	case MsgUpdateRoomSettings:
 		command.Kind = session.CommandUpdateSettings
 		command.Payload = gameplay.UpdateRoomSettingsCmd{SenderID: msg.PlayerID, MaxPlayers: msg.MaxPlayers, ScriptID: msg.ScriptID}
+	case MsgSetStoryteller:
+		command.Kind = session.CommandSetStoryteller
+		command.Payload = gameplay.SetStorytellerCmd{SenderID: msg.PlayerID, TargetPlayerID: msg.TargetPlayerID}
 	default:
 		gameCommand, err := toGameCommand(msg)
 		if err != nil {
@@ -311,6 +348,10 @@ func (h *Hub) sendV2Error(conn Connection, err error, nextClientSequence uint64)
 		code = ProtocolErrorPersistenceUnavailable
 	case errors.Is(err, session.ErrPersistenceConflict):
 		code = ProtocolErrorPersistenceConflict
+	case errors.Is(err, session.ErrRoomFull):
+		code = ProtocolErrorRoomFull
+	case errors.Is(err, session.ErrInvalidCommand):
+		code = ProtocolErrorInvalidCommand
 	}
 	h.outbound.send(conn, ServerMessage{Type: ServerMsgError, Code: code, Error: err.Error(), NextClientSequence: nextClientSequence})
 }

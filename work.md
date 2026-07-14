@@ -1590,3 +1590,169 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 - 从 `.eslintrc.json` 删除 protobufjs 中间声明文件的忽略项。
 - 使用 `git add -f packages/core/tsconfig.tsbuildinfo packages/frontend/tsconfig.tsbuildinfo` 恢复两个缓存文件的跟踪。
 - 重新运行 `pnpm proto:generate`，并删除 `work.md` 中标题为 `2026-07-13 11:55` 的本节记录。
+
+## 2026-07-13 16:38 --- 开放 Issues 长期未随实现与架构演进更新 --- 按 triage 状态机归并队列并补齐发布垂直切片 --- 修改 GitHub Issues、`.out-of-scope/public-room-directory.md` 与 `work.md`
+
+### 发现什么问题
+- 32 个开放 Issue 全部只带 `ready-for-agent`，缺少必需的 `bug` 或 `enhancement` 类别，也没有代理简报 [Agent Brief]。
+- `#2-#22` 多数已被协议 v2、权威游戏会话 [Authoritative Game Session]、Gameplay Session 和现有前端实现完成或取代，仍保持开放会制造错误待办。
+- `#31-#40` 与旧前端切片重叠，部分正文依赖不存在的命令、公开房间列表或与当前权威投影架构冲突的增量状态方案。
+- 当前队列没有覆盖生产部署、完整多人端到端回归 [End-to-end Regression] 和后端发布加固三个真实上线缺口。
+
+### 使用什么方式解决
+- 以 `enhancement` 类别关闭 12 个已完成 Issue：`#2 #3 #4 #6 #7 #9 #10 #12 #13 #16 #20 #22`。
+- 以 `enhancement + duplicate` 关闭 12 个已取代 Issue：`#5 #8 #11 #14 #15 #17 #18 #19 #21 #31 #38 #40`；每项评论均指出承接 Issue 或现行架构决策。
+- 将公开房间列表 `#33` 标记为 `enhancement + wontfix` 并关闭；把邀请制房间决策写入 `.out-of-scope/public-room-directory.md`。
+- 保留并重新分诊 `#1 #32 #34 #35 #36 #37 #39`：其中五个代理切片补充行为型 Agent Brief，`#1` 转为 `ready-for-human` 发布追踪项，`#36` 转为 `needs-triage` 等待投票语义决策。
+- 新建 `#41` 后端安全、可观测性与负载基线，`#42` 协议 v2 一名说书人与五名玩家完整对局回归，`#43` 生产部署、WSS 与微信发布配置。
+- 所有新 Issue 和分诊评论均以 triage AI 声明开头；最终开放队列为 10 项，每项恰好包含一个类别标签和一个状态标签。
+
+### 修改了哪些文件或外部状态
+- GitHub Issues：更新 `#1-#22`、`#31-#40` 的状态、标签或评论；新增 `#41 #42 #43`。
+- `.out-of-scope/public-room-directory.md` — 记录不提供公开房间目录、改用邀请分享或可轮换短邀请码的长期范围决策。
+- `work.md` — 新增本次 Issue 队列整理记录。
+
+### 撤回方式 [Rollback Strategy]
+- 重新打开 `#2 #3 #4 #5 #6 #7 #8 #9 #10 #11 #12 #13 #14 #15 #16 #17 #18 #19 #20 #21 #22 #31 #33 #38 #40`，移除本次新增的 `enhancement`、`duplicate`、`wontfix`，并恢复原先唯一的 `ready-for-agent` 标签。
+- 将 `#1 #32 #34 #35 #36 #37 #39` 的标签恢复为仅 `ready-for-agent`；如需完全撤销审计历史，再按评论 URL 删除本次 AI triage 评论。
+- GitHub 不支持删除普通 Issue；将新增的 `#41 #42 #43` 关闭为 `not planned` 可撤销其待办影响。
+- 删除 `.out-of-scope/public-room-directory.md`，并删除 `work.md` 中标题以 `2026-07-13 16:38` 开头的本节。
+
+## 2026-07-13 17:48 --- 角色配置缺少可测试的合法随机与手动交换能力 --- 新增纯函数角色设置模型与确定性测试 --- 修改 Core 剧本模块及测试
+
+### 发现什么问题
+- 前端只能生成固定示例分配，无法在 5-15 人、男爵修正、酒鬼展示身份和占卜师干扰项规则下安全随机。
+- 手动调整角色时缺少保持一一映射 [Bijection] 的共享操作，页面容易产生重复或丢失角色。
+
+### 使用什么方式解决
+- 新增 `ScriptSetup` 与 `validateScriptSetup`，集中校验玩家集合、角色计数、酒鬼和占卜师特殊设置。
+- 新增可注入随机源的 Fisher-Yates 洗牌 [Shuffle]，先抽取恶魔与爪牙，再按男爵结果调整镇民与外来者。
+- 新增不可变角色交换函数，并以 11 个聚焦测试覆盖 5/15 人和特殊规则。
+
+### 修改了哪些文件
+- `packages/core/src/scripts/index.ts`。
+- `packages/core/src/scripts/__tests__/scripts.test.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 从剧本模块删除 `ScriptSetup`、`validateScriptSetup`、`randomizeScriptAssignments`、`swapScriptAssignments` 及对应辅助函数和导出。
+- 删除测试文件中本次新增的角色设置测试，并删除 `work.md` 中标题为 `2026-07-13 17:48` 的本节记录。
+
+## 2026-07-13 17:48 --- 拆页会销毁页面级 WebSocket 且终端原因会被二次清空 --- 建立应用级会话仓库和权威阶段路由 --- 修改前端会话基础与构建配置
+
+### 发现什么问题
+- 原首页在卸载清理函数中断开网络套接字 [WebSocket]，拆分 Setup、Game-Play 与 Game-Over 后会在每次跳转丢失连接。
+- 身份持久化、协议错误、命令待处理和终端状态散落在页面中，`KICKED`、`ROOM_CLOSED` 等消息可能被后续清理覆盖。
+
+### 使用什么方式解决
+- 新增单例 Zustand 会话仓库 [Session Store]，在应用级初始化一次客户端并统一处理自动恢复、身份持久化、命令错误和终端消息。
+- 新增阶段路由纯函数与协议错误翻译，保留权威投影 [Authoritative Projection] 作为唯一已提交游戏状态。
+- 构建配置注入服务端点和开发标记；生产端点缺失时进入明确错误状态，开发环境保留本地回退。
+- 新增 7 个测试覆盖单次初始化、恢复、跨房间拦截、身份清理和阶段路由。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.ts`、`protocol-feedback.ts`、`session-routing.ts` 及对应测试。
+- `packages/frontend/src/app.tsx`、`src/env.d.ts`、`config/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除新增的会话仓库、协议反馈、阶段路由、环境声明及对应测试文件。
+- 将 `app.tsx` 恢复为仅返回页面子节点，将 `config/index.ts` 的 `defineConstants` 恢复为空对象。
+- 删除 `work.md` 中第二个标题为 `2026-07-13 17:48` 的本节记录；不要撤回更早的 Issue 整理记录。
+
+## 2026-07-14 11:11:29 +08:00 --- 房间契约尚未覆盖容量、说书人、冻结名单、阶段编号和终局离开语义 --- 扩展 ProtoBuf 契约并在权威会话 [Authoritative Session] 中落实校验、投影与恢复规则 --- 修改协议、Backend、Core 与契约测试
+
+### 发现什么问题
+- 协议缺少 `ROOM_FULL`、`INVALID_COMMAND`、说书人姓名、夜晚编号和占卜师干扰项，客户端无法稳定区分容量错误与非法命令。
+- 角色发放失败也可能冻结成员，说书人权限、5-15 名实际玩家上限和重复发放没有形成服务端闭环。
+- 首夜/首日编号、夜间死亡归属、中毒失效和终局普通成员离开规则与产品约定不一致。
+- 恢复消息缺少下一客户端序号 [Client Sequence] 与名单冻结状态，创建/加入中的断线重放可能丢命令或重复身份。
+
+### 使用什么方式解决
+- 将新增错误码和房间字段写入 ProtoBuf 规范来源 [Canonical Source]，重新生成 Go/TypeScript 协议契约；占卜师干扰项仅投影给说书人。
+- 在会话注册表和游戏会话中统一校验剧本、容量、房主权限、说书人选择和一次性角色分配；仅在成功分配后冻结成员。
+- 统一首夜为 `dayNumber=0/nightNumber=1`、首日为第 1 天，并让夜间死亡和中毒按即将到来的白天结算。
+- 普通成员仅在终局撤销凭证并保留最终快照，房主执行关闭；恢复投影携带冻结状态与下一序号，客户端可安全重放待处理命令。
+- 将无目标夜间行动规范化为 `targetIds: []`，避免 JSON `null` 造成前端运行时崩溃。
+
+### 修改了哪些文件
+- `proto/game.proto`、`scripts/generate-protocol-contracts.mjs`。
+- `packages/backend/internal/gameplay/day.go`、`game_session.go`、`game_session_snapshot.go`、`night.go`、`projection.go`、`poison_test.go`。
+- `packages/backend/internal/session/registry.go`、`session.go`、`session_test.go`、`types.go`。
+- `packages/backend/internal/ws/hub_v2.go`、`hub_v2_test.go`、`protocol_generated.go`、`session_engine.go`。
+- `packages/core/src/websocket/index.ts`、`protocol.generated.ts`、`__tests__/websocket-client.test.ts`。
+- 新增 `packages/backend/internal/gameplay/day_number_test.go`、`projection_contract_test.go`、`packages/backend/internal/ws/protocol_v2_contract_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 将上述 ProtoBuf、生成器、Backend、Core 协议和测试文件恢复到本节修改前版本，并删除三个新增契约测试文件。
+- 重新运行 `pnpm proto:generate`，确保生成物与恢复后的 `game.proto` 一致；删除 `work.md` 中本节记录。
+
+## 2026-07-14 11:11:29 +08:00 --- 单页调试界面无法在路由切换中保留连接，也未形成设置、游玩和终局闭环 --- 建立应用级会话仓库 [Session Store]、权威阶段路由与四页面本地 MVP --- 修改 Frontend 页面、会话模块、展示适配和测试
+
+### 发现什么问题
+- 页面卸载会断开 WebSocket，邀请链接携带过多内部状态，恢复、被踢、关闭和凭证失效由多个页面重复处理。
+- 角色设置缺少不可撤销确认、特殊角色约束和隐私视图；日间提名仍依赖内部 ID；夜间存在本地唤醒顺序回退。
+- 终局页缺少完整角色、酒鬼展示身份、死亡时间线、胜负原因映射和刷新恢复降级。
+- 后端英文角色资料、行动提示和终局描述直接出现在中文界面，协议未知错误也可能导致渲染失败。
+
+### 使用什么方式解决
+- 使用单例 Zustand 仓库唯一持有连接、身份、修订、权威投影、待处理命令和错误，应用启动时初始化，页面路由只消费投影。
+- 保留大厅 `/pages/index/index`，邀请仅预填 `roomId`；新增 Game-Setup、Game-Play、Game-Over 页面并按权威阶段重定向。
+- 设置页接入合法随机、逐玩家交换、酒鬼展示身份和占卜师干扰项；游玩页仅使用服务端唤醒步骤，并按姓名与座位提名。
+- 终局页展示完整身份、胜方、六类原因、死亡时间线和离开/关闭流程；刷新先恢复最终投影。
+- 增加角色、能力、剧本、夜间结果与协议错误本地化映射，并以显式文本颜色避免 H5 与 RN 的按钮文字差异。
+
+### 修改了哪些文件
+- `packages/frontend/src/app.tsx`、`app.config.ts`、`app.css`、`env.d.ts`、`config/index.ts`。
+- 新增 `packages/frontend/src/components/session-shell.tsx`、`loading-state.tsx`。
+- 新增 `packages/frontend/src/lib/room-session-store.ts`、`session-routing.ts`、`use-session-route.ts`、`protocol-feedback.ts`、`character-display.ts` 及对应测试。
+- 修改 `packages/frontend/src/lib/room-experience.ts`、`room-experience.test.ts`。
+- 重写 `packages/frontend/src/pages/index/index.tsx`、`index.css`；新增 `pages/game-setup/`、`pages/game-play/`、`pages/game-over/` 页面与样式。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除本节新增的组件、会话/路由/展示模块及三个游戏阶段页面目录。
+- 将应用入口、配置、房间体验模块和大厅页面恢复到本节修改前版本；删除 `work.md` 中本节记录。
+
+## 2026-07-14 11:11:29 +08:00 --- 缺少真实六连接覆盖完整对局与投票断线恢复的回归保护 --- 新增协议 v2 六客户端端到端测试 [End-to-End Test] --- 修改 Backend WebSocket 测试
+
+### 发现什么问题
+- 单元测试没有证明一名说书人和五名玩家能通过真实 WebSocket 完成首夜、提名、三票处决恶魔和善方胜利。
+- 投票中断线恢复时，序号、修订、投票快照和后续命令连续性缺少精确断言。
+- 玩家角色隐私、说书人夜间信息、首日编号和终局公开身份没有处于同一完整回归链路中。
+
+### 使用什么方式解决
+- 使用真实测试服务器建立六条连接，固定 Slayer、Soldier、Mayor、Poisoner、Imp 身份并完成完整关键路径 [Critical Path]。
+- 在投票中主动断开并恢复一名玩家，断言凭证、客户端序号、服务器修订和投票状态连续。
+- 对玩家私密投影、说书人全视图、首夜/首日编号、终局公开身份和胜利原因进行接收者级精确断言。
+
+### 修改了哪些文件
+- 新增 `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/ws/protocol_v2_game_flow_test.go`，并删除 `work.md` 中本节记录；生产代码不需要额外回滚。
+
+## 2026-07-14 11:11:29 +08:00 --- H5、微信小程序与 React Native 缺少统一可构建配置，原界面在移动端存在溢出和调试信息泄露风险 --- 补齐三端构建入口并实施响应式视觉回归 [Responsive Visual Regression] --- 修改构建配置、依赖与跨端样式
+
+### 发现什么问题
+- React Native 缺少入口、Metro 配置和必要依赖，Taro RN 旧启动器在 Node 24/Windows 下出现 `spawn EINVAL`。
+- 原 CSS 使用 RN 不支持的布局能力；`!important` 会被 RN 转换器拼入颜色值，导致无效原生样式。
+- H5 按设计宽度转换字体后在宽桌面被放大，输入框与按钮文字可能溢出；生产界面还可能暴露端点和内部调试操作。
+
+### 使用什么方式解决
+- 增加 RN 入口、Metro 配置和依赖，使用 React Native 官方 bundle 命令生成 Android Bundle；保留微信和 H5 独立构建脚本。
+- 将页面主体改为 Flexbox，固定输入/按钮/计数器尺寸；H5 将像素转换目标设为 `px`，保证 390×844 与 1280×720 字号一致。
+- 用显式 `Text` 类表达深色、浅色和选中按钮文字，移除会被 RN 错误解析的 `!important` 与无效 `box-sizing`。
+- 在两种视口完成大厅、设置、首夜、首日、终局、刷新恢复和房主关闭检查；生产构建隐藏服务器地址、内部 ID 与强制重置入口。
+
+### 修改了哪些文件
+- `packages/frontend/package.json`、`packages/frontend/index.js`、`packages/frontend/metro.config.js`、`pnpm-lock.yaml`。
+- `packages/core/package.json`。
+- `packages/frontend/config/index.ts`、`src/app.css`、各页面 CSS 与涉及显式按钮文本的 TSX 文件。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/frontend/index.js` 与 `metro.config.js`，恢复 Frontend/Core 的 `package.json` 和 `pnpm-lock.yaml`。
+- 将 H5 配置、全局及页面样式和显式按钮文本恢复到本节修改前版本；删除 `work.md` 中本节记录。

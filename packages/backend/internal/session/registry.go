@@ -112,6 +112,9 @@ func (r *Registry) Create(ctx context.Context, input CreateInput) (CreateResult,
 		return CreateResult{RoomID: roomID, PlayerID: record.PlayerID, ResumeCredential: r.codec.Encode(roomID, record.PlayerID, identity.CredentialNonce), RoomRevision: view.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: view.engine.Project(record.PlayerID), Metadata: metadataFromRecord(view.record)}, nil
 	}
 	r.mu.RUnlock()
+	if err := input.Engine.AddPlayer(input.PlayerID, input.PlayerName); err != nil {
+		return CreateResult{}, err
+	}
 
 	for attempts := 0; attempts < 8; attempts++ {
 		roomID, err := r.ids.RoomID()
@@ -201,7 +204,7 @@ func (r *Registry) JoinObserved(ctx context.Context, input JoinInput, observer J
 		return JoinResult{}, ErrInvalidCredential
 	}
 	if len(current.record.Members) >= current.record.MaxPlayers+1 {
-		return JoinResult{}, ErrForbidden
+		return JoinResult{}, ErrRoomFull
 	}
 
 	candidate := cloneRecord(current.record)
@@ -231,7 +234,8 @@ func (r *Registry) JoinObserved(ctx context.Context, input JoinInput, observer J
 	s.committed.Store(&committedView{record: candidate, engine: engine})
 	result := JoinResult{PlayerID: input.PlayerID, ResumeCredential: credential, RoomRevision: candidate.RoomRevision, NextClientSequence: 1, State: engine.Project(input.PlayerID), Metadata: metadataFromRecord(candidate)}
 	for playerID := range candidate.Members {
-		result.Deliveries = append(result.Deliveries, Delivery{PlayerID: playerID, Payload: engine.Project(playerID)})
+		member := candidate.Members[playerID]
+		result.Deliveries = append(result.Deliveries, Delivery{PlayerID: playerID, Payload: engine.Project(playerID), NextClientSequence: member.LastSequence + 1})
 	}
 	if observer != nil {
 		observer(result)

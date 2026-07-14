@@ -46,7 +46,7 @@ func (gs *GameSession) applyStartGame(cmd StartGameCmd) (ApplyResult, error) {
 	}
 
 	gs.phase = game.GamePhaseNight
-	gs.dayNumber = 1
+	gs.dayNumber = 0
 	gs.startNightLocked()
 
 	events := []game.GameEvent{

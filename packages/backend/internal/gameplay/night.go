@@ -146,6 +146,7 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 	// private choices for the storyteller; only the storyteller can resolve deaths.
 	var events []game.GameEvent
 	demonDeathAliveCount := 0
+	upcomingDayNumber := gs.dayNumber + 1
 	protectedTargets := gs.nightProtectedTargetsLocked()
 	for _, action := range gs.nightActions {
 		if action.ActorID == gs.storytellerID && action.ActionType == game.NightActionKill {
@@ -167,14 +168,14 @@ func (gs *GameSession) applyResolveNight(cmd ResolveNightCmd) (ApplyResult, erro
 					gs.deaths = append(gs.deaths, game.DeathRecord{
 						PlayerID:  targetID,
 						Cause:     game.DeathCauseNightKill,
-						DayNumber: gs.dayNumber,
+						DayNumber: upcomingDayNumber,
 						KilledBy:  action.ActorID,
 					})
 					events = append(events, game.GameEvent{
 						PlayerDied: &game.PlayerDiedEvent{
 							PlayerID:  targetID,
 							Cause:     game.DeathCauseNightKill,
-							DayNumber: gs.dayNumber,
+							DayNumber: upcomingDayNumber,
 						},
 					})
 					if impSelfKill && gs.applyImpSelfStarpassLocked(tIdx) {

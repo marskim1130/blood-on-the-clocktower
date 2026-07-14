@@ -1,0 +1,79 @@
+.setupSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.setupMetric {
+  flex: 1 1 240px;
+  min-width: 220px;
+  padding: 14px;
+  border: 1px solid #cfd4d2;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.setupMetricLabel,
+.setupMetricValue,
+.pickerValue,
+.validationText {
+  display: block;
+}
+
+.setupMetricLabel {
+  color: #66706d;
+  font-size: 18px;
+}
+
+.setupMetricValue {
+  margin-top: 5px;
+  color: #191d1c;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.pickerField {
+  min-height: 58px;
+  padding: 0 14px;
+  border: 1px solid #aeb7b4;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.pickerValue {
+  overflow: hidden;
+  color: #252b29;
+  font-size: 20px;
+  line-height: 58px;
+}
+
+.roleDraftRow {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.roleDraftControl {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.specialRule {
+  margin-top: 12px;
+  padding: 18px;
+  border: 1px solid #cfd4d2;
+  border-radius: 6px;
+}
+
+.validationText {
+  margin-top: 14px;
+  color: #8c202a;
+  font-size: 20px;
+  line-height: 29px;
+}
+
+.validationOkay { color: #0b544e; }
+
+.privateRole {
+  margin-top: 18px;
+}

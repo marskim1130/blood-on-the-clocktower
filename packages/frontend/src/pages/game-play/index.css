@@ -1,0 +1,183 @@
+.phaseHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0 22px;
+  border: 1px solid #cfd4d2;
+  border-radius: 6px;
+  padding-right: 16px;
+  padding-left: 16px;
+}
+
+.phaseName,
+.phaseCounter,
+.nominationTitle,
+.voteThreshold,
+.wakeStepName,
+.wakeStepPrompt,
+.nightActionResult,
+.timelineTitle,
+.timelineMeta {
+  display: block;
+}
+
+.phaseName {
+  color: #191d1c;
+  font-size: 31px;
+  font-weight: 700;
+}
+
+.phaseCounter {
+  color: #7b2028;
+  font-size: 23px;
+  font-weight: 700;
+}
+
+.gameGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.gameAside {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.nominationPanel {
+  padding: 20px;
+  border: 1px solid #7b2028;
+  border-radius: 6px;
+  background: #fff1f2;
+}
+
+.nominationTitle {
+  color: #191d1c;
+  font-size: 27px;
+  font-weight: 700;
+}
+
+.voteThreshold {
+  margin-top: 8px;
+  color: #66706d;
+  font-size: 20px;
+}
+
+.voteRecord {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 54px;
+  margin-bottom: 8px;
+  padding: 0 10px;
+  border: 1px solid #dfe3e1;
+  border-radius: 6px;
+  font-size: 20px;
+}
+
+.voteDecisionYes { color: #0b6a5f; font-weight: 700; }
+.voteDecisionNo { color: #8c202a; font-weight: 700; }
+
+.wakeList {
+  margin-top: 18px;
+}
+
+.wakeStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 14px;
+  border: 1px solid #cfd4d2;
+  border-radius: 6px;
+}
+
+.wakeStepIndex {
+  display: block;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #dfe3e1;
+  color: #4c5552;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 38px;
+  text-align: center;
+}
+
+.wakeStepCurrent .wakeStepIndex { background: #d5b45c; color: #29230f; }
+.wakeStepDone .wakeStepIndex { background: #176f68; color: #ffffff; }
+
+.wakeStepName {
+  color: #252b29;
+  font-size: 21px;
+  font-weight: 700;
+}
+
+.wakeStepPrompt {
+  margin-top: 5px;
+  color: #66706d;
+  font-size: 19px;
+  line-height: 27px;
+}
+
+.targetGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.targetGrid .choiceButton {
+  flex: 1 1 220px;
+  min-width: 200px;
+}
+
+.nightActionEntry,
+.timelineEntry {
+  margin-bottom: 8px;
+  padding: 12px;
+  border: 1px solid #dfe3e1;
+  border-radius: 6px;
+}
+
+.nightActionResult,
+.timelineMeta {
+  margin-top: 5px;
+  color: #66706d;
+  font-size: 19px;
+  line-height: 27px;
+}
+
+.timelineTitle {
+  color: #252b29;
+  font-size: 21px;
+  font-weight: 700;
+}
+
+.waitingNight {
+  padding: 48px 20px;
+  border: 2px solid #176f68;
+  background: #202523;
+  color: #ffffff;
+  text-align: center;
+}
+
+.waitingNight .emptyBandTitle { color: #ffffff; }
+.waitingNight .emptyBandText { color: #cbd2cf; }
+
+.storytellerTools {
+  padding: 18px;
+  border: 1px solid #d5b45c;
+  border-radius: 6px;
+}
+
+.localError {
+  display: block;
+  margin-top: 12px;
+  color: #8c202a;
+  font-size: 20px;
+}

@@ -173,6 +173,7 @@ function goType(field, owner) {
     'RoomState.players': '[]game.Player',
     'RoomState.phase': 'game.GamePhase',
     'RoomState.dayNumber': 'int32',
+    'RoomState.nightNumber': 'int32',
     'RoomState.nomination': '*game.Nomination',
     'RoomState.deaths': '[]game.DeathRecord',
     'RoomState.nightWakeSteps': '[]game.NightWakeStep',

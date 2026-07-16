@@ -1,4 +1,3 @@
-export * from './state-machine/index.js';
 export * from './vote-engine/index.js';
 export * from './death-system/index.js';
 export * from './night-phase/index.js';

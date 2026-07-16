@@ -124,7 +124,7 @@ export function validateVote(
 /**
  * Pure reducer: applies a VoteEvent to the current VoteState and returns the next state.
  *
- * This follows the same pattern as `gameReducer` in state-machine/index.ts.
+ * Invalid events leave the current state unchanged.
  */
 export function voteReducer(
   state: VoteState,

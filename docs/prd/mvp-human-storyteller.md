@@ -69,13 +69,12 @@
 
 1. **Monorepo 结构**：使用 pnpm workspaces 管理 `@clocktower/core`、`@clocktower/frontend`、`@clocktower/backend` 三个包
 2. **端到端类型安全**：ProtoBuf 定义数据结构，自动生成 Go 和 TypeScript 类型
-3. **状态管理**：`@clocktower/core` 使用 Zustand vanilla store 实现框架无关的游戏状态机
-4. **通信协议**：WebSocket 用于实时游戏状态同步，REST/gRPC 用于房间管理
+3. **状态管理**：后端权威游戏会话持有已提交状态，Frontend Zustand 仓库保存接收者特定完整投影
+4. **通信协议**：WebSocket v2 用于房间管理、游戏命令与实时完整状态同步
 
 ### 模块划分
 
 **Core Game Logic（需要单元测试）：**
-- **Game State Machine**：管理游戏阶段转换（Setup → Day → Voting → Night → Finished），处理 GameEvent，维护 GameState
 - **Vote Engine**：提名管理、投票收集、计票逻辑、处决判定
 - **Character System**：Trouble Brewing 角色定义、能力描述、角色合法性验证
 
@@ -91,34 +90,7 @@
 
 ### 数据模型
 
-```typescript
-// 核心状态（ProtoBuf 生成）
-interface GameState {
-  id: GameId;
-  phase: GamePhase; // 'setup' | 'day' | 'night' | 'voting' | 'finished'
-  players: Player[];
-  dayNumber: number;
-  storytellerId: PlayerId | null;
-  votes: Map<PlayerId, PlayerId | null>;
-}
-
-interface Player {
-  id: PlayerId;
-  name: string;
-  character: Character | null;
-  isAlive: boolean;
-}
-
-// 事件类型
-type GameEvent =
-  | { type: 'PLAYER_JOINED'; player: Player }
-  | { type: 'PLAYER_LEFT'; playerId: PlayerId }
-  | { type: 'PHASE_CHANGED'; phase: GamePhase }
-  | { type: 'VOTE_CAST'; voterId: PlayerId; targetId: PlayerId | null }
-  | { type: 'CHARACTER_ASSIGNED'; playerId: PlayerId; character: Character }
-  | { type: 'PLAYER_KILLED'; playerId: PlayerId }
-  | { type: 'GAME_OVER'; winner: 'good' | 'evil' };
-```
+`proto/game.proto` 生成 WebSocket v2 的 `RoomState`、`ClientMessage` 与 `ServerMessage`。Frontend 只保存通过修订门禁 [Revision Gate] 的完整 `RoomState`，不维护平行的 `GameState`/`GameEvent` 模型。
 
 ### API 契约
 
@@ -155,10 +127,10 @@ type GameEvent =
 
 ### Core Game Logic 测试
 
-1. **Game State Machine 测试**
-   - 验证阶段转换合法性（不能从 Night 直接到 Voting）
-   - 验证事件处理的正确性
-   - 验证状态不可变性（immutable updates）
+1. **WebSocket Client 测试**
+   - 验证断线恢复、客户端序号与命令重放
+   - 验证房间修订门禁与完整状态重同步
+   - 验证身份终止后不再自动恢复
 
 2. **Vote Engine 测试**
    - 验证提名规则（只能提名存活玩家）

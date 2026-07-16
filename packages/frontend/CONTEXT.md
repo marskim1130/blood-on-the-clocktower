@@ -14,10 +14,10 @@ Uses Taro's component system to write once, run on:
 
 ### State Management
 
-Uses Zustand with the core package's state machine. The frontend:
-- Creates the game store from `@clocktower/core`
-- Connects to the WebSocket server
-- Dispatches user actions as `GameEvent`s
+Uses an application-level Zustand Room Session Store. The frontend:
+- Owns durable room identity and the single WebSocket client instance
+- Replaces Room Experience state from accepted authoritative projections
+- Sends user commands through `@clocktower/core` without maintaining a parallel game reducer
 
 ### Room Experience
 

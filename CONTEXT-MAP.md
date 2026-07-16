@@ -8,14 +8,14 @@ This is a monorepo with the following sub-projects:
 
 | Package | Context | ADRs | Description |
 |---------|---------|------|-------------|
-| `@clocktower/core` | [packages/core/CONTEXT.md](./packages/core/CONTEXT.md) | [packages/core/docs/adr/](./packages/core/docs/adr/) | Game state machine, WebSocket client, shared types |
+| `@clocktower/core` | [packages/core/CONTEXT.md](./packages/core/CONTEXT.md) | [packages/core/docs/adr/](./packages/core/docs/adr/) | Shared rules, WebSocket client, generated protocol types |
 | `@clocktower/frontend` | [packages/frontend/CONTEXT.md](./packages/frontend/CONTEXT.md) | [packages/frontend/docs/adr/](./packages/frontend/docs/adr/) | Taro 4.x (React) frontend for WeApp and RN |
 | `@clocktower/backend` | [packages/backend/CONTEXT.md](./packages/backend/CONTEXT.md) | [packages/backend/docs/adr/](./packages/backend/docs/adr/) | Go backend server |
 
 ## Cross-Cutting Concerns
 
 - **Type Safety**: End-to-end type safety between Go backend and TypeScript frontend via ProtoBuf
-- **State Management**: Zustand for frontend state, game state machine in core package
+- **State Management**: Zustand Room Session Store in the frontend; committed game state comes from backend projections
 - **Communication**: WebSocket for real-time game updates
 
 ## Reading Order

@@ -10,7 +10,6 @@ pnpm proto:generate
 
 该命令会生成：
 
-- 游戏领域 TypeScript 类型：`packages/core/src/types/generated/`
 - WebSocket TypeScript 契约：`packages/core/src/websocket/protocol.generated.ts`
 - WebSocket Go 契约：`packages/backend/internal/ws/protocol_generated.go`
 

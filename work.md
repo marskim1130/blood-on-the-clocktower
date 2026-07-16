@@ -1,5 +1,10 @@
 # Work Log
 
+## 2026-07-15 09:10:08 +08:00 --- 缺少 Go 后端学习材料，前端开发者难以把 WebSocket 操作映射到服务端执行链 --- 基于真实 Backend、协议和前端传输代码制作一节请求链课程与速查表，并补充官方 Go 资源 --- 修改 `learning/lessons/0002-golang-backend-request-flow.html`、`learning/reference/golang-backend-cheatsheet.html`、`learning/RESOURCES.md`、`work.md`
+
+### 撤回方式 [Rollback Strategy]
+删除新增课程与速查表，移除 `learning/RESOURCES.md` 中“Go 与后端知识”小节，并删除本节 `work.md` 记录；不改动 `learning/MISSION.md` 或学习记录。
+
 ## 2026-07-11 17:53:50 +08:00 --- 启动开发服务器 [Dev Server] 时后端 [Backend] 因缺少至少 32 字节的环境变量凭证密钥 [Credential Signing Key] 报错退出 --- 创建本地环境变量配置文件 [Environment Configuration File] 并配置凭证密钥，以便在启动时注入 --- 修改了 `c:\Users\Qilia\Desktop\blood-on-the-clocktower\.env`、`c:\Users\Qilia\Desktop\blood-on-the-clocktower\work.md`
 
 ### 撤回方式 [Rollback Strategy]
@@ -1756,3 +1761,100 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 ### 撤回方式 [Rollback Strategy]
 - 删除 `packages/frontend/index.js` 与 `metro.config.js`，恢复 Frontend/Core 的 `package.json` 和 `pnpm-lock.yaml`。
 - 将 H5 配置、全局及页面样式和显式按钮文本恢复到本节修改前版本；删除 `work.md` 中本节记录。
+
+## 2026-07-14 15:03:55 +08:00 --- MVP 交付后需要重新核对模块深度与架构摩擦 --- 使用领域上下文、删除测试 [Deletion Test] 和并行只读探索生成架构审查报告 --- 修改系统临时报告与 `work.md`
+
+### 发现什么问题
+- Core 同时暴露失活客户端状态机和孤立旧 Proto 类型，两者没有运行时消费者，却扩大接口 [Interface] 并制造第二权威来源。
+- `Registry.JoinObserved` 直接操作权威游戏会话的锁、提交视图、持久化和投影投递，Join 事务跨模块 [Module] 接缝 [Seam] 泄漏。
+- Room Experience 能原子替换权威投影，但阶段、权限、投票和夜间合法动作仍由三个页面各自解释，局部性 [Locality] 不足。
+- 根目录与三个包均不存在架构决策记录 [ADR]，本次候选没有已记录决策冲突。
+
+### 使用什么方式解决
+- 读取 `CONTEXT-MAP.md`、三个包的 `CONTEXT.md`、技能语言规范和 HTML 报告模板。
+- 对 Backend、Core、Frontend 并行执行只读探索，并以删除测试排除已经具备深度 [Depth] 的 Session Store、GameWebSocketClient 和 RoomRecordStore。
+- 将三个最高确定性候选、前后对照图、推荐强度与首选顺序写入系统临时 HTML；未提出具体新接口，也未修改实现代码。
+
+### 修改了哪些文件
+- `C:\Users\Qilia\AppData\Local\Temp\architecture-review-20260714-145900.html`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `C:\Users\Qilia\AppData\Local\Temp\architecture-review-20260714-145900.html`。
+- 删除 `work.md` 中标题以 `2026-07-14 15:03:55` 开头的本节记录。
+
+## 2026-07-14 16:12:47 +08:00 --- Core 暴露无运行时消费者的客户端状态机与旧 Proto 类型，过期工作流仍会引导代理重新使用它们 --- 删除失活模块并让现有协议生成器成为唯一契约入口 --- 修改 Core、生成流程、领域文档与工作流
+
+### 发现什么问题
+- `packages/core/src/state-machine/` 没有运行时调用者，却维护与后端权威投影平行的 `GameState`/`GameEvent`。
+- `packages/core/src/types/generated/` 只有自测使用；真实客户端使用 `websocket/protocol.generated.ts`，形成两套“生成类型”接口 [Interface]。
+- `scripts/generate-types.mjs` 只为旧类型目录调用 `protobufjs-cli`，然后转发到现有协议生成器，属于浅模块 [Shallow Module]。
+- 6 个已完成的 `workflows/*.md` 仍要求修改已失活状态机，会破坏后续代理的局部性 [Locality]。
+- Core 上下文、Frontend 上下文、PRD 和代理说明仍宣称客户端状态机是权威状态来源。
+
+### 使用什么方式解决
+- 删除客户端状态机、旧生成类型及自测，移除根导出和 `./state-machine` 子路径；保留 Vote、Death、Win、Night 与 Scripts 规则模块。
+- 将共享类型收窄为仍被规则模块消费的 `PlayerId`、`Character`、`Team`、`DeathCause` 与构造函数。
+- 让 `proto:generate`/`proto:check` 直接调用 `generate-protocol-contracts.mjs`，删除转发脚本、Core 的 `zustand` 与根 `protobufjs-cli` 依赖。
+- 删除 6 个过期工作流，并更新 Context Map、Core/Frontend 上下文、ProtoBuf 文档、PRD、AGENTS/CLAUDE 描述和旧代码注释。
+- 清理旧 Core 构建产物并重新生成依赖锁文件 [Lockfile]；未增加弃用层 [Deprecation Layer] 或新适配器 [Adapter]。
+
+### 修改了哪些文件
+- 删除 `packages/core/src/state-machine/index.ts`、`packages/core/src/types/generated/index.ts` 及其测试、`scripts/generate-types.mjs`。
+- 删除 `workflows/death-system.md`、`frontend-integration.md`、`mvp-development.md`、`night-phase.md`、`vote-engine.md`、`win-conditions.md`。
+- 修改根与 Core `package.json`、`pnpm-lock.yaml`、`.gitignore`、`.eslintrc.json`。
+- 修改 `packages/core/src/index.ts`、`types/index.ts`、`vote-engine/index.ts`。
+- 修改 `AGENTS.md`、`CLAUDE.md`、`CONTEXT-MAP.md`、Core/Frontend `CONTEXT.md`、`proto/README.md`、`docs/prd/mvp-human-storyteller.md`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 从版本控制恢复本节删除的状态机、旧生成类型、生成脚本和 6 个工作流文件。
+- 将本节列出的清单、Core 导出、共享类型、依赖配置和领域文档恢复到修改前版本。
+- 运行 `pnpm install --no-frozen-lockfile` 恢复锁文件与依赖链接，并删除 `work.md` 中标题以 `2026-07-14 16:12:47` 开头的本节记录。
+
+## 2026-07-14 13:53:56 +08:00 --- Codex 尚未配置 Ponytail 插件市场且未安装该插件 --- 按官方 Codex 插件流程添加市场并安装后校验 --- 修改用户级 Codex 插件状态与安装审计记录
+
+### 发现什么问题
+- `codex plugin marketplace list` 中不存在 `ponytail` 市场，`codex plugin list` 中不存在 `ponytail@ponytail`。
+- Ponytail 的生命周期钩子 [Lifecycle Hooks] 依赖 Node.js；本机 `node v24.18.0` 已满足要求。
+
+### 使用什么方式解决
+- 按官方 README 执行 `codex plugin marketplace add DietrichGebert/ponytail`。
+- 执行 `codex plugin add ponytail@ponytail`，并通过插件清单、版本、安装路径和钩子配置进行安装后校验。
+
+### 修改了哪些文件
+- 新增用户级市场快照 `C:\Users\Qilia\.codex\.tmp\marketplaces\ponytail`。
+- 新增用户级插件缓存 `C:\Users\Qilia\.codex\plugins\cache\ponytail\ponytail\4.8.4`，并更新 Codex 用户级插件状态。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 若插件钩子已经运行，先执行 `node C:\Users\Qilia\.codex\plugins\cache\ponytail\ponytail\4.8.4\scripts\uninstall.js` 清理 Ponytail 运行状态。
+- 依次执行 `codex plugin remove ponytail@ponytail` 与 `codex plugin marketplace remove ponytail`；最后删除 `work.md` 中本节记录。
+
+## 2026-07-14 16:52:07 +08:00 --- Registry 穿透权威会话并自行提交加入事务，修订冲突被错误降级为存储不可用 --- 将加入事务收回权威游戏会话 [Authoritative Game Session] 并补充冲突回归测试 --- 修改 Backend 会话、注册表、WebSocket Hub、测试与 `work.md`
+
+### 发现什么问题
+- `Registry.JoinObserved` 直接访问会话锁、已提交视图、引擎克隆、持久化和观察器投递，注册表 [Registry] 不再只是定位与生命周期管理模块。
+- 加入时遇到存储修订冲突 [Revision Conflict] 会返回 `ErrPersistenceUnavailable`，既没有暴露正确语义，也没有将可能分叉的会话标记为不健康。
+- 加入事务缺少直接验证候选成员不会泄漏、观察器不会提前触发的会话层回归测试 [Regression Test]。
+
+### 使用什么方式解决
+- 新增 `AuthoritativeGameSession.JoinObserved`，由会话独占成员校验、凭证签发、引擎克隆、持久化提交、权威投影发布和观察器投递。
+- `Registry` 删除 `Join`/`JoinObserved`，继续只负责创建、查找、恢复和移除；WebSocket Hub 先通过 `Registry.Get` 定位，再调用会话加入接口。
+- 从 `JoinInput` 删除冗余 `RoomID`，统一使用会话已提交记录中的房间标识。
+- 将 `sessionstore.ErrRevisionConflict` 映射为 `ErrPersistenceConflict` 并标记会话不健康；持久化失败前不发布候选状态，也不调用观察器。
+- 新增单一冲突测试，断言修订不前进、候选成员不可查询、已提交投影人数不变、观察器未触发且健康检查失败；未引入共享事务框架 [Transaction Framework]。
+
+### 修改了哪些文件
+- `packages/backend/internal/session/types.go`。
+- `packages/backend/internal/session/registry.go`。
+- `packages/backend/internal/session/session.go`。
+- `packages/backend/internal/session/session_test.go`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 将 `JoinInput`/`JoinResult` 与 `Join`/`JoinObserved` 恢复到 `registry.go`，恢复 `RoomID` 输入，并从 `session.go` 删除会话加入方法。
+- 将 `hub_v2.go` 恢复为直接调用 `Registry.JoinObserved`。
+- 从 `session_test.go` 删除 `conflictReplace` 测试开关与 `TestJoinRevisionConflictRollsBackAndMarksSessionUnhealthy`。
+- 删除 `work.md` 中标题以 `2026-07-14 16:52:07` 开头的本节记录。

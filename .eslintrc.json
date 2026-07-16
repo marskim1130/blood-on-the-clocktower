@@ -23,7 +23,6 @@
   "ignorePatterns": [
     "dist",
     "node_modules",
-    "*.js",
-    "packages/core/src/types/generated/bundle.d.ts"
+    "*.js"
   ]
 }

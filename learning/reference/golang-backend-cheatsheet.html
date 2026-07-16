@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go 与本项目后端速查表</title>
+  <style>
+    body { max-width: 850px; margin: 0 auto; padding: 28px 20px; color: #20252b; font: 16px/1.65 system-ui, sans-serif; }
+    h1 { border-bottom: 2px solid #20252b; padding-bottom: 10px; }
+    h2 { margin-top: 28px; border-bottom: 1px solid #ccd3da; padding-bottom: 6px; }
+    code, pre { font-family: ui-monospace, Consolas, monospace; }
+    code { background: #eef1f3; padding: 2px 4px; }
+    pre { overflow-x: auto; background: #20252b; color: #f6f7f8; padding: 14px; border-radius: 5px; }
+    dt { font-weight: 700; margin-top: 12px; }
+    dd { margin-left: 0; color: #4f5a64; }
+    a { color: #185abc; }
+  </style>
+</head>
+<body>
+  <h1>Go 与本项目后端速查表</h1>
+  <p>用途：从 Taro 前端的一个 WebSocket 操作，快速定位 Go 后端应该阅读的模块。</p>
+
+  <h2>Go 最小语法</h2>
+  <dl>
+    <dt><code>struct</code></dt><dd>数据组合，例如 <code>session.Actor</code>。</dd>
+    <dt>方法 [method]</dt><dd><code>func (s *Session) Execute(...)</code>；括号里的值是接收者 [receiver]。</dd>
+    <dt>接口 [interface]</dt><dd>只描述行为，例如 <code>RoomRecordStore</code> 的 <code>Create/Replace/Delete</code>。</dd>
+    <dt>错误 [error]</dt><dd>显式返回：<code>value, err := call()</code>；用 <code>errors.Is</code> 判断错误类别。</dd>
+    <dt>指针 [pointer]</dt><dd><code>*Session</code> 表示指向对象，方法可修改对象或避免复制。</dd>
+    <dt>切片/映射 [slice/map]</dt><dd>动态列表与键值表；共享时要考虑复制和并发保护。</dd>
+  </dl>
+
+  <h2>本项目模块地图</h2>
+  <pre>cmd/server/main.go             启动 HTTP/WebSocket 服务
+internal/ws                    JSON 协议、连接、错误码、投影投递
+internal/session                房间权威状态、凭证、序号、事务边界
+internal/gameplay               游戏阶段、角色能力、胜负规则
+internal/game                   领域类型、脚本、角色
+internal/sessionstore            内存、文件、Redis 房间快照</pre>
+
+  <h2>命令提交模板</h2>
+  <pre>current := committed.Load()
+candidate := clone(current)
+if err := validate(candidate, actor, command); err != nil { return err }
+apply(candidate, command)
+if err := store.Replace(ctx, currentRevision, candidate); err != nil { return err }
+committed.Store(candidate)
+broadcast(projectForEachRecipient(candidate))</pre>
+  <p>这不是通用框架，而是本仓库的核心阅读模型：先验证和构造候选状态，持久化成功后再发布。</p>
+
+  <h2>调试入口</h2>
+  <ul>
+    <li>连接没建立：<code>Hub.HandleWebSocket</code>、前端 <code>TaroWebSocketTransport</code>。</li>
+    <li>协议错误：<code>handleMessageV2</code>、<code>sendV2Error</code>、<code>proto/game.proto</code>。</li>
+    <li>权限/凭证/序号：<code>AuthoritativeGameSession.ExecuteObserved</code>。</li>
+    <li>规则错误：<code>GameSession.Apply</code> 及对应 <code>*_test.go</code>。</li>
+    <li>状态泄漏：<code>GameSession.ProjectionFor</code>。</li>
+    <li>重启丢状态：<code>sessionstore</code>、启动时的 <code>Registry.Restore</code>。</li>
+  </ul>
+
+  <h2>官方资料</h2>
+  <ul>
+    <li><a href="https://go.dev/tour/">A Tour of Go</a>：语法、方法、接口、并发。</li>
+    <li><a href="https://go.dev/doc/effective_go">Effective Go</a>：惯用写法。</li>
+    <li><a href="https://pkg.go.dev/net/http">net/http</a>：HTTP 服务入口。</li>
+    <li><a href="https://pkg.go.dev/context">context</a>：取消、超时和请求范围。</li>
+    <li><a href="https://pkg.go.dev/sync">sync</a>：互斥锁与并发同步。</li>
+  </ul>
+</body>
+</html>

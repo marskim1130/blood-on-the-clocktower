@@ -9,10 +9,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./state-machine": {
-      "types": "./dist/state-machine/index.d.ts",
-      "import": "./dist/state-machine/index.js"
-    },
     "./vote-engine": {
       "types": "./dist/vote-engine/index.d.ts",
       "import": "./dist/vote-engine/index.js"
@@ -47,9 +43,6 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest"
-  },
-  "dependencies": {
-    "zustand": "^4.5.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.1",

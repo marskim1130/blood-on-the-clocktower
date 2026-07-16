@@ -69,7 +69,12 @@ func (h *Hub) handleCreateRoomV2(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
-	_, err := h.registry.JoinObserved(context.Background(), session.JoinInput{RequestID: msg.JoinRequestID, RoomID: msg.RoomID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, Fingerprint: fingerprint(msg)}, func(result session.JoinResult) {
+	s, ok := h.registry.Get(msg.RoomID)
+	if !ok {
+		h.sendV2Error(conn, session.ErrRoomNotFound, 0)
+		return
+	}
+	_, err := s.JoinObserved(context.Background(), session.JoinInput{RequestID: msg.JoinRequestID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, Fingerprint: fingerprint(msg)}, func(result session.JoinResult) {
 		_, previous := h.active.Takeover(msg.RoomID, msg.PlayerID, conn)
 		if previous != nil {
 			h.outbound.remove(previous)

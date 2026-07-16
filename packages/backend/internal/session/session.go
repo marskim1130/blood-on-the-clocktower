@@ -52,6 +52,84 @@ func (s *AuthoritativeGameSession) CredentialFor(playerID string) (string, bool)
 	return s.codec.Encode(view.record.RoomID, playerID, identity.CredentialNonce), true
 }
 
+func (s *AuthoritativeGameSession) JoinObserved(ctx context.Context, input JoinInput, observer JoinObserver) (JoinResult, error) {
+	s.commandMu.Lock()
+	defer s.commandMu.Unlock()
+	if s.conflict.Load() {
+		return JoinResult{}, ErrPersistenceConflict
+	}
+	current := s.committed.Load()
+	if current.closed {
+		return JoinResult{}, ErrRoomNotFound
+	}
+	if existing, ok := current.record.JoinRequests[input.RequestID]; ok {
+		if existing.Fingerprint != input.Fingerprint {
+			return JoinResult{}, ErrIdempotencyConflict
+		}
+		identity := current.record.Members[existing.PlayerID]
+		result := JoinResult{PlayerID: identity.PlayerID, ResumeCredential: s.codec.Encode(current.record.RoomID, identity.PlayerID, identity.CredentialNonce), RoomRevision: current.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: current.engine.Project(identity.PlayerID), Metadata: metadataFromRecord(current.record)}
+		if observer != nil {
+			observer(result)
+		}
+		return result, nil
+	}
+	if current.record.ParticipantSetFrozen {
+		return JoinResult{}, ErrParticipantSetFrozen
+	}
+	if current.record.Bans[input.PlayerID] {
+		return JoinResult{}, ErrInvalidCredential
+	}
+	if _, exists := current.record.Members[input.PlayerID]; exists {
+		return JoinResult{}, ErrInvalidCredential
+	}
+	if _, exists := current.record.Retained[input.PlayerID]; exists {
+		return JoinResult{}, ErrInvalidCredential
+	}
+	if len(current.record.Members) >= current.record.MaxPlayers+1 {
+		return JoinResult{}, ErrRoomFull
+	}
+
+	candidate := cloneRecord(current.record)
+	engine := current.engine.Clone()
+	if err := engine.AddPlayer(input.PlayerID, input.PlayerName); err != nil {
+		return JoinResult{}, err
+	}
+	nonce, credential, err := s.codec.Issue(current.record.RoomID, input.PlayerID)
+	if err != nil {
+		return JoinResult{}, err
+	}
+	candidate.Members[input.PlayerID] = Identity{PlayerID: input.PlayerID, Name: input.PlayerName, CredentialNonce: nonce, State: IdentityMember}
+	candidate.JoinRequests[input.RequestID] = IdempotencyRecord{Fingerprint: input.Fingerprint, PlayerID: input.PlayerID}
+	candidate.RoomRevision++
+	gameData, err := engine.Marshal()
+	if err != nil {
+		return JoinResult{}, err
+	}
+	candidate.Game = gameData
+	data, err := json.Marshal(candidate)
+	if err != nil {
+		return JoinResult{}, err
+	}
+	if err := s.store.Replace(ctx, current.record.RoomRevision, StoreRecord{RoomID: current.record.RoomID, Revision: candidate.RoomRevision, Data: data}); err != nil {
+		if errors.Is(err, sessionstore.ErrRevisionConflict) {
+			s.conflict.Store(true)
+			return JoinResult{}, ErrPersistenceConflict
+		}
+		return JoinResult{}, ErrPersistenceUnavailable
+	}
+	view := &committedView{record: candidate, engine: engine}
+	s.committed.Store(view)
+	result := JoinResult{PlayerID: input.PlayerID, ResumeCredential: credential, RoomRevision: candidate.RoomRevision, NextClientSequence: 1, State: engine.Project(input.PlayerID), Metadata: metadataFromRecord(candidate)}
+	for playerID := range candidate.Members {
+		member := candidate.Members[playerID]
+		result.Deliveries = append(result.Deliveries, Delivery{PlayerID: playerID, Payload: engine.Project(playerID), NextClientSequence: member.LastSequence + 1})
+	}
+	if observer != nil {
+		observer(result)
+	}
+	return result, nil
+}
+
 func (s *AuthoritativeGameSession) Execute(ctx context.Context, actor Actor, command Command) (CommandResult, error) {
 	return s.ExecuteObserved(ctx, actor, command, nil)
 }

@@ -87,14 +87,6 @@ type CreateResult struct {
 	State                              any
 	Metadata                           RoomMetadata
 }
-type JoinInput struct{ RequestID, RoomID, PlayerID, PlayerName, Fingerprint string }
-type JoinResult struct {
-	PlayerID, ResumeCredential       string
-	RoomRevision, NextClientSequence uint64
-	State                            any
-	Deliveries                       []Delivery
-	Metadata                         RoomMetadata
-}
 
 func (r *Registry) Create(ctx context.Context, input CreateInput) (CreateResult, error) {
 	r.createMu.Lock()
@@ -166,81 +158,6 @@ func (r *Registry) Healthy() bool {
 		}
 	}
 	return true
-}
-
-func (r *Registry) Join(ctx context.Context, input JoinInput) (JoinResult, error) {
-	return r.JoinObserved(ctx, input, nil)
-}
-
-func (r *Registry) JoinObserved(ctx context.Context, input JoinInput, observer JoinObserver) (JoinResult, error) {
-	s, ok := r.Get(input.RoomID)
-	if !ok {
-		return JoinResult{}, ErrRoomNotFound
-	}
-	s.commandMu.Lock()
-	defer s.commandMu.Unlock()
-	current := s.committed.Load()
-	if existing, ok := current.record.JoinRequests[input.RequestID]; ok {
-		if existing.Fingerprint != input.Fingerprint {
-			return JoinResult{}, ErrIdempotencyConflict
-		}
-		identity := current.record.Members[existing.PlayerID]
-		result := JoinResult{PlayerID: identity.PlayerID, ResumeCredential: r.codec.Encode(input.RoomID, identity.PlayerID, identity.CredentialNonce), RoomRevision: current.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: current.engine.Project(identity.PlayerID), Metadata: metadataFromRecord(current.record)}
-		if observer != nil {
-			observer(result)
-		}
-		return result, nil
-	}
-	if current.record.ParticipantSetFrozen {
-		return JoinResult{}, ErrParticipantSetFrozen
-	}
-	if current.record.Bans[input.PlayerID] {
-		return JoinResult{}, ErrInvalidCredential
-	}
-	if _, exists := current.record.Members[input.PlayerID]; exists {
-		return JoinResult{}, ErrInvalidCredential
-	}
-	if _, exists := current.record.Retained[input.PlayerID]; exists {
-		return JoinResult{}, ErrInvalidCredential
-	}
-	if len(current.record.Members) >= current.record.MaxPlayers+1 {
-		return JoinResult{}, ErrRoomFull
-	}
-
-	candidate := cloneRecord(current.record)
-	engine := current.engine.Clone()
-	if err := engine.AddPlayer(input.PlayerID, input.PlayerName); err != nil {
-		return JoinResult{}, err
-	}
-	nonce, credential, err := r.codec.Issue(input.RoomID, input.PlayerID)
-	if err != nil {
-		return JoinResult{}, err
-	}
-	candidate.Members[input.PlayerID] = Identity{PlayerID: input.PlayerID, Name: input.PlayerName, CredentialNonce: nonce, State: IdentityMember}
-	candidate.JoinRequests[input.RequestID] = IdempotencyRecord{Fingerprint: input.Fingerprint, PlayerID: input.PlayerID}
-	candidate.RoomRevision++
-	gameData, err := engine.Marshal()
-	if err != nil {
-		return JoinResult{}, err
-	}
-	candidate.Game = gameData
-	data, err := json.Marshal(candidate)
-	if err != nil {
-		return JoinResult{}, err
-	}
-	if err := r.store.Replace(ctx, current.record.RoomRevision, StoreRecord{RoomID: input.RoomID, Revision: candidate.RoomRevision, Data: data}); err != nil {
-		return JoinResult{}, ErrPersistenceUnavailable
-	}
-	s.committed.Store(&committedView{record: candidate, engine: engine})
-	result := JoinResult{PlayerID: input.PlayerID, ResumeCredential: credential, RoomRevision: candidate.RoomRevision, NextClientSequence: 1, State: engine.Project(input.PlayerID), Metadata: metadataFromRecord(candidate)}
-	for playerID := range candidate.Members {
-		member := candidate.Members[playerID]
-		result.Deliveries = append(result.Deliveries, Delivery{PlayerID: playerID, Payload: engine.Project(playerID), NextClientSequence: member.LastSequence + 1})
-	}
-	if observer != nil {
-		observer(result)
-	}
-	return result, nil
 }
 
 func (r *Registry) Remove(roomID string) {

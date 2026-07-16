@@ -11,8 +11,8 @@
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "typecheck": "tsc --build",
-    "proto:generate": "node scripts/generate-types.mjs",
-    "proto:check": "node scripts/generate-types.mjs --check",
+    "proto:generate": "node scripts/generate-protocol-contracts.mjs",
+    "proto:check": "node scripts/generate-protocol-contracts.mjs --check",
     "test": "vitest run",
     "test:backend": "cd packages/backend && go test ./...",
     "test:backend:race": "cd packages/backend && go test -race ./internal/gameplay ./internal/ws ./internal/session ./internal/sessionstore",
@@ -27,7 +27,6 @@
     "concurrently": "^10.0.3",
     "eslint": "^8.57.0",
     "protobufjs": "^7.4.0",
-    "protobufjs-cli": "^1.1.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   },

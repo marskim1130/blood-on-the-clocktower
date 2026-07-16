@@ -14,7 +14,7 @@ Digital implementation of the Blood on the Clocktower social deduction game.
 
 This is a monorepo with the following packages:
 
-- `@clocktower/core` — Game state machine, WebSocket client, shared types
+- `@clocktower/core` — Shared rules, WebSocket client, generated protocol types
 - `@clocktower/frontend` — Taro 4.x frontend application
 - `@clocktower/backend` — Go backend server
 

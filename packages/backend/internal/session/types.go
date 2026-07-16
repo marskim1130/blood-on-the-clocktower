@@ -152,6 +152,18 @@ type QueryResult struct {
 	Metadata           RoomMetadata
 }
 
+type JoinInput struct {
+	RequestID, PlayerID, PlayerName, Fingerprint string
+}
+
+type JoinResult struct {
+	PlayerID, ResumeCredential       string
+	RoomRevision, NextClientSequence uint64
+	State                            any
+	Deliveries                       []Delivery
+	Metadata                         RoomMetadata
+}
+
 type JoinObserver func(JoinResult)
 
 type Engine interface {

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Go 后端第一课：一条 WebSocket 命令</title>
+  <style>
+    :root { color-scheme: light; --ink: #20252b; --muted: #5b6570; --line: #d8dee5; --paper: #fffdf8; --blue: #185abc; --green: #176b4d; --amber: #8a5410; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef1f3; color: var(--ink); font: 16px/1.7 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 900px; margin: 0 auto; padding: 32px 20px 64px; }
+    article { background: var(--paper); border: 1px solid var(--line); padding: 32px; }
+    h1, h2, h3 { line-height: 1.25; }
+    h1 { margin-top: 0; font-size: 2rem; }
+    h2 { margin-top: 2.2rem; border-top: 1px solid var(--line); padding-top: 1.2rem; }
+    h3 { margin-bottom: .3rem; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    code { background: #edf0f2; padding: .12em .32em; }
+    pre { overflow-x: auto; background: #20252b; color: #f6f7f8; padding: 16px; border-radius: 6px; }
+    .lead { color: var(--muted); font-size: 1.08rem; }
+    .flow, .callout, .exercise { border-left: 4px solid var(--blue); background: #edf4ff; padding: 14px 18px; margin: 18px 0; }
+    .callout { border-color: var(--green); background: #edf8f2; }
+    .exercise { border-color: var(--amber); background: #fff7e8; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); padding: 9px 8px; }
+    th { background: #f1f3f4; }
+    a { color: var(--blue); }
+    button { border: 1px solid #9aa5af; background: #fff; color: var(--ink); border-radius: 4px; padding: 8px 12px; cursor: pointer; }
+    button:hover { border-color: var(--blue); }
+    #answer { margin-top: 10px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <h1>Go 后端第一课：一条 WebSocket 命令</h1>
+      <p class="lead">目标：能从前端一次“投票/开始游戏/加入房间”出发，读懂它如何经过 Go 服务端，并知道应该在哪一层排查问题。</p>
+
+      <h2>先看执行链</h2>
+      <pre>前端 GameWebSocketClient
+  -> WebSocket /ws
+  -> ws.Hub.HandleWebSocket
+  -> handleMessageV2 / handleCommandV2
+  -> session.AuthoritativeGameSession.ExecuteObserved
+  -> gameplay.GameSession.Apply
+  -> sessionstore.Replace
+  -> gameplay.ProjectionFor(playerID)
+  -> ordered outbound queue
+  -> 每个玩家收到自己的 RoomState</pre>
+      <p>这就是后端的“请求进入、业务提交、响应出去”。读代码时先沿这条线走，不要从某个角色能力文件开始猜。</p>
+
+      <h2>Go 语法在项目中的对应物</h2>
+      <table>
+        <thead><tr><th>Go 概念</th><th>项目例子</th><th>你要记住什么</th></tr></thead>
+        <tbody>
+          <tr><td>包 [package]</td><td><code>internal/ws</code>、<code>internal/session</code></td><td>按职责组织代码；小写名称不导出，大写名称可被别的包使用。</td></tr>
+          <tr><td>结构体 [struct]</td><td><code>session.Actor</code>、<code>session.Command</code></td><td>把一组数据组成明确的输入对象。</td></tr>
+          <tr><td>方法 [method]</td><td><code>(s *AuthoritativeGameSession) Execute(...)</code></td><td>方法接收者通常是业务对象本身。</td></tr>
+          <tr><td>接口 [interface]</td><td><code>session.Engine</code>、<code>RoomRecordStore</code></td><td>调用方只依赖行为；内存、文件、Redis 可以替换实现。</td></tr>
+          <tr><td>错误值 [error]</td><td><code>ErrInvalidCredential</code>、<code>errors.Is</code></td><td>错误是返回值，不靠异常跳转；上层再映射成稳定协议错误码。</td></tr>
+          <tr><td>并发原语 [concurrency primitives]</td><td><code>sync.Mutex</code>、<code>atomic.Pointer</code>、<code>go sender.run()</code></td><td>锁保护共享状态；后台 goroutine 专门按顺序发送消息。</td></tr>
+        </tbody>
+      </table>
+
+      <h2>最重要的后端边界</h2>
+      <h3>1. Hub 是适配器 [adapter]</h3>
+      <p><code>internal/ws/hub_v2.go</code> 把 JSON 的 <code>ClientMessage</code> 翻译成 Go 命令。它负责协议版本、活动连接、错误码和投递，不应该自己保存一份房间状态。</p>
+
+      <h3>2. AuthoritativeGameSession 是唯一权威 [single authority]</h3>
+      <p><code>ExecuteObserved</code> 先拿房间锁，再复制当前记录和游戏引擎，验证凭证、权限和 <code>clientSequence</code>，应用候选变化，持久化成功后才替换 <code>committed</code> 视图。</p>
+      <pre>current := s.committed.Load()
+candidate := cloneRecord(current.record)
+engine := current.engine.Clone()
+// 校验并修改 candidate / engine
+if err := s.store.Replace(ctx, current.record.RoomRevision, data); err != nil {
+    return CommandResult{}, err
+}
+s.committed.Store(&committedView{record: candidate, engine: engine})</pre>
+      <div class="callout"><strong>核心不变量 [invariant]：</strong>持久化失败时，内存中的已提交状态不前进；广播只发生在提交之后。这样客户端不会看到“服务器重启后消失”的成功状态。</div>
+
+      <h3>3. Gameplay 只管规则</h3>
+      <p><code>internal/gameplay</code> 不知道凭证、WebSocket 或 Redis。<code>GameSession.Apply</code> 接收类型明确的命令，例如 <code>CastVoteCmd</code>、<code>StartGameCmd</code>，然后校验当前阶段、角色和胜负条件。</p>
+
+      <h3>4. Projection 是隐私边界 [privacy boundary]</h3>
+      <p><code>ProjectionFor(recipientID)</code> 为每个接收者生成完整但不同的视图：说书人可以看到角色和夜间管理信息，普通玩家看不到其他人的身份。后端不能把完整游戏对象直接广播给所有人。</p>
+
+      <h2>一次“投票”如何定位问题</h2>
+      <ol>
+        <li>客户端没有发出：看 <code>room-session-store.ts</code> 和 Core 客户端。</li>
+        <li>服务端报 <code>INVALID_MESSAGE</code>：看 <code>HandleWebSocket</code> 的 JSON/协议版本校验。</li>
+        <li>报 <code>STALE_CONNECTION</code>：看活动连接接管和连接代数。</li>
+        <li>报 <code>UNEXPECTED_SEQUENCE</code>：看客户端持有的下一个序号，或请求完整房间状态。</li>
+        <li>报 <code>INVALID_COMMAND</code>：看 <code>toGameCommand</code> 和 <code>GameSession.Apply</code>。</li>
+        <li>服务端返回成功但其他玩家没更新：看提交后的投影生成和有序出站队列。</li>
+      </ol>
+
+      <div class="exercise">
+        <h2>小练习</h2>
+        <p>如果 <code>store.Replace</code> 失败，下面哪一项应该发生？</p>
+        <button onclick="answer(false)">A. 先广播，再标记存储失败</button>
+        <button onclick="answer(true)">B. 不替换已提交视图，也不广播新状态</button>
+        <button onclick="answer(false)">C. 忽略错误，继续处理下一条命令</button>
+        <div id="answer"></div>
+      </div>
+
+      <h2>复习材料</h2>
+      <p>速查表：<a href="../reference/golang-backend-cheatsheet.html">Go 与本项目后端速查表</a>。</p>
+      <p>本项目入口：<a href="../../packages/backend/cmd/server/main.go"><code>cmd/server/main.go</code></a>；协议来源：<a href="../../proto/game.proto"><code>proto/game.proto</code></a>；协议说明：<a href="../../docs/protocol/websocket-v2.md"><code>websocket-v2.md</code></a>。</p>
+      <p>官方主资料：<a href="https://go.dev/tour/">A Tour of Go</a>、<a href="https://go.dev/doc/effective_go">Effective Go</a>、<a href="https://pkg.go.dev/net/http">net/http</a>、<a href="https://pkg.go.dev/context">context</a>、<a href="https://pkg.go.dev/sync">sync</a>。</p>
+      <p>你可以直接问下一步：“带我逐行读 <code>handleCommandV2</code>”，或者先回答上面的练习，我再根据你的答案继续。</p>
+    </article>
+  </main>
+  <script>
+    function answer(correct) {
+      const target = document.getElementById('answer');
+      target.textContent = correct ? '正确：提交是内存状态、持久化和广播之间的边界。' : '不正确：先保证已提交状态不变，再把存储错误返回给客户端。';
+      target.style.color = correct ? '#176b4d' : '#a13b2f';
+    }
+  </script>
+</body>
+</html>

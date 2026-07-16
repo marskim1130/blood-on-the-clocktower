@@ -11,9 +11,10 @@ import (
 )
 
 type memoryStore struct {
-	mu          sync.Mutex
-	records     map[string]StoreRecord
-	failReplace bool
+	mu              sync.Mutex
+	records         map[string]StoreRecord
+	failReplace     bool
+	conflictReplace bool
 }
 
 func newMemoryStore() *memoryStore { return &memoryStore{records: make(map[string]StoreRecord)} }
@@ -34,6 +35,9 @@ func (s *memoryStore) Replace(_ context.Context, expected uint64, record StoreRe
 	defer s.mu.Unlock()
 	if s.failReplace {
 		return errors.New("failed")
+	}
+	if s.conflictReplace {
+		return sessionstore.ErrRevisionConflict
 	}
 	current := s.records[record.RoomID]
 	if current.Revision != expected {
@@ -120,6 +124,44 @@ func TestExecutePublishesOnlyAfterPersistence(t *testing.T) {
 	}
 	if query.Room.(map[string]any)["value"].(int) != 0 {
 		t.Fatal("candidate state leaked")
+	}
+}
+
+func TestJoinRevisionConflictRollsBackAndMarksSessionUnhealthy(t *testing.T) {
+	activeSession, store, actor := newTestSession(t)
+	store.conflictReplace = true
+	observerCalled := false
+
+	_, err := activeSession.JoinObserved(context.Background(), JoinInput{
+		RequestID:   "join-new",
+		PlayerID:    "new-player",
+		PlayerName:  "New Player",
+		Fingerprint: "join-fingerprint",
+	}, func(JoinResult) {
+		observerCalled = true
+	})
+	if !errors.Is(err, ErrPersistenceConflict) {
+		t.Fatalf("join error = %v, want ErrPersistenceConflict", err)
+	}
+	if activeSession.Healthy() {
+		t.Fatal("revision conflict must mark the session unhealthy")
+	}
+	if observerCalled {
+		t.Fatal("observer must not see an unpersisted join")
+	}
+
+	query, err := activeSession.Query(Actor{PlayerID: "creator", Credential: actor.Credential})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.RoomRevision != 1 {
+		t.Fatalf("revision advanced to %d", query.RoomRevision)
+	}
+	if query.Room.(map[string]any)["players"].(int) != 2 {
+		t.Fatal("candidate member leaked into the committed projection")
+	}
+	if _, err := activeSession.Query(Actor{PlayerID: "new-player", Credential: "room:new-player:nonce"}); !errors.Is(err, ErrInvalidCredential) {
+		t.Fatalf("uncommitted member query error = %v, want ErrInvalidCredential", err)
 	}
 }
 

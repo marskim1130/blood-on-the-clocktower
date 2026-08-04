@@ -1,6 +1,6 @@
 package gameplay
 
-import "github.com/your-org/blood-on-the-clocktower/internal/game"
+import "github.com/marskim1130/blood-on-the-clocktower/internal/game"
 
 // Projection is the privacy-safe game view for one recipient.
 // Room lifecycle metadata is added by the WebSocket adapter.

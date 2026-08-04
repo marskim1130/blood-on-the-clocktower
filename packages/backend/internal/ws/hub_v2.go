@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/your-org/blood-on-the-clocktower/internal/game"
-	"github.com/your-org/blood-on-the-clocktower/internal/gameplay"
-	"github.com/your-org/blood-on-the-clocktower/internal/session"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/gameplay"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/session"
 )
 
 func (h *Hub) handleMessageV2(conn Connection, msg ClientMessage) {

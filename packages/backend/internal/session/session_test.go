@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/your-org/blood-on-the-clocktower/internal/sessionstore"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/sessionstore"
 )
 
 type memoryStore struct {

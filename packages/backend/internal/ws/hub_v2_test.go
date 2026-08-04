@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/your-org/blood-on-the-clocktower/internal/session"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/session"
 )
 
 func lastServerMessage(t *testing.T, connection *fakeConnection) ServerMessage {

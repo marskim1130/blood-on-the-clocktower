@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/your-org/blood-on-the-clocktower/internal/game"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
 )
 
 // ────────────────────────────────────────────────

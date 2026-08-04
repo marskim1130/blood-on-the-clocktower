@@ -1,5 +1,10 @@
 # Work Log
 
+## 2026-08-04 12:00:50 +08:00 --- 仓库缺少开源项目必需的三要素：无 LICENSE、无根级 README.md、Go 模块名为占位符 `github.com/your-org`（go.mod、41 处 import、协议生成器模板均引用该占位符，导致 `go get` 无法工作） --- 添加 MIT LICENSE（版权人 金琦亮）；编写根级 README.md（功能特性、技术栈、项目结构、快速开始、验证、文档导航、许可）；将 `go.mod` module 行、35 个 `.go` 文件的 import、`scripts/generate-protocol-contracts.mjs` 生成模板中的模块路径统一改为 `github.com/marskim1130/blood-on-the-clocktower`，重新运行 `pnpm proto:generate` 生成契约，`pnpm proto:check` 无漂移，`go build` / `go vet` / `go test ./...` 全部通过 --- 修改了 `LICENSE`（新增）、`README.md`（新增）、`packages/backend/go.mod`、`scripts/generate-protocol-contracts.mjs`、`packages/backend` 下 35 个 `.go` 文件、重新生成的 `packages/backend/internal/ws/protocol_generated.go` 与 `packages/core/src/websocket/protocol.generated.ts`、`work.md`
+
+### 撤回方式 [Rollback Strategy]
+删除 `LICENSE` 与 `README.md`；将 `go.mod` 的 `module` 行、全部 `.go` 文件 import、生成器脚本中的模块路径改回 `github.com/your-org/blood-on-the-clocktower`，重新运行 `pnpm proto:generate` 恢复生成文件，并删除本节 `work.md` 记录。
+
 ## 2026-07-15 09:10:08 +08:00 --- 缺少 Go 后端学习材料，前端开发者难以把 WebSocket 操作映射到服务端执行链 --- 基于真实 Backend、协议和前端传输代码制作一节请求链课程与速查表，并补充官方 Go 资源 --- 修改 `learning/lessons/0002-golang-backend-request-flow.html`、`learning/reference/golang-backend-cheatsheet.html`、`learning/RESOURCES.md`、`work.md`
 
 ### 撤回方式 [Rollback Strategy]

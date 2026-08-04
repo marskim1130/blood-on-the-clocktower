@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/your-org/blood-on-the-clocktower/internal/ws"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/ws"
 )
 
 func main() {

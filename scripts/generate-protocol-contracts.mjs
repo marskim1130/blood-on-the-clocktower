@@ -222,7 +222,7 @@ function generateGo() {
     generateGoConstants('ProtocolErrorCode', 'ProtocolError'),
   ].join('\n\n');
   const structs = ['ClientMessage', 'ServerMessage', 'RoomState'].map(generateGoStruct).join('\n\n');
-  const source = `// Code generated from proto/game.proto (${schemaHash}). DO NOT EDIT.\n// Run: pnpm proto:generate\n\npackage ws\n\nimport (\n\t"github.com/your-org/blood-on-the-clocktower/internal/game"\n\t"github.com/your-org/blood-on-the-clocktower/internal/session"\n)\n\nconst (\n${constants}\n)\n\n${structs}\n`;
+  const source = `// Code generated from proto/game.proto (${schemaHash}). DO NOT EDIT.\n// Run: pnpm proto:generate\n\npackage ws\n\nimport (\n\t"github.com/marskim1130/blood-on-the-clocktower/internal/game"\n\t"github.com/marskim1130/blood-on-the-clocktower/internal/session"\n)\n\nconst (\n${constants}\n)\n\n${structs}\n`;
   return execFileSync('gofmt', { input: source, encoding: 'utf8' });
 }
 

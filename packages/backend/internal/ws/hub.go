@@ -9,8 +9,8 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
-	"github.com/your-org/blood-on-the-clocktower/internal/session"
-	"github.com/your-org/blood-on-the-clocktower/internal/sessionstore"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/session"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/sessionstore"
 )
 
 var upgrader = websocket.Upgrader{

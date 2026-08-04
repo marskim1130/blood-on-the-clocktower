@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
-	"github.com/your-org/blood-on-the-clocktower/internal/game"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
 )
 
 type protocolV2GameClient struct {

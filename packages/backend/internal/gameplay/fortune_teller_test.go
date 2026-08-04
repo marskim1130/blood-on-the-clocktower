@@ -3,7 +3,7 @@ package gameplay
 import (
 	"testing"
 
-	"github.com/your-org/blood-on-the-clocktower/internal/game"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
 )
 
 func TestFortuneTellerAutoComputesYesWhenTargetIncludesDemon(t *testing.T) {

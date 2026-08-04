@@ -4,8 +4,8 @@
 package ws
 
 import (
-	"github.com/your-org/blood-on-the-clocktower/internal/game"
-	"github.com/your-org/blood-on-the-clocktower/internal/session"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/session"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/your-org/blood-on-the-clocktower/internal/game"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
 )
 
 // Command types for GameSession.Apply()

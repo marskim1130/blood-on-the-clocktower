@@ -1,4 +1,4 @@
-module github.com/your-org/blood-on-the-clocktower
+module github.com/marskim1130/blood-on-the-clocktower
 
 go 1.22
 

@@ -3,7 +3,7 @@ package gameplay
 import (
 	"testing"
 
-	"github.com/your-org/blood-on-the-clocktower/internal/game"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
 )
 
 func findPlayerInState(t *testing.T, state *Projection, playerID string) game.Player {

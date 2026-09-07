@@ -2,6 +2,7 @@ package session
 
 import (
 	"errors"
+	"time"
 
 	"github.com/marskim1130/blood-on-the-clocktower/internal/sessionstore"
 )
@@ -68,6 +69,7 @@ type RoomRecord struct {
 	SchemaVersion        int                          `json:"schemaVersion"`
 	RoomID               string                       `json:"roomId"`
 	RoomRevision         uint64                       `json:"roomRevision"`
+	LastActiveAt         time.Time                    `json:"lastActiveAt,omitempty"`
 	CreatorID            string                       `json:"creatorId"`
 	MaxPlayers           int                          `json:"maxPlayers"`
 	ScriptID             string                       `json:"scriptId"`
@@ -78,6 +80,7 @@ type RoomRecord struct {
 	CreateRequests       map[string]IdempotencyRecord `json:"createRequests"`
 	JoinRequests         map[string]IdempotencyRecord `json:"joinRequests"`
 	Game                 []byte                       `json:"game"`
+	RecoveryGrants       map[string]RecoveryGrant     `json:"recoveryGrants,omitempty"`
 }
 
 type Actor struct {
@@ -90,13 +93,19 @@ type Actor struct {
 type CommandKind string
 
 const (
-	CommandRejoin         CommandKind = "REJOIN_ROOM"
-	CommandLeave          CommandKind = "LEAVE_ROOM"
-	CommandKick           CommandKind = "KICK_PLAYER"
-	CommandClose          CommandKind = "CLOSE_ROOM"
-	CommandUpdateSettings CommandKind = "UPDATE_ROOM_SETTINGS"
-	CommandSetStoryteller CommandKind = "SET_STORYTELLER"
-	CommandGame           CommandKind = "GAME_COMMAND"
+	CommandRejoin            CommandKind = "REJOIN_ROOM"
+	CommandLeave             CommandKind = "LEAVE_ROOM"
+	CommandKick              CommandKind = "KICK_PLAYER"
+	CommandClose             CommandKind = "CLOSE_ROOM"
+	CommandTransferOwnership CommandKind = "TRANSFER_OWNERSHIP"
+	CommandRestartGame       CommandKind = "RESTART_GAME"
+	CommandUndoGame          CommandKind = "UNDO_GAME"
+	CommandRedoGame          CommandKind = "REDO_GAME"
+	CommandUpdateSettings    CommandKind = "UPDATE_ROOM_SETTINGS"
+	CommandSetStoryteller    CommandKind = "SET_STORYTELLER"
+	CommandSetSeatOrder      CommandKind = "SET_SEAT_ORDER"
+	CommandGame              CommandKind = "GAME_COMMAND"
+	CommandReviewRecovery    CommandKind = "REVIEW_RECOVERY"
 )
 
 type Command struct {
@@ -107,6 +116,9 @@ type Command struct {
 	ScriptID           string
 	Payload            any
 	FreezeParticipants bool
+	RecoveryRequestID  string
+	RecoveryCredential string
+	Decision           bool
 }
 
 type Delivery struct {
@@ -175,6 +187,12 @@ type Engine interface {
 	Execute(actorID string, payload any) (updated bool, err error)
 	Project(recipientID string) any
 	Marshal() ([]byte, error)
+}
+
+// RestartableEngine resets a finished game while retaining only current members.
+// Implementations preserve seat order and clear all previous-game secrets.
+type RestartableEngine interface {
+	Restart(memberIDs []string) error
 }
 
 type RoomMetadata struct {

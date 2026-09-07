@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type randomIDGenerator struct{}
@@ -128,6 +129,7 @@ func (r *Registry) Create(ctx context.Context, input CreateInput) (CreateResult,
 			return CreateResult{}, err
 		}
 		record.Game = gameData
+		record.LastActiveAt = time.Now().UTC()
 		data, _ := json.Marshal(record)
 		if err := r.store.Create(ctx, StoreRecord{RoomID: roomID, Revision: 1, Data: data}); err != nil {
 			continue

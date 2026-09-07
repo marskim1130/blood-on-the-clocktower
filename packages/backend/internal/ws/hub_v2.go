@@ -22,10 +22,20 @@ func (h *Hub) handleMessageV2(conn Connection, msg ClientMessage) {
 		h.handleJoinRoomV2(conn, msg)
 	case MsgResumeRoom:
 		h.handleResumeRoomV2(conn, msg)
+	case MsgRequestRecovery:
+		h.handleRequestRecovery(conn, msg)
+	case MsgReviewRecovery:
+		h.handleReviewRecovery(conn, msg)
+	case MsgGetRecoveryRequests:
+		h.handleGetRecoveryRequests(conn, msg)
 	case MsgRejoinRoom, MsgLeaveRoom, MsgKickPlayer, MsgUpdateRoomSettings, MsgSetStoryteller,
+		MsgSetSeatOrder, MsgSetReady, MsgConfirmCharacter,
+		MsgAdvanceNominationStage, MsgControlNominationTimer, MsgExpireNominationTimer,
+		MsgTransferOwnership, MsgRestartGame, MsgUndoGame, MsgRedoGame,
 		MsgAssignCharacters, MsgSubmitEvent, MsgStartGame, MsgChangePhase, MsgNominate, MsgCastVote,
-		MsgResolveNomination, MsgExecutePlayer, MsgUseSlayerAbility, MsgKillPlayer, MsgSubmitNightAction,
-		MsgResolveNight, MsgEndGame, MsgCloseRoom:
+		MsgRecordVote, MsgResolveNomination, MsgFinalizeDay, MsgExecutePlayer, MsgUseSlayerAbility, MsgKillPlayer, MsgSubmitNightAction,
+		MsgConfirmNightAction, MsgAcknowledgeNightAction, MsgSkipNightAction, MsgPrepareDawn, MsgConfirmDawn,
+		MsgResolveNight, MsgEndGame, MsgPublishGrimoire, MsgCloseRoom:
 		h.handleCommandV2(conn, msg)
 	case MsgGetRoomState:
 		h.handleGetRoomStateV2(conn, msg)
@@ -65,7 +75,8 @@ func (h *Hub) handleCreateRoomV2(conn Connection, msg ClientMessage) {
 	}
 	state, _ := result.State.(*RoomState)
 	decorateRoomState(state, result.Metadata)
-	h.outbound.send(conn, ServerMessage{Type: ServerMsgCreateRoomResult, RoomID: result.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	recoveryCredential, _ := h.recoveryCredential(result.RoomID, result.PlayerID)
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgCreateRoomResult, RoomID: result.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RecoveryCredential: recoveryCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
@@ -82,7 +93,8 @@ func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
 		}
 		state, _ := result.State.(*RoomState)
 		decorateRoomState(state, result.Metadata)
-		h.outbound.send(conn, ServerMessage{Type: ServerMsgJoinRoomResult, RoomID: msg.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+		recoveryCredential, _ := h.recoveryCredential(msg.RoomID, msg.PlayerID)
+		h.outbound.send(conn, ServerMessage{Type: ServerMsgJoinRoomResult, RoomID: msg.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RecoveryCredential: recoveryCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 		h.enqueueDeliveries(msg.RoomID, msg.PlayerID, result.RoomRevision, result.Deliveries, result.Metadata)
 	})
 	if err != nil {
@@ -92,6 +104,8 @@ func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) handleResumeRoomV2(conn Connection, msg ClientMessage) {
+	h.recoveryMu.Lock()
+	defer h.recoveryMu.Unlock()
 	s, ok := h.registry.Get(msg.RoomID)
 	if !ok {
 		h.sendV2Error(conn, session.ErrRoomNotFound, 0)
@@ -109,7 +123,8 @@ func (h *Hub) handleResumeRoomV2(conn Connection, msg ClientMessage) {
 	}
 	state, _ := result.Room.(*RoomState)
 	decorateRoomState(state, result.Metadata)
-	h.outbound.send(conn, ServerMessage{Type: ServerMsgResumeRoomResult, RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	recoveryCredential, _ := s.RecoveryCredentialFor(msg.PlayerID)
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgResumeRoomResult, RoomID: msg.RoomID, State: state, IdentityStatus: result.Identity, RecoveryCredential: recoveryCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
 }
 
 func (h *Hub) handleGetRoomStateV2(conn Connection, msg ClientMessage) {
@@ -250,12 +265,25 @@ func toSessionCommand(msg ClientMessage) (session.Command, error) {
 		command.Kind = session.CommandKick
 	case MsgCloseRoom:
 		command.Kind = session.CommandClose
+	case MsgTransferOwnership:
+		command.Kind = session.CommandTransferOwnership
+	case MsgRestartGame:
+		command.Kind = session.CommandRestartGame
+	case MsgUndoGame, MsgRedoGame:
+		command.Kind = session.CommandUndoGame
+		if msg.Type == MsgRedoGame {
+			command.Kind = session.CommandRedoGame
+		}
+		command.Payload = historyCommand{redo: msg.Type == MsgRedoGame, confirmPhaseChange: msg.ConfirmPhaseChange}
 	case MsgUpdateRoomSettings:
 		command.Kind = session.CommandUpdateSettings
 		command.Payload = gameplay.UpdateRoomSettingsCmd{SenderID: msg.PlayerID, MaxPlayers: msg.MaxPlayers, ScriptID: msg.ScriptID}
 	case MsgSetStoryteller:
 		command.Kind = session.CommandSetStoryteller
 		command.Payload = gameplay.SetStorytellerCmd{SenderID: msg.PlayerID, TargetPlayerID: msg.TargetPlayerID}
+	case MsgSetSeatOrder:
+		command.Kind = session.CommandSetSeatOrder
+		command.Payload = gameplay.SetSeatOrderCmd{SenderID: msg.PlayerID, SeatOrder: msg.SeatOrder}
 	default:
 		gameCommand, err := toGameCommand(msg)
 		if err != nil {
@@ -271,8 +299,21 @@ func toGameCommand(msg ClientMessage) (gameplay.Command, error) {
 	switch msg.Type {
 	case MsgSetStoryteller:
 		return gameplay.SetStorytellerCmd{SenderID: msg.PlayerID, TargetPlayerID: msg.TargetPlayerID}, nil
+	case MsgSetReady:
+		if msg.Ready == nil {
+			return nil, errors.New("ready is required")
+		}
+		return gameplay.SetReadyCmd{SenderID: msg.PlayerID, Ready: *msg.Ready}, nil
+	case MsgConfirmCharacter:
+		return gameplay.ConfirmCharacterCmd{SenderID: msg.PlayerID}, nil
 	case MsgAssignCharacters:
-		return gameplay.AssignCharactersCmd{SenderID: msg.PlayerID, Assignments: msg.Assignments, ShownCharacters: msg.ShownCharacters, FortuneTellerRedHerringID: msg.FortuneTellerRedHerringID}, nil
+		return gameplay.AssignCharactersCmd{
+			SenderID:                  msg.PlayerID,
+			Assignments:               msg.Assignments,
+			ShownCharacters:           msg.ShownCharacters,
+			FortuneTellerRedHerringID: msg.FortuneTellerRedHerringID,
+			DemonBluffCharacterIDs:    msg.DemonBluffCharacterIDs,
+		}, nil
 	case MsgSubmitEvent:
 		if msg.Event == nil {
 			return nil, errors.New("event is required")
@@ -289,8 +330,24 @@ func toGameCommand(msg ClientMessage) (gameplay.Command, error) {
 			return nil, errors.New("decision is required")
 		}
 		return gameplay.CastVoteCmd{SenderID: msg.PlayerID, Decision: *msg.Decision}, nil
+	case MsgAdvanceNominationStage:
+		return gameplay.AdvanceNominationStageCmd{SenderID: msg.PlayerID}, nil
+	case MsgControlNominationTimer:
+		return gameplay.ControlNominationTimerCmd{SenderID: msg.PlayerID, Action: msg.TimerAction}, nil
+	case MsgExpireNominationTimer:
+		return gameplay.ExpireNominationTimerCmd{SenderID: msg.PlayerID, DeadlineUnixMs: msg.DeadlineUnixMs}, nil
+	case MsgRecordVote:
+		if msg.Decision == nil {
+			return nil, errors.New("decision is required")
+		}
+		if msg.TargetPlayerID == "" {
+			return nil, errors.New("targetPlayerId is required")
+		}
+		return gameplay.RecordVoteCmd{SenderID: msg.PlayerID, VoterID: msg.TargetPlayerID, Decision: *msg.Decision}, nil
 	case MsgResolveNomination:
 		return gameplay.ResolveNominationCmd{SenderID: msg.PlayerID}, nil
+	case MsgFinalizeDay:
+		return gameplay.FinalizeDayCmd{SenderID: msg.PlayerID}, nil
 	case MsgExecutePlayer:
 		return gameplay.ExecutePlayerCmd{SenderID: msg.PlayerID, PlayerID: msg.targetPlayerID()}, nil
 	case MsgUseSlayerAbility:
@@ -299,10 +356,22 @@ func toGameCommand(msg ClientMessage) (gameplay.Command, error) {
 		return gameplay.KillPlayerCmd{SenderID: msg.PlayerID, PlayerID: msg.targetPlayerID(), Cause: msg.Cause.DeathCause()}, nil
 	case MsgSubmitNightAction:
 		return gameplay.SubmitNightActionCmd{SenderID: msg.PlayerID, ActionType: msg.ActionType, TargetIDs: msg.TargetIDs, Result: msg.Result}, nil
+	case MsgConfirmNightAction:
+		return gameplay.ConfirmNightActionCmd{SenderID: msg.PlayerID, TargetIDs: msg.TargetIDs, Result: msg.Result}, nil
+	case MsgAcknowledgeNightAction:
+		return gameplay.AcknowledgeNightActionCmd{SenderID: msg.PlayerID}, nil
+	case MsgSkipNightAction:
+		return gameplay.SkipNightActionCmd{SenderID: msg.PlayerID}, nil
+	case MsgPrepareDawn:
+		return gameplay.PrepareDawnCmd{SenderID: msg.PlayerID}, nil
+	case MsgConfirmDawn:
+		return gameplay.ConfirmDawnCmd{SenderID: msg.PlayerID, DeathPlayerIDs: msg.TargetIDs}, nil
 	case MsgResolveNight:
-		return gameplay.ResolveNightCmd{SenderID: msg.PlayerID}, nil
+		return nil, errors.New("prepare and confirm dawn before entering day")
 	case MsgEndGame:
 		return gameplay.EndGameCmd{SenderID: msg.PlayerID, Winner: msg.Winner.Team(), Reason: game.WinReasonStorytellerDecision, Description: msg.Description}, nil
+	case MsgPublishGrimoire:
+		return gameplay.PublishGrimoireCmd{SenderID: msg.PlayerID}, nil
 	}
 	return nil, errors.New("unsupported command")
 }

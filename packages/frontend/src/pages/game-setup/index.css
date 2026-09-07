@@ -1,51 +1,86 @@
-.setupSummary {
+.setupProgress {
+  display: block;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  border: 1px solid #8a7049;
+  border-radius: 8px;
+  background: linear-gradient(110deg,#3b2e2b,#271c2e);
+}
+
+.setupProgressHeading {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--gold);
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+
+.setupProgressHeading .sectionHeading { font-size: 17px; letter-spacing: 0; }
+.setupProgressHeading .tag { font-size: 10px; min-height: 20px; line-height: 20px; letter-spacing: 0; }
+
+.setupNextStep {
+  display: block;
+  margin-top: 8px;
+  color: var(--paper);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 21px;
+  line-height: 1.5;
+}
+
+.setupSummary {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4,minmax(0,1fr));
   gap: 12px;
   margin-top: 18px;
 }
 
 .setupMetric {
-  flex: 1 1 240px;
-  min-width: 220px;
+  box-sizing: border-box;
+  min-width: 0;
   padding: 14px;
-  border: 1px solid #cfd4d2;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--ink);
 }
 
-.setupMetricLabel,
-.setupMetricValue,
-.pickerValue,
-.validationText {
+.setupMetricLabel,.setupMetricValue,.pickerValue,.validationText {
   display: block;
 }
 
 .setupMetricLabel {
-  color: #66706d;
-  font-size: 18px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .setupMetricValue {
-  margin-top: 5px;
-  color: #191d1c;
-  font-size: 24px;
+  margin-top: 7px;
+  color: var(--paper);
+  font-size: 18px;
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pickerField {
-  min-height: 58px;
-  padding: 0 14px;
-  border: 1px solid #aeb7b4;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--ink);
 }
 
 .pickerValue {
   overflow: hidden;
-  color: #252b29;
-  font-size: 20px;
-  line-height: 58px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 46px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .roleDraftRow {
@@ -54,26 +89,143 @@
 }
 
 .roleDraftControl {
-  flex: 1 1 240px;
-  min-width: 220px;
+  flex: 1 1 190px;
+  min-width: 0;
 }
 
 .specialRule {
   margin-top: 12px;
-  padding: 18px;
-  border: 1px solid #cfd4d2;
-  border-radius: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
 }
 
 .validationText {
   margin-top: 14px;
-  color: #8c202a;
-  font-size: 20px;
-  line-height: 29px;
+  color: var(--bad);
+  font-size: 13px;
+  line-height: 1.7;
 }
 
-.validationOkay { color: #0b544e; }
+.validationOkay {
+  color: var(--good);
+}
 
 .privateRole {
   margin-top: 18px;
+}
+
+.readyBadge {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid #655270;
+  border-radius: 20px;
+  color: #bfafc9;
+  font-size: 10px;
+  line-height: 20px;
+}
+
+.readyBadgeReady {
+  border-color: #64836b;
+  background: #293b2e;
+  color: #c5e3cd;
+}
+
+.readinessPanel {
+  border-color: #766541;
+}
+
+.readinessActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.readinessHint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.seatOrderEditor {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ink);
+}
+
+.seatOrderDraftList {
+  margin-top: 14px;
+}
+
+.seatOrderDraftRow {
+  flex-wrap: wrap;
+}
+
+.seatMoveButton {
+  flex: 0 1 auto;
+  min-height: 44px;
+  padding: 9px 12px;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.seatOrderStatus {
+  display: block;
+  margin-top: 12px;
+  color: var(--good);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.seatOrderStatusPending {
+  color: var(--bad);
+}
+
+.seatOrderActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width:700px) {
+  .setupSummary {
+    grid-template-columns: repeat(4,minmax(0,1fr));
+    gap: 6px;
+    margin-top: 14px;
+  }
+  .setupMetric { padding: 8px; }
+  .setupMetricLabel { font-size: 10px; white-space: nowrap; }
+  .setupMetricValue { font-size: 14px; margin-top: 5px; }
+  .seatGrid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+}
+
+@media (max-width:520px) {
+  .setupProgress {
+    padding: 18px;
+  }
+  .seatOrderEditor {
+    padding: 12px;
+  }
+  .seatMoveButton {
+    flex: 1 1 76px;
+  }
+  .seatOrderActions > * {
+    flex: 1 1 130px;
+  }
+  .readinessActions > * {
+    flex: 1 1 100%;
+  }
+  .seatCard {
+    padding: 16px 10px;
+  }
 }

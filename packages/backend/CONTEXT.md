@@ -1,5 +1,9 @@
 # @clocktower/backend — Backend Package Context
 
+## 2026-09-07 手机面杀版本补充
+
+新流程以 [手机面杀验收清单](../../docs/playtest-checklist.md) 为准：支持转房主、结束后同房再开/换说书人、成员准备与身份确认、控辩/逐席投票、夜间审核/已阅、守鸦人延迟天亮、私密日志撤销重做、CT3 恢复审批和七天清理。下方旧版本禁止上述功能的叙述已被用户新需求替代。恢复审批与游戏撤销都必须通过持久化后再发布，撤销不允许回滚成员、凭据或序列号。
+
 ## Purpose
 
 This package contains the Go backend server that manages game sessions, validates game rules, and facilitates real-time communication between players.
@@ -124,9 +128,9 @@ WebSocket contract structs and constants are generated from the same ProtoBuf de
 19. Join, leave, kick, room settings, storyteller assignment, and all game commands share the same per-session serial command sequence
 20. Active Connection takeover is a transport-only atomic operation: it replaces the connection without changing or persisting Authoritative Game Session state
 21. Finishing a game does not close or delete its Authoritative Game Session; members may reconnect and inspect the final state
-22. A room is deleted only by an explicit Close Room command, which atomically removes it from the session registry and persisted snapshot
+22. A room is deleted by an explicit Close Room command or after more than seven days without a successful persisted write; durable CAS deletion precedes registry removal
 23. An empty room is retained; leaving the last member does not implicitly close it
-24. Automatic time-to-live cleanup is outside the current room lifecycle
+24. Startup and hourly inactivity cleanup share the room command lock; legacy records without lastActiveAt receive a persisted seven-day grace period, and failed migrations/deletions retain the room
 25. Only the Room Creator may execute Close Room; Storyteller assignment does not grant close authority
 26. The Room Creator cannot be kicked and retains close authority after leaving or disconnecting
 27. Room Creator ownership cannot be transferred, and administrator recovery is outside the current lifecycle

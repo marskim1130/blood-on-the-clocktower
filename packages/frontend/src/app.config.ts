@@ -8,8 +8,8 @@ export default {
   ],
   window: {
     navigationBarTitleText: '血染钟楼',
-    navigationBarBackgroundColor: '#4b1113',
+    navigationBarBackgroundColor: '#120c1c',
     navigationBarTextStyle: 'white',
-    backgroundColor: '#f7f1e8',
+    backgroundColor: '#120c1c',
   },
 };

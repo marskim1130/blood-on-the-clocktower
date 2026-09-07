@@ -8,11 +8,15 @@
 
 - **实时房间 [Real-time Rooms]**：创建 / 加入 / 离开 / 踢人 / 关闭房间，基于 WebSocket 的实时状态广播
 - **人类 Storyteller 模式**：Storyteller 分配角色、控制昼夜阶段、记录夜间行动、判定胜负
-- **Trouble Brewing 角色规则**：内置村民 / 外来者 / 爪牙 / 恶魔的规则校验与夜间行动处理（占卜师、女巫、间谍、恶魔等）
+- **Trouble Brewing 角色规则**：内置镇民 / 外来者 / 爪牙 / 恶魔的规则校验与夜间行动处理；特殊裁定仍由真人说书人负责。
 - **端到端类型同步 [End-to-end Type Safety]**：`proto/game.proto` 作为单一事实源，生成 TypeScript 与 Go 双向契约，编译期验证类型兼容
 - **断线恢复 [Session Resume]**：凭据签名 [Resume Credential] + 幂等命令序列，断线重连不丢进度
 - **多级持久化 [Persistence]**：Redis / 文件 / 内存三种存储适配器，服务器重启可恢复房间
-- **多端前端 [Multi-platform Frontend]**：Taro 4.x 构建微信小程序与 React Native 应用
+- **手机前端**：本轮验收目标是 H5 与微信小程序；包含大厅、准备、对局、结算和剧本查询。React Native 尚未纳入本轮验收。
+- **面杀流程**：准备/确认身份、私密夜间信息、控辩与逐席投票、黎明确认、说书人揭幕、同房再开。
+- **恢复与纠错**：独立 CT3 恢复码经说书人/房主审批后轮换凭据；说书人私密操作日志、有限撤销/重做与跨阶段确认；七天不活跃房间清理。
+
+当前验收范围与未完成项见 [手机面杀验收清单](docs/playtest-checklist.md)，公网部署见 [部署说明](docs/deployment.md)。
 
 ## 技术栈 [Tech Stack]
 

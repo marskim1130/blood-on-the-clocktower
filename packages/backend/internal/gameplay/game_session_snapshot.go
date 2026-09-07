@@ -9,26 +9,34 @@ import (
 const defaultMaxPlayers = 10
 
 type gameSessionSnapshot struct {
-	Players                   []game.Player        `json:"players"`
-	StorytellerID             string               `json:"storytellerId"`
-	StorytellerName           string               `json:"storytellerName"`
-	OriginalPlayers           int                  `json:"originalPlayers"`
-	ScriptID                  string               `json:"scriptId"`
-	Phase                     game.GamePhase       `json:"phase"`
-	DayNumber                 int32                `json:"dayNumber"`
-	NightNumber               int32                `json:"nightNumber"`
-	NightWakeIndex            int                  `json:"nightWakeIndex"`
-	Nomination                *game.Nomination     `json:"nomination,omitempty"`
-	NightActions              []game.NightAction   `json:"nightActions,omitempty"`
-	Deaths                    []game.DeathRecord   `json:"deaths,omitempty"`
-	GhostVotesUsed            map[string]bool      `json:"ghostVotesUsed,omitempty"`
-	SlayerUsed                map[string]bool      `json:"slayerUsed,omitempty"`
-	NominatorsToday           map[string]bool      `json:"nominatorsToday,omitempty"`
-	NomineesToday             map[string]bool      `json:"nomineesToday,omitempty"`
-	VirginAbilityUsed         map[string]bool      `json:"virginAbilityUsed,omitempty"`
-	ButlerMasters             map[string]string    `json:"butlerMasters,omitempty"`
-	FortuneTellerRedHerringID string               `json:"fortuneTellerRedHerringId,omitempty"`
-	Winner                    *game.GameEndedEvent `json:"winner,omitempty"`
+	Players                   []game.Player           `json:"players"`
+	StorytellerID             string                  `json:"storytellerId"`
+	StorytellerName           string                  `json:"storytellerName"`
+	OriginalPlayers           int                     `json:"originalPlayers"`
+	ScriptID                  string                  `json:"scriptId"`
+	Phase                     game.GamePhase          `json:"phase"`
+	DayNumber                 int32                   `json:"dayNumber"`
+	NightNumber               int32                   `json:"nightNumber"`
+	NightWakeIndex            int                     `json:"nightWakeIndex"`
+	Nomination                *game.Nomination        `json:"nomination,omitempty"`
+	NominationResults         []game.NominationResult `json:"nominationResults,omitempty"`
+	NightActions              []game.NightAction      `json:"nightActions,omitempty"`
+	PendingNightAction        *game.NightAction       `json:"pendingNightAction,omitempty"`
+	ConfirmedNightAction      *game.NightAction       `json:"confirmedNightAction,omitempty"`
+	NightAcknowledged         map[string]bool         `json:"nightAcknowledged,omitempty"`
+	DawnReviewPending         bool                    `json:"dawnReviewPending,omitempty"`
+	PendingDawnDeathIDs       []string                `json:"pendingDawnDeathIds,omitempty"`
+	Deaths                    []game.DeathRecord      `json:"deaths,omitempty"`
+	GhostVotesUsed            map[string]bool         `json:"ghostVotesUsed,omitempty"`
+	SlayerUsed                map[string]bool         `json:"slayerUsed,omitempty"`
+	NominatorsToday           map[string]bool         `json:"nominatorsToday,omitempty"`
+	NomineesToday             map[string]bool         `json:"nomineesToday,omitempty"`
+	VirginAbilityUsed         map[string]bool         `json:"virginAbilityUsed,omitempty"`
+	ButlerMasters             map[string]string       `json:"butlerMasters,omitempty"`
+	FortuneTellerRedHerringID string                  `json:"fortuneTellerRedHerringId,omitempty"`
+	DemonBluffCharacterIDs    []string                `json:"demonBluffCharacterIds,omitempty"`
+	GrimoireRevealed          bool                    `json:"grimoireRevealed,omitempty"`
+	Winner                    *game.GameEndedEvent    `json:"winner,omitempty"`
 }
 
 func (gs *GameSession) Clone() *GameSession {
@@ -62,7 +70,13 @@ func (gs *GameSession) snapshot() gameSessionSnapshot {
 		NightNumber:               gs.nightNumber,
 		NightWakeIndex:            gs.nightWakeIndex,
 		Nomination:                cloneNomination(gs.nomination),
+		NominationResults:         cloneNominationResults(gs.nominationResults),
 		NightActions:              cloneNightActions(gs.nightActions),
+		PendingNightAction:        cloneNightAction(gs.pendingNightAction),
+		ConfirmedNightAction:      cloneNightAction(gs.confirmedNightAction),
+		NightAcknowledged:         cloneBoolMap(gs.nightAcknowledged),
+		DawnReviewPending:         gs.dawnReviewPending,
+		PendingDawnDeathIDs:       append([]string(nil), gs.pendingDawnDeathIDs...),
 		Deaths:                    cloneDeaths(gs.deaths),
 		GhostVotesUsed:            cloneBoolMap(gs.ghostVotesUsed),
 		SlayerUsed:                cloneBoolMap(gs.slayerUsed),
@@ -71,6 +85,8 @@ func (gs *GameSession) snapshot() gameSessionSnapshot {
 		VirginAbilityUsed:         cloneBoolMap(gs.virginAbilityUsed),
 		ButlerMasters:             cloneStringMap(gs.butlerMasters),
 		FortuneTellerRedHerringID: gs.fortuneTellerRedHerringID,
+		DemonBluffCharacterIDs:    append([]string(nil), gs.demonBluffCharacterIDs...),
+		GrimoireRevealed:          gs.grimoireRevealed,
 		Winner:                    cloneWinner(gs.winner),
 	}
 }
@@ -91,7 +107,13 @@ func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
 		nightNumber:               snapshot.NightNumber,
 		nightWakeIndex:            snapshot.NightWakeIndex,
 		nomination:                cloneNomination(snapshot.Nomination),
+		nominationResults:         cloneNominationResults(snapshot.NominationResults),
 		nightActions:              cloneNightActions(snapshot.NightActions),
+		pendingNightAction:        cloneNightAction(snapshot.PendingNightAction),
+		confirmedNightAction:      cloneNightAction(snapshot.ConfirmedNightAction),
+		nightAcknowledged:         cloneBoolMap(snapshot.NightAcknowledged),
+		dawnReviewPending:         snapshot.DawnReviewPending,
+		pendingDawnDeathIDs:       append([]string(nil), snapshot.PendingDawnDeathIDs...),
 		deaths:                    cloneDeaths(snapshot.Deaths),
 		ghostVotesUsed:            nonNilBoolMap(snapshot.GhostVotesUsed),
 		slayerUsed:                nonNilBoolMap(snapshot.SlayerUsed),
@@ -100,6 +122,8 @@ func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
 		virginAbilityUsed:         nonNilBoolMap(snapshot.VirginAbilityUsed),
 		butlerMasters:             nonNilStringMap(snapshot.ButlerMasters),
 		fortuneTellerRedHerringID: snapshot.FortuneTellerRedHerringID,
+		demonBluffCharacterIDs:    append([]string(nil), snapshot.DemonBluffCharacterIDs...),
+		grimoireRevealed:          snapshot.GrimoireRevealed,
 		winner:                    cloneWinner(snapshot.Winner),
 	}
 }
@@ -147,7 +171,17 @@ func cloneNomination(nomination *game.Nomination) *game.Nomination {
 			result.Votes[playerID] = decision
 		}
 	}
+	result.VoterOrder = append([]string(nil), nomination.VoterOrder...)
 	return &result
+}
+
+func cloneNominationResults(results []game.NominationResult) []game.NominationResult {
+	cloned := make([]game.NominationResult, len(results))
+	for index, result := range results {
+		cloned[index] = result
+		cloned[index].Votes = cloneBoolMap(result.Votes)
+	}
+	return cloned
 }
 
 func cloneNightActions(actions []game.NightAction) []game.NightAction {
@@ -157,6 +191,15 @@ func cloneNightActions(actions []game.NightAction) []game.NightAction {
 		result[i].TargetIDs = append([]string{}, action.TargetIDs...)
 	}
 	return result
+}
+
+func cloneNightAction(action *game.NightAction) *game.NightAction {
+	if action == nil {
+		return nil
+	}
+	result := *action
+	result.TargetIDs = append([]string(nil), action.TargetIDs...)
+	return &result
 }
 
 func cloneDeaths(deaths []game.DeathRecord) []game.DeathRecord {

@@ -2,6 +2,7 @@ import { Button, Input, Text, View } from '@tarojs/components';
 import Taro, { useRouter, useShareAppMessage } from '@tarojs/taro';
 import { useEffect, useState } from 'react';
 import { SessionShell } from '../../components/session-shell';
+import { RoomRecoveryPanel } from '../../components/room-recovery-panel';
 import {
   isDevelopmentBuild,
   useRoomSession,
@@ -31,7 +32,8 @@ export default function LobbyPage() {
   const resumeLastRoom = useRoomSession((state) => state.resumeLastRoom);
   const rejoinRoom = useRoomSession((state) => state.rejoinRoom);
   const forgetRoomIdentity = useRoomSession((state) => state.forgetRoomIdentity);
-  const [roomId, setRoomId] = useState('');
+  const [roomId, setRoomId] = useState(router.params.roomId?.trim() ?? '');
+  const [entryMode, setEntryMode] = useState<'create' | 'join'>(router.params.roomId?.trim() ? 'join' : 'create');
   const [endpointDraft, setEndpointDraft] = useState(endpoint);
   const [developerToolsOpen, setDeveloperToolsOpen] = useState(false);
 
@@ -41,6 +43,7 @@ export default function LobbyPage() {
     const invitedRoomId = router.params.roomId?.trim() ?? '';
     if (!invitedRoomId) return;
     setRoomId(invitedRoomId);
+    setEntryMode('join');
     setInviteRoomId(invitedRoomId);
   }, [router.params.roomId, setInviteRoomId]);
 
@@ -87,7 +90,24 @@ export default function LobbyPage() {
       eyebrow='大厅'
       title='创建或加入一局'
       description='邀请制房间，不公开展示正在进行的游戏。'
+      hero={<View className='lobbyHero'>
+        <View className='lobbyHeroCopy'><Text className='lobbyHeroEyebrow'>BLOOD ON THE CLOCKTOWER</Text><Text className='lobbyHeroTitle'>夜幕降临，请入座</Text><Text className='lobbyHeroDescription'>和朋友围坐一桌，在谎言与线索中寻找真相。手机传递秘密，故事发生在你们之间。</Text></View>
+        <View className='clocktowerSilhouette'><View className='towerSpire' /><View className='towerBody'><View className='towerClock' /><View className='towerWindow' /><View className='towerWindow' /></View></View>
+      </View>}
+      utilityContent={isDevelopmentBuild ? <View className='sectionBand developerBand'>
+        <Button className='quietButton utilityButton' onClick={() => setDeveloperToolsOpen((open) => !open)}><Text className='buttonLabelDark'>{developerToolsOpen ? '收起开发工具' : '开发工具'}</Text></Button>
+        {developerToolsOpen && <View className='developerTools'>
+          <Text className='sectionDescription'>仅开发构建显示。</Text>
+          <Input className='textInput' value={endpointDraft} placeholder='ws://localhost:8080/ws' onInput={(event: InputEvent) => setEndpointDraft(eventValue(event))} />
+          <View className='commandRow'>
+            <Button className='quietButton' onClick={() => setEndpoint(endpointDraft.trim())}><Text className='buttonLabelDark'>应用地址</Text></Button>
+            {identity && <Button className='dangerButton' disabled={busy} onClick={confirmForgetIdentity}>强制清理本地身份</Button>}
+          </View>
+        </View>}
+      </View> : undefined}
     >
+      <View className='rootLobbyLayout'>
+      <View className='workspaceMain'>
       {identity && (
         <View className='sectionBand identityBand'>
           <Text className='sectionHeading'>可恢复的房间</Text>
@@ -122,11 +142,12 @@ export default function LobbyPage() {
       )}
 
       {!identity && (
-        <View className='lobbyColumns'>
-          <View className='sectionBand lobbyColumn'>
-            <Text className='sectionHeading'>创建房间</Text>
-            <Text className='sectionDescription'>实际玩家 5-15 人，说书人不计入人数。</Text>
-            <View className='fieldGroup'>
+        <View className='sectionBand lobbyEntryCard'>
+          <View className='lobbyModeTabs'>
+            <Button className={`lobbyModeTab ${entryMode === 'create' ? 'lobbyModeTabActive' : ''}`} onClick={() => setEntryMode('create')}>创建房间</Button>
+            <Button className={`lobbyModeTab ${entryMode === 'join' ? 'lobbyModeTabActive' : ''}`} onClick={() => setEntryMode('join')}>加入房间</Button>
+          </View>
+            <View className='fieldGroup lobbyProfile'>
               <Text className='fieldLabel'>你的昵称</Text>
               <Input
                 className='textInput'
@@ -136,6 +157,8 @@ export default function LobbyPage() {
                 onInput={(event: InputEvent) => setPlayerName(eventValue(event))}
               />
             </View>
+          {entryMode === 'create' && <View className='lobbyEntryForm'>
+            <Text className='sectionDescription'>准备好一张桌子，邀请朋友一起入座。</Text>
             <View className='fieldGroup'>
               <Text className='fieldLabel'>实际玩家上限</Text>
               <View className='stepper'>
@@ -151,21 +174,10 @@ export default function LobbyPage() {
             >
               创建房间
             </Button>
-          </View>
+          </View>}
 
-          <View className='sectionBand lobbyColumn'>
-            <Text className='sectionHeading'>加入房间</Text>
+          {entryMode === 'join' && <View className='lobbyEntryForm'>
             <Text className='sectionDescription'>邀请会自动填入房间号，但不会替你加入。</Text>
-            <View className='fieldGroup'>
-              <Text className='fieldLabel'>你的昵称</Text>
-              <Input
-                className='textInput'
-                maxlength={24}
-                value={playerName}
-                placeholder='输入桌上使用的昵称'
-                onInput={(event: InputEvent) => setPlayerName(eventValue(event))}
-              />
-            </View>
             <View className='fieldGroup'>
               <Text className='fieldLabel'>房间号</Text>
               <Input
@@ -177,21 +189,26 @@ export default function LobbyPage() {
               />
             </View>
             <Button
-              className='secondaryButton fullWidthButton'
+              className='commandButton fullWidthButton'
               disabled={busy || status !== 'connected' || !playerName.trim() || !roomId.trim()}
               onClick={() => joinRoom(roomId)}
             >
               加入房间
             </Button>
-          </View>
+          </View>}
         </View>
       )}
 
-      <View className='sectionBand utilityBand'>
-        <Text className='sectionHeading'>剧本</Text>
-        <Text className='sectionDescription'>当前可用剧本：暗流涌动。</Text>
+      <RoomRecoveryPanel />
+      </View>
+      <View className='workspaceAside'>
+      <View className='sectionBand lobbyGameCard'>
+        <Text className='lobbyGameEyebrow'>今夜的故事</Text>
+        <Text className='lobbyGameTitle'>暗流涌动</Text>
+        <Text className='lobbyGameDescription'>小镇看似平静，邪恶已悄然入席。一个适合初次踏入钟楼的经典剧本。</Text>
+        <Text className='lobbyGameMeta'>5—15 玩家 · 1 位说书人</Text>
         <Button className='quietButton utilityButton' onClick={openScripts}>
-          <Text className='buttonLabelDark'>查看角色与唤醒顺序</Text>
+          <Text className='buttonLabelDark'>打开角色图鉴 →</Text>
         </Button>
       </View>
 
@@ -201,31 +218,8 @@ export default function LobbyPage() {
           <Button className='secondaryButton utilityButton' disabled={status === 'connecting'} onClick={connect}>重新连接</Button>
         </View>
       )}
-
-      {isDevelopmentBuild && (
-        <View className='sectionBand developerBand'>
-          <Button className='quietButton utilityButton' onClick={() => setDeveloperToolsOpen((open) => !open)}>
-            <Text className='buttonLabelDark'>{developerToolsOpen ? '收起开发工具' : '开发工具'}</Text>
-          </Button>
-          {developerToolsOpen && (
-            <View className='developerTools'>
-              <Text className='sectionDescription'>仅开发构建显示。</Text>
-              <Input
-                className='textInput'
-                value={endpointDraft}
-                placeholder='ws://localhost:8080/ws'
-                onInput={(event: InputEvent) => setEndpointDraft(eventValue(event))}
-              />
-              <View className='commandRow'>
-                <Button className='quietButton' onClick={() => setEndpoint(endpointDraft.trim())}>
-                  <Text className='buttonLabelDark'>应用地址</Text>
-                </Button>
-                {identity && <Button className='dangerButton' disabled={busy} onClick={confirmForgetIdentity}>强制清理本地身份</Button>}
-              </View>
-            </View>
-          )}
-        </View>
-      )}
+      </View>
+      </View>
     </SessionShell>
   );
 }

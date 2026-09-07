@@ -52,7 +52,11 @@ export function nightResultDisplay(result: string): string {
     none: '无',
   };
   let display = exactLabels[result] ?? result;
-  display = display.replace(/^Demon:\s*/, '恶魔：').replace(/^Minions:\s*/, '爪牙：');
+  display = display
+    .replace(/^Demon:\s*/, '恶魔：')
+    .replace(/^Minions:\s*/, '爪牙：')
+    .replace(/\|\s*Minions:\s*/, '｜爪牙：')
+    .replace(/\|\s*Bluffs:\s*/, '｜伪装身份：');
   for (const [english, chinese] of ENGLISH_CHARACTER_NAMES) {
     display = display.replace(new RegExp(`\\b${english}\\b`, 'g'), chinese);
   }

@@ -1,0 +1,17 @@
+{$CLOCKTOWER_DOMAIN} {
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+    }
+    @backend path /ws /health
+    handle @backend {
+        reverse_proxy backend:8080
+    }
+    handle {
+        root * /srv
+        try_files {path} /index.html
+        header Cache-Control "no-cache"
+        file_server
+    }
+}

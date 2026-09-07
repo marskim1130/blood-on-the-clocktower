@@ -1,5 +1,9 @@
 # @clocktower/core — Core Package Context
 
+## 2026-09-07 手机面杀版本补充
+
+当前需求与验收以 [手机面杀验收清单](../../docs/playtest-checklist.md) 为准：共享客户端已支持准备/身份确认、逐席投票、夜间审核已阅、黎明锁定、揭幕/再开、日志撤销重做和 CT3 恢复审批。恢复码与直接重连凭据必须分离，批准前不可保存身份或接受投影。下面旧版本叙述若与这些已确认流程冲突，应按新流程处理；不要重新引入客户端权威状态。
+
 ## Purpose
 
 This package contains shared pure rule modules, Trouble Brewing setup data, the protocol v2 WebSocket client, and generated TypeScript protocol types. The backend remains authoritative for committed room and game state.

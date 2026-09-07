@@ -30,7 +30,7 @@ func TestUndertakerAutoComputesNoneWhenNoExecutionToday(t *testing.T) {
 	gs := newStartedUndertakerGame(t)
 	completeUndertakerFirstNight(t, gs)
 
-	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+	if _, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("ChangePhase failed: %v", err)
 	}
 	skipUndertakerGameToCharacter(t, gs, "undertaker")
@@ -114,6 +114,7 @@ func newStartedUndertakerGame(t *testing.T) *GameSession {
 	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
+	markAllPlayersReady(gs)
 	if _, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -126,6 +127,7 @@ func newStartedUndertakerGame(t *testing.T) *GameSession {
 	}); err != nil {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}
@@ -158,7 +160,7 @@ func executeChefAndEnterNight(t *testing.T, gs *GameSession) {
 	if _, err := gs.Apply(ExecutePlayerCmd{SenderID: "storyteller", PlayerID: "p3"}); err != nil {
 		t.Fatalf("ExecutePlayer failed: %v", err)
 	}
-	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+	if _, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("ChangePhase failed: %v", err)
 	}
 }

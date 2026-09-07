@@ -7,6 +7,20 @@ import (
 	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
 )
 
+func (gs *GameSession) applyPublishGrimoire(cmd PublishGrimoireCmd) (ApplyResult, error) {
+	if cmd.SenderID != gs.storytellerID {
+		return ApplyResult{}, fmt.Errorf("only the storyteller can publish the grimoire")
+	}
+	if gs.phase != game.GamePhaseFinished || gs.winner == nil {
+		return ApplyResult{}, fmt.Errorf("the grimoire can only be published after the game ends")
+	}
+	if gs.grimoireRevealed {
+		return ApplyResult{}, nil
+	}
+	gs.grimoireRevealed = true
+	return ApplyResult{Updated: true}, nil
+}
+
 // ────────────────────────────────────────────────
 // EndGameCmd
 // ────────────────────────────────────────────────

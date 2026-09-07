@@ -38,6 +38,7 @@ const (
 	NightActionLearnDied          NightActionType = "learn_died"
 	NightActionLearnMaster        NightActionType = "learn_master"
 	NightActionLearnDemon         NightActionType = "learn_demon"
+	NightActionShowGrimoire       NightActionType = "show_grimoire"
 	NightActionChoosePlayer       NightActionType = "choose_player"
 	NightActionNone               NightActionType = "none"
 )
@@ -73,13 +74,15 @@ type Character struct {
 
 // Player represents a player in the game
 type Player struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	Character      *Character `json:"character,omitempty"`
-	ShownCharacter *Character `json:"shownCharacter,omitempty"`
-	IsAlive        bool       `json:"isAlive"`
-	Votes          int32      `json:"votes"`
-	PoisonedUntil  *int32     `json:"poisonedUntil,omitempty"`
+	ID                    string     `json:"id"`
+	Name                  string     `json:"name"`
+	Character             *Character `json:"character,omitempty"`
+	ShownCharacter        *Character `json:"shownCharacter,omitempty"`
+	IsAlive               bool       `json:"isAlive"`
+	Votes                 int32      `json:"votes"`
+	PoisonedUntil         *int32     `json:"poisonedUntil,omitempty"`
+	IsReady               bool       `json:"isReady"`
+	HasConfirmedCharacter bool       `json:"hasConfirmedCharacter"`
 }
 
 // DeathRecord represents a record of a player's death
@@ -92,10 +95,35 @@ type DeathRecord struct {
 
 // Nomination represents an active nomination for execution
 type Nomination struct {
-	NominatorID string          `json:"nominatorId"`
-	NomineeID   string          `json:"nomineeId"`
-	Votes       map[string]bool `json:"votes"` // voterID -> decision (true=yes, false=no)
-	Resolved    bool            `json:"resolved"`
+	NominatorID       string          `json:"nominatorId"`
+	NomineeID         string          `json:"nomineeId"`
+	Votes             map[string]bool `json:"votes"` // voterID -> decision (true=yes, false=no)
+	Resolved          bool            `json:"resolved"`
+	VoterOrder        []string        `json:"voterOrder"`
+	CurrentVoterIndex int             `json:"currentVoterIndex"`
+	Stage             NominationStage `json:"stage"`
+	DeadlineUnixMs    int64           `json:"deadlineUnixMs"`
+	Paused            bool            `json:"paused"`
+	RemainingMs       int64           `json:"remainingMs"`
+}
+
+type NominationStage string
+
+const (
+	NominationStageAccusation NominationStage = "accusation"
+	NominationStageDefense    NominationStage = "defense"
+	NominationStageVoting     NominationStage = "voting"
+)
+
+// NominationResult is the immutable public record of one resolved nomination.
+type NominationResult struct {
+	DayNumber     int32           `json:"dayNumber"`
+	NominatorID   string          `json:"nominatorId"`
+	NomineeID     string          `json:"nomineeId"`
+	Votes         map[string]bool `json:"votes"`
+	YesVotes      int             `json:"yesVotes"`
+	NoVotes       int             `json:"noVotes"`
+	RequiredVotes int             `json:"requiredVotes"`
 }
 
 // NightAction represents a night action submitted by a player

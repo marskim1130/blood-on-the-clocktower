@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/marskim1130/blood-on-the-clocktower/internal/sessionstore"
 )
@@ -106,6 +108,7 @@ func (s *AuthoritativeGameSession) JoinObserved(ctx context.Context, input JoinI
 		return JoinResult{}, err
 	}
 	candidate.Game = gameData
+	candidate.LastActiveAt = time.Now().UTC()
 	data, err := json.Marshal(candidate)
 	if err != nil {
 		return JoinResult{}, err
@@ -196,6 +199,9 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 				}
 			}
 			identityRevoked = true
+			if history, ok := engine.(interface{ ClearGameHistory() }); ok {
+				history.ClearGameHistory()
+			}
 			result.ConnectionEffects = []ConnectionEffect{CloseSender}
 			break
 		}
@@ -237,6 +243,55 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 		}
 		if _, err := engine.Execute(actor.PlayerID, command.Payload); err != nil {
 			return CommandResult{}, invalidCommand(err)
+		}
+	case CommandSetSeatOrder:
+		if actor.PlayerID != candidate.CreatorID || retained || candidate.ParticipantSetFrozen {
+			return CommandResult{}, ErrForbidden
+		}
+		if _, err := engine.Execute(actor.PlayerID, command.Payload); err != nil {
+			return CommandResult{}, invalidCommand(err)
+		}
+	case CommandUndoGame, CommandRedoGame:
+		if retained {
+			return CommandResult{}, ErrForbidden
+		}
+		if _, err := engine.Execute(actor.PlayerID, command.Payload); err != nil {
+			return CommandResult{}, invalidCommand(err)
+		}
+		if state, ok := engine.(interface{ ParticipantLockState() bool }); ok {
+			candidate.ParticipantSetFrozen = state.ParticipantLockState()
+		}
+	case CommandRestartGame:
+		if actor.PlayerID != candidate.CreatorID || retained {
+			return CommandResult{}, ErrForbidden
+		}
+		restarter, ok := engine.(RestartableEngine)
+		if !ok || !engine.Finished() {
+			return CommandResult{}, ErrInvalidCommand
+		}
+		memberIDs := make([]string, 0, len(candidate.Members))
+		for id := range candidate.Members {
+			memberIDs = append(memberIDs, id)
+		}
+		sort.Strings(memberIDs)
+		if err := restarter.Restart(memberIDs); err != nil {
+			return CommandResult{}, invalidCommand(err)
+		}
+		candidate.ParticipantSetFrozen = false
+	case CommandTransferOwnership:
+		if actor.PlayerID != candidate.CreatorID || retained {
+			return CommandResult{}, ErrForbidden
+		}
+		if _, ok := candidate.Members[command.TargetID]; !ok {
+			return CommandResult{}, ErrInvalidCommand
+		}
+		candidate.CreatorID = command.TargetID
+	case CommandReviewRecovery:
+		if retained {
+			return CommandResult{}, ErrForbidden
+		}
+		if err := s.applyRecoveryReview(&candidate, engine, actor, command); err != nil {
+			return CommandResult{}, err
 		}
 	case CommandClose:
 		if actor.PlayerID != candidate.CreatorID {
@@ -288,6 +343,7 @@ func (s *AuthoritativeGameSession) ExecuteObserved(ctx context.Context, actor Ac
 		return CommandResult{}, err
 	}
 	candidate.Game = gameData
+	candidate.LastActiveAt = time.Now().UTC()
 	data, err := json.Marshal(candidate)
 	if err != nil {
 		return CommandResult{}, err

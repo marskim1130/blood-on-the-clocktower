@@ -27,24 +27,19 @@ func TestRavenkeeperAutoComputesChosenPlayerCharacterWhenKilledTonight(t *testin
 	}
 }
 
-func TestRavenkeeperAutoComputesNoneWhenNotKilledTonight(t *testing.T) {
+func TestRavenkeeperIsNotWokenWhenNotKilledTonight(t *testing.T) {
 	gs := newStartedRavenkeeperGame(t)
 	enterRavenkeeperSecondNight(t, gs)
 	submitRavenkeeperNightPrefix(t, gs, "p2", "p4")
 	submitRavenkeeperImpKill(t, gs, "p2")
 
-	result, err := gs.Apply(SubmitNightActionCmd{
+	_, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
 		ActionType: string(game.NightActionLearnDied),
 		TargetIDs:  []string{"p5"},
 	})
-	if err != nil {
-		t.Fatalf("SubmitNightAction failed: %v", err)
-	}
-
-	event := result.Events[0].NightActionSubmitted
-	if event.Result == nil || *event.Result != "none" {
-		t.Fatalf("expected Ravenkeeper result 'none', got %v", event.Result)
+	if err == nil {
+		t.Fatal("surviving Ravenkeeper must not receive a night action")
 	}
 }
 
@@ -54,18 +49,13 @@ func TestProtectedRavenkeeperDoesNotAutoRevealCharacter(t *testing.T) {
 	submitRavenkeeperNightPrefix(t, gs, "p3", "p1")
 	submitRavenkeeperImpKill(t, gs, "p1")
 
-	result, err := gs.Apply(SubmitNightActionCmd{
+	_, err := gs.Apply(SubmitNightActionCmd{
 		SenderID:   "storyteller",
 		ActionType: string(game.NightActionLearnDied),
 		TargetIDs:  []string{"p5"},
 	})
-	if err != nil {
-		t.Fatalf("SubmitNightAction failed: %v", err)
-	}
-
-	event := result.Events[0].NightActionSubmitted
-	if event.Result == nil || *event.Result != "none" {
-		t.Fatalf("expected protected Ravenkeeper result 'none', got %v", event.Result)
+	if err == nil {
+		t.Fatal("protected Ravenkeeper must not receive a night action")
 	}
 }
 
@@ -149,6 +139,7 @@ func newStartedRavenkeeperGame(t *testing.T) *GameSession {
 	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
+	markAllPlayersReady(gs)
 	if _, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -161,6 +152,7 @@ func newStartedRavenkeeperGame(t *testing.T) *GameSession {
 	}); err != nil {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}
@@ -184,7 +176,7 @@ func enterRavenkeeperSecondNight(t *testing.T, gs *GameSession) {
 	if _, err := gs.Apply(ResolveNightCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("ResolveNight failed: %v", err)
 	}
-	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+	if _, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("ChangePhase failed: %v", err)
 	}
 }
@@ -218,5 +210,12 @@ func submitRavenkeeperImpKill(t *testing.T, gs *GameSession, targetID string) {
 		ActionType: string(game.NightActionLearnEvilNeighbors),
 	}); err != nil {
 		t.Fatalf("SubmitNightAction failed: %v", err)
+	}
+	if _, err := gs.Apply(PrepareDawnCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatal(err)
+	}
+	deaths := gs.ProjectionFor("storyteller").PendingDawnDeathIDs
+	if _, err := gs.Apply(ConfirmDawnCmd{SenderID: "storyteller", DeathPlayerIDs: deaths}); err != nil {
+		t.Fatal(err)
 	}
 }

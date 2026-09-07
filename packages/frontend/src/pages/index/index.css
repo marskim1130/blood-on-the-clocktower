@@ -1,26 +1,248 @@
-.lobbyColumns {
+.lobbyHero {
+  position: relative;
+  overflow: hidden;
   display: flex;
-  flex-wrap: wrap;
-  gap: 34px;
+  align-items: center;
+  width: calc(100% - 56px);
+  max-width: 1104px;
+  min-height: 220px;
+  margin: 24px auto 0;
+  padding: 36px;
+  border: 1px solid #655039;
+  border-radius: 10px;
+  background: radial-gradient(ellipse at 75% 10%,#4a2949,#201426 65%);
+  box-sizing: border-box;
 }
 
-.lobbyColumn {
-  flex: 1 1 360px;
+.lobbyHeroCopy {
   min-width: 0;
 }
 
+.lobbyHeroEyebrow,.lobbyGameEyebrow {
+  display: block;
+  color: var(--gold);
+  font-size: 10px;
+  letter-spacing: 3px;
+}
+
+.lobbyHeroTitle {
+  display: block;
+  margin-top: 14px;
+  color: var(--paper);
+  font-family: 'Songti SC','Noto Serif SC',SimSun,serif;
+  font-size: 34px;
+  line-height: 1.4;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.lobbyHeroDescription {
+  display: block;
+  max-width: 530px;
+  margin-top: 14px;
+  color: #c7b4cd;
+  font-size: 14px;
+  line-height: 1.9;
+}
+
+.rootLobbyLayout {
+  display: grid;
+  grid-template-columns: minmax(0,1.5fr) minmax(280px,1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.rootLobbyLayout > * {
+  min-width: 0;
+}
+
+.lobbyEntryForm {
+  min-width: 0;
+}
+
+.lobbyGameTitle {
+  display: block;
+  margin-top: 14px;
+  color: var(--paper);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 25px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.lobbyGameDescription {
+  display: block;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.lobbyGameMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 20px;
+  color: var(--gold);
+  font-size: 11px;
+}
+
+.towerSpire,.towerBody,.towerClock,.towerWindow {
+  display: none;
+}
+
+@media (max-width:800px) {
+  .rootLobbyLayout {
+    grid-template-columns: 1fr;
+  }
+  .lobbyGameCard {
+    margin-top: 0;
+  }
+}
+
+@media (max-width:520px) {
+  .lobbyHero {
+    width: calc(100% - 28px);
+    margin-top: 18px;
+  }
+  .lobbyHeroTitle {
+    font-size: 28px;
+  }
+  .lobbyHeroDescription {
+    font-size: 12px;
+  }
+}
+
+.lobbyHero > :not(.clocktowerSilhouette) {
+  position: relative;
+  z-index: 2;
+  max-width: 70%;
+}
+
+.clocktowerSilhouette {
+  position: absolute;
+  right: 35px;
+  bottom: -2px;
+  width: 90px;
+  height: 160px;
+  border: 1px solid #715738;
+  background: linear-gradient(90deg,#160e20,#2d1d32,#160e20);
+  clip-path: polygon(50% 0,70% 23%,70% 30%,80% 30%,80% 36%,73% 36%,73% 100%,27% 100%,27% 36%,20% 36%,20% 30%,30% 30%,30% 23%);
+  opacity: .8;
+}
+
+.clocktowerSilhouette::after {
+  content: '';
+  position: absolute;
+  top: 66px;
+  left: 35px;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--gold);
+  border-radius: 50%;
+  background: #b99b6126;
+}
+
+.lobbyColumns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  align-items: stretch;
+}
+
+.lobbyColumn {
+  flex: 1 1 310px;
+  min-width: 0;
+}
+
+.lobbyEntryCard {
+  --ink: #e2d2b2;
+  --surface: #eee1c5;
+  --surface-raised: #e3d3b5;
+  --text: #342437;
+  --muted: #725e6a;
+  --line: #bcaa88;
+  padding: 28px;
+  border: 1px solid #c5b085;
+  border-radius: 10px;
+  background: linear-gradient(125deg,#f1e6d0,#e6d7b8);
+  color: var(--text);
+  box-sizing: border-box;
+  box-shadow: 0 12px 36px #00000030;
+}
+
+.lobbyModeTabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  padding: 4px;
+  border: 1px solid #c5b18d;
+  border-radius: 6px;
+  background: #d9c7a6;
+}
+
+.lobbyModeTab {
+  flex: 1;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #705664;
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.lobbyModeTabActive {
+  background: #7a2539;
+  color: #fff0de;
+  box-shadow: 0 2px 6px #35152033;
+}
+
+.lobbyModeTab::after {
+  border: 0;
+}
+
+.lobbyProfile {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #c5b18d;
+}
+
+.lobbyFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin-top: 22px;
+  color: var(--gold);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.lobbyGameCard {
+  position: relative;
+  margin-top: 24px;
+  padding: 26px;
+  border: 1px solid #6c5238;
+  border-left: 3px solid var(--gold);
+  border-radius: 8px;
+  background: linear-gradient(120deg,#352130,#201629);
+}
+
 .identityBand {
-  padding: 20px;
-  border: 1px solid #176f68;
-  background: #e6f6f2;
+  border-color: #78633f;
+  background: #2b2530;
 }
 
 .identityRoomCode {
   display: block;
   margin-top: 12px;
-  color: #7b2028;
-  font-size: 34px;
+  color: var(--gold);
+  font-size: 20px;
+  font-family: Georgia,serif;
   font-weight: 700;
+  word-break: break-all;
 }
 
 .inlineFeedback {
@@ -28,13 +250,13 @@
 }
 
 .stepperButton {
-  border: 1px solid #aeb7b4;
-  background: #ffffff;
+  border-color: var(--line);
+  background: var(--surface-raised);
 }
 
 .fullWidthButton {
   width: 100%;
-  margin-top: 20px;
+  margin-top: 22px;
 }
 
 .utilityButton {
@@ -43,9 +265,33 @@
 }
 
 .developerBand {
-  color: #66706d;
+  color: var(--muted);
 }
 
 .developerTools {
   margin-top: 16px;
+}
+
+.utilityBand {
+  border-left: 3px solid var(--gold);
+}
+
+@media (max-width:520px) {
+  .lobbyHero {
+    min-height: 190px;
+    padding: 24px;
+  }
+  .clocktowerSilhouette {
+    right: 8px;
+    opacity: .5;
+  }
+  .lobbyEntryCard {
+    padding: 20px 18px;
+  }
+  .lobbyHero > :not(.clocktowerSilhouette) {
+    max-width: 85%;
+  }
+  .lobbyGameCard {
+    padding: 20px;
+  }
 }

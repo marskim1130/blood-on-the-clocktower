@@ -44,6 +44,11 @@ func (gs *GameSession) startNightLocked() {
 	}
 	gs.nightWakeIndex = 0
 	gs.nightActions = nil
+	gs.pendingNightAction = nil
+	gs.confirmedNightAction = nil
+	gs.nightAcknowledged = nil
+	gs.dawnReviewPending = false
+	gs.pendingDawnDeathIDs = nil
 	gs.resetDailyNominationLimitsLocked()
 }
 
@@ -119,11 +124,68 @@ func (gs *GameSession) characterCanAutoResolveLocked(characterID string) (int, b
 }
 
 func (gs *GameSession) computeDemonInfoResultLocked() string {
-	return "Demon: " + gs.formatPlayersByCharacterTypeLocked(game.CharacterTypeDemon)
+	return "Demon: " + gs.formatPlayersByCharacterTypeLocked(game.CharacterTypeDemon) +
+		" | Minions: " + gs.formatPlayersByCharacterTypeLocked(game.CharacterTypeMinion)
+}
+
+func (gs *GameSession) computeSpyGrimoireLocked() string {
+	if _, ok := gs.characterCanAutoResolveLocked("spy"); !ok {
+		return ""
+	}
+	lines := []string{"魔典 · 角色与状态"}
+	protected := gs.nightProtectedTargetsLocked()
+	pendingDeaths := map[string]bool{}
+	for _, id := range gs.suggestedDawnDeathsLocked() {
+		pendingDeaths[id] = true
+	}
+	for index, player := range gs.players {
+		if player.Character == nil {
+			continue
+		}
+		status := []string{"存活"}
+		if !player.IsAlive {
+			status = []string{"死亡"}
+		}
+		if pendingDeaths[player.ID] {
+			status = append(status, "今晚死亡建议（待说书人确认）")
+		}
+		if gs.playerIsPoisonedLocked(index) {
+			status = append(status, "中毒")
+		}
+		if player.ShownCharacter != nil {
+			status = append(status, "展示身份："+player.ShownCharacter.Name)
+		}
+		if player.ID == gs.fortuneTellerRedHerringID {
+			status = append(status, "占卜师干扰项")
+		}
+		if protected[player.ID] {
+			status = append(status, "僧侣保护")
+		}
+		if gs.slayerUsed[player.ID] || gs.virginAbilityUsed[player.ID] {
+			status = append(status, "一次性能力已用")
+		}
+		if gs.ghostVotesUsed[player.ID] {
+			status = append(status, "幽灵票已用")
+		}
+		if master, ok := gs.butlerMasters[player.ID]; ok {
+			if masterIndex := gs.findPlayerIndex(master); masterIndex != -1 {
+				status = append(status, "主人："+gs.players[masterIndex].Name)
+			}
+		}
+		lines = append(lines, fmt.Sprintf("%d号 %s · %s · %s", index+1, player.Name, player.Character.Name, strings.Join(status, "；")))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (gs *GameSession) computeMinionInfoResultLocked() string {
-	return "Minions: " + gs.formatPlayersByCharacterTypeLocked(game.CharacterTypeMinion)
+	bluffNames := make([]string, 0, len(gs.demonBluffCharacterIDs))
+	for _, characterID := range gs.demonBluffCharacterIDs {
+		if character := game.GetScriptCharacterByID(gs.scriptID, characterID); character != nil {
+			bluffNames = append(bluffNames, character.Name)
+		}
+	}
+	return "Minions: " + gs.formatPlayersByCharacterTypeLocked(game.CharacterTypeMinion) +
+		" | Bluffs: " + strings.Join(bluffNames, ", ")
 }
 
 func (gs *GameSession) formatPlayersByCharacterTypeLocked(characterType game.CharacterType) string {
@@ -132,7 +194,7 @@ func (gs *GameSession) formatPlayersByCharacterTypeLocked(characterType game.Cha
 		if !gs.playerHasCharacterTypeLocked(i, characterType) {
 			continue
 		}
-		summaries = append(summaries, fmt.Sprintf("%s (%s)", gs.players[i].Name, gs.players[i].Character.Name))
+		summaries = append(summaries, gs.players[i].Name)
 	}
 	if len(summaries) == 0 {
 		return "none"
@@ -178,19 +240,23 @@ func (gs *GameSession) computeEmpathResultLocked(empathCharID string) string {
 		return ""
 	}
 
-	leftIdx := (empathIdx - 1 + len(gs.players)) % len(gs.players)
-	rightIdx := (empathIdx + 1) % len(gs.players)
-	if (gs.players[leftIdx].IsAlive && gs.playerHasAmbiguousRegistrationLocked(leftIdx)) ||
-		(gs.players[rightIdx].IsAlive && gs.playerHasAmbiguousRegistrationLocked(rightIdx)) {
-		return ""
-	}
-
 	evilCount := 0
-	if gs.players[leftIdx].IsAlive && gs.isPlayerEvilLocked(leftIdx) {
-		evilCount++
-	}
-	if gs.players[rightIdx].IsAlive && gs.isPlayerEvilLocked(rightIdx) {
-		evilCount++
+	seen := map[int]bool{}
+	for _, direction := range []int{-1, 1} {
+		for distance := 1; distance < len(gs.players); distance++ {
+			neighbor := (empathIdx + direction*distance + len(gs.players)) % len(gs.players)
+			if !gs.players[neighbor].IsAlive {
+				continue
+			}
+			if gs.playerHasAmbiguousRegistrationLocked(neighbor) {
+				return ""
+			}
+			if !seen[neighbor] && gs.isPlayerEvilLocked(neighbor) {
+				evilCount++
+			}
+			seen[neighbor] = true
+			break
+		}
 	}
 
 	return fmt.Sprintf("%d", evilCount)
@@ -298,10 +364,18 @@ func (gs *GameSession) applyButlerMasterSelectionLocked(butlerCharID string, tar
 }
 
 func (gs *GameSession) ravenkeeperDiesTonightLocked(ravenkeeperIdx int) bool {
+	if gs.dawnDeathsLocked() {
+		for _, id := range gs.pendingDawnDeathIDs {
+			if id == gs.players[ravenkeeperIdx].ID {
+				return true
+			}
+		}
+		return false
+	}
 	protectedTargets := gs.nightProtectedTargetsLocked()
 	ravenkeeper := gs.players[ravenkeeperIdx]
 	for _, action := range gs.nightActions {
-		if action.ActorID != gs.storytellerID || action.ActionType != game.NightActionKill {
+		if action.ActionType != game.NightActionKill {
 			continue
 		}
 		for _, targetID := range action.TargetIDs {
@@ -368,7 +442,31 @@ func (gs *GameSession) characterTypeInPlayLocked(characterType game.CharacterTyp
 }
 
 func (gs *GameSession) activeNightWakeStepsLocked() []game.NightWakeStep {
-	return game.GetActiveNightWakeSteps(gs.scriptID, gs.nightNumber, gs.players)
+	steps := game.GetActiveNightWakeSteps(gs.scriptID, gs.nightNumber, gs.players)
+	filtered := make([]game.NightWakeStep, 0, len(steps))
+	for _, step := range steps {
+		if step.CharacterID == "ravenkeeper" {
+			continue
+		}
+		if (len(gs.players) == 5 || len(gs.players) == 6) && step.CharacterType != "" {
+			continue
+		}
+		filtered = append(filtered, step)
+	}
+	if gs.dawnDeathsLocked() {
+		for _, id := range gs.pendingDawnDeathIDs {
+			idx := gs.findPlayerIndex(id)
+			if idx != -1 && gs.playerCanUseVisibleCharacterLocked(idx, "ravenkeeper") {
+				filtered = append(filtered, game.NightWakeStep{CharacterID: "ravenkeeper", Order: len(filtered) + 1, ActionType: game.NightActionLearnDied, Prompt: "你今晚死亡。请选择一名玩家并得知其角色。", MinTargets: 1, MaxTargets: 1})
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+func (gs *GameSession) dawnDeathsLocked() bool {
+	return !gs.dawnReviewPending && len(gs.pendingDawnDeathIDs) > 0
 }
 
 func (gs *GameSession) currentNightWakeStepLocked() *game.NightWakeStep {
@@ -402,6 +500,11 @@ func (gs *GameSession) validateNightTargetsLocked(step game.NightWakeStep, targe
 		return err
 	}
 	return nil
+}
+
+// Information recipients request a wake-up; the storyteller chooses their clues.
+func storytellerChoosesNightTargets(step game.NightWakeStep) bool {
+	return step.CharacterID == "washerwoman" || step.CharacterID == "librarian" || step.CharacterID == "investigator"
 }
 
 func (gs *GameSession) validateNightSelfTargetLocked(step game.NightWakeStep, targetIDs []string) error {

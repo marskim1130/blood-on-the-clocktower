@@ -25,6 +25,7 @@ import {
   type StoredRoomIdentity,
 } from './utils';
 import { protocolErrorMessage } from './protocol-feedback';
+import type { RecoveryIdentity } from './room-recovery';
 
 export const STORAGE_KEYS = {
   playerName: 'clocktower.playerName',
@@ -32,12 +33,15 @@ export const STORAGE_KEYS = {
   roomIdentity: 'clocktower.roomIdentity.v2',
   legacyRoomId: 'clocktower.lastRoomId',
   maxPlayers: 'clocktower.maxPlayers',
+  recoveryTicket: 'clocktower.recoveryTicket.v1',
 } as const;
 
 export const DEFAULT_SCRIPT_ID = TROUBLE_BREWING_SCRIPT.id;
 const DEVELOPMENT_WS_URL = 'ws://localhost:8080/ws';
 
 type PendingCommand =
+  | 'transfer-ownership'
+  | 'restart-game'
   | 'create'
   | 'join'
   | 'resume'
@@ -46,17 +50,27 @@ type PendingCommand =
   | 'close'
   | 'settings'
   | 'storyteller'
+  | 'ready'
+  | 'confirm-character'
   | 'assign'
   | 'start'
   | 'nominate'
   | 'vote'
+  | 'record-vote'
   | 'resolve-vote'
   | 'phase'
+  | 'finalize-day'
   | 'slayer'
   | 'death'
   | 'night-action'
+  | 'confirm-night-action'
+  | 'acknowledge-night-action'
+  | 'skip-night-action'
+  | 'prepare-dawn'
+  | 'confirm-dawn'
   | 'resolve-night'
-  | 'end-game';
+  | 'end-game'
+  | 'publish-grimoire';
 
 type SessionClient = Pick<
   GameWebSocketClient,
@@ -70,25 +84,46 @@ type SessionClient = Pick<
   | 'createRoom'
   | 'joinRoom'
   | 'resumeRoom'
+  | 'requestRecovery'
+  | 'reviewRecovery'
+  | 'getRecoveryRequests'
+  | 'undoGame'
+  | 'redoGame'
   | 'rejoinRoom'
   | 'getRoomState'
   | 'closeRoom'
+  | 'transferOwnership'
+  | 'restartGame'
   | 'leaveRoom'
   | 'kickPlayer'
   | 'updateRoomSettings'
   | 'setStoryteller'
+  | 'setSeatOrder'
+  | 'setReady'
+  | 'confirmCharacter'
   | 'assignCharacters'
   | 'startGame'
   | 'changePhase'
+  | 'finalizeDay'
   | 'nominate'
   | 'castVote'
+  | 'recordVote'
+  | 'advanceNominationStage'
+  | 'controlNominationTimer'
+  | 'expireNominationTimer'
   | 'resolveNomination'
   | 'executePlayer'
   | 'useSlayerAbility'
   | 'killPlayer'
   | 'submitNightAction'
+  | 'confirmNightAction'
+  | 'acknowledgeNightAction'
+  | 'skipNightAction'
+  | 'prepareDawn'
+  | 'confirmDawn'
   | 'resolveNight'
   | 'endGame'
+  | 'publishGrimoire'
 >;
 
 export interface RoomSessionDependencies {
@@ -116,6 +151,8 @@ export interface RoomSessionState {
   readonly pendingCommand: PendingCommand | null;
   readonly errorMessage: string;
   readonly logs: readonly string[];
+  readonly recoveryStatus: string | null;
+  readonly recoveryRequests: NonNullable<ServerMessage['recoveryRequests']>;
   initialize(): void;
   connect(): void;
   disconnect(): void;
@@ -125,31 +162,53 @@ export interface RoomSessionState {
   setMaxPlayers(maxPlayers: number): void;
   clearError(): void;
   forgetRoomIdentity(): void;
+  importRoomIdentity(identity: RecoveryIdentity): void;
+  getRecoveryRequests(): void;
+  reviewRecovery(requestId: string, decision: boolean): void;
+  undoGame(confirmPhaseChange?: boolean): void;
+  redoGame(confirmPhaseChange?: boolean): void;
   createRoom(): void;
   joinRoom(roomId: string): void;
   resumeLastRoom(): void;
   rejoinRoom(): void;
   leaveRoom(): void;
   closeRoom(): void;
+  transferOwnership(playerId: string): void;
+  restartGame(): void;
   kickPlayer(playerId: string): void;
   updateRoomSettings(maxPlayers: number): void;
   setStoryteller(playerId: string): void;
+  setSeatOrder(seatOrder: readonly string[]): void;
+  setReady(ready: boolean): void;
+  confirmCharacter(): void;
   assignCharacters(
     assignments: Record<string, string>,
     shownCharacters?: Record<string, string>,
     fortuneTellerRedHerringId?: string,
+    demonBluffCharacterIds?: readonly string[],
   ): void;
   startGame(): void;
   changePhase(phase: string): void;
+  finalizeDay(): void;
   nominate(playerId: string): void;
   castVote(decision: boolean): void;
+  recordVote(playerId: string, decision: boolean): void;
+  advanceNominationStage(): void;
+  controlNominationTimer(action: 'pause' | 'resume' | 'restart'): void;
+  expireNominationTimer(deadlineUnixMs: number): void;
   resolveNomination(): void;
   executePlayer(playerId: string): void;
   useSlayerAbility(playerId: string): void;
   killPlayer(playerId: string, cause: string): void;
   submitNightAction(actionType: string, targetIds: readonly string[], result?: string): void;
+  confirmNightAction(targetIds: readonly string[], result?: string): void;
+  acknowledgeNightAction(): void;
+  skipNightAction(): void;
+  prepareDawn(): void;
+  confirmDawn(deathPlayerIds: readonly string[]): void;
   resolveNight(): void;
   endGame(winner: 'good' | 'evil', description?: string): void;
+  publishGrimoire(): void;
 }
 
 const configuredEndpoint = typeof __CLOCKTOWER_WS_URL__ === 'string' ? __CLOCKTOWER_WS_URL__ : '';
@@ -190,7 +249,7 @@ export function createRoomSessionStore(
     const clearIdentity = (): void => {
       dependencies.removeValue(STORAGE_KEYS.roomIdentity);
       dependencies.removeValue(STORAGE_KEYS.legacyRoomId);
-      set({ identity: null });
+      set({ identity: null, recoveryRequests: [] });
     };
 
     const persistClientIdentity = (): void => {
@@ -207,6 +266,19 @@ export function createRoomSessionStore(
       const previousPhase = selectGamePhase(previous.experience);
       let experience = applyServerMessage(previous.experience, message);
       let errorMessage = '';
+      if (message.type === 'RECOVERY_REQUESTS') set({ recoveryRequests: message.recoveryRequests ?? [] });
+      if (message.type === 'RECOVERY_STATUS') {
+        set({ recoveryStatus: message.recoveryStatus ?? null });
+        if (message.recoveryStatus === 'approved' || message.recoveryStatus === 'rejected' || message.recoveryStatus === 'expired') dependencies.removeValue(STORAGE_KEYS.recoveryTicket);
+        if (message.recoveryStatus === 'approved') persistClientIdentity();
+      }
+      if (message.type === 'SESSION_REPLACED') {
+        clearIdentity();
+        client?.disconnect();
+        initialResumeRequested = false;
+        set({ experience: clearRoomIdentityState(), pendingCommand: null, recoveryStatus: null, errorMessage: '身份已在另一设备经批准恢复，此设备已退出。' });
+        return;
+      }
 
       if (
         message.type === 'CREATE_ROOM_RESULT' ||
@@ -214,9 +286,11 @@ export function createRoomSessionStore(
         message.type === 'RESUME_ROOM_RESULT'
       ) {
         persistClientIdentity();
+        try { client?.getRecoveryRequests(); } catch { /* The next explicit refresh can retry. */ }
       }
 
       if (message.type === 'ERROR') {
+        if (previous.recoveryStatus === 'pending') set({ recoveryStatus: 'rejected' });
         errorMessage = protocolErrorMessage(message.error, message.code);
         if (message.code === 'INVALID_CREDENTIAL' || message.code === 'ROOM_NOT_FOUND') {
           clearIdentity();
@@ -232,7 +306,7 @@ export function createRoomSessionStore(
 
       if (message.type === 'KICKED' || message.type === 'ROOM_CLOSED') {
         clearIdentity();
-        errorMessage = message.type === 'KICKED' ? '你已被房主移出房间' : '房间已由房主关闭';
+        errorMessage = message.type === 'KICKED' ? '你已被房主移出房间' : '房间已关闭或因长时间不活跃而过期';
       }
 
       if (
@@ -312,6 +386,8 @@ export function createRoomSessionStore(
       pendingCommand: null,
       errorMessage: '',
       logs: [],
+      recoveryStatus: null,
+      recoveryRequests: [],
 
       initialize(): void {
         if (get().initialized) return;
@@ -397,6 +473,28 @@ export function createRoomSessionStore(
           activeClient.createRoom(playerId, playerName.trim() || `玩家${playerId.slice(-4)}`, maxPlayers, DEFAULT_SCRIPT_ID);
         });
       },
+      importRoomIdentity(identity): void {
+        if (get().identity) {
+          set({ errorMessage: '请先离开当前房间，再导入恢复码' });
+          return;
+        }
+        const activeClient = requireClient();
+        if (!activeClient) return;
+        set({ recoveryStatus: 'pending', pendingCommand: 'resume', errorMessage: '' });
+        let previousRequestId: string | undefined;
+        try {
+          const ticket = JSON.parse(dependencies.getString(STORAGE_KEYS.recoveryTicket, '{}')) as { requestId?: unknown; roomId?: unknown; playerId?: unknown };
+          if (ticket.roomId === identity.roomId && ticket.playerId === identity.playerId && typeof ticket.requestId === 'string' && ticket.requestId.length <= 128) previousRequestId = ticket.requestId;
+        } catch { /* A damaged ticket is replaced without logging user data. */ }
+        const requestId = previousRequestId
+          ? activeClient.requestRecovery(identity.roomId, identity.playerId, identity.recoveryCredential, previousRequestId)
+          : activeClient.requestRecovery(identity.roomId, identity.playerId, identity.recoveryCredential);
+        dependencies.persistString(STORAGE_KEYS.recoveryTicket, JSON.stringify({ requestId, roomId: identity.roomId, playerId: identity.playerId }));
+      },
+      getRecoveryRequests(): void { const active = requireClient(); if (active && get().identity) active.getRecoveryRequests(); },
+      reviewRecovery(requestId, decision): void { send('settings', active => active.reviewRecovery(requestId, decision)); },
+      undoGame(confirmPhaseChange = false): void { send('settings', active => active.undoGame(confirmPhaseChange)); },
+      redoGame(confirmPhaseChange = false): void { send('settings', active => active.redoGame(confirmPhaseChange)); },
       joinRoom(roomId): void {
         const targetRoomId = roomId.trim();
         if (!targetRoomId) {
@@ -437,6 +535,12 @@ export function createRoomSessionStore(
       closeRoom(): void {
         send('close', (activeClient) => activeClient.closeRoom());
       },
+      transferOwnership(playerId): void {
+        send('transfer-ownership', (activeClient) => activeClient.transferOwnership(playerId));
+      },
+      restartGame(): void {
+        send('restart-game', (activeClient) => activeClient.restartGame());
+      },
       kickPlayer(playerId): void {
         send('settings', (activeClient) => activeClient.kickPlayer(playerId));
       },
@@ -447,9 +551,18 @@ export function createRoomSessionStore(
       setStoryteller(playerId): void {
         send('storyteller', (activeClient) => activeClient.setStoryteller(playerId));
       },
-      assignCharacters(assignments, shownCharacters, fortuneTellerRedHerringId): void {
+      setSeatOrder(seatOrder): void {
+        send('settings', (activeClient) => activeClient.setSeatOrder(seatOrder));
+      },
+      setReady(ready): void {
+        send('ready', (activeClient) => activeClient.setReady(ready));
+      },
+      confirmCharacter(): void {
+        send('confirm-character', (activeClient) => activeClient.confirmCharacter());
+      },
+      assignCharacters(assignments, shownCharacters, fortuneTellerRedHerringId, demonBluffCharacterIds): void {
         send('assign', (activeClient) => {
-          activeClient.assignCharacters(assignments, shownCharacters, fortuneTellerRedHerringId);
+          activeClient.assignCharacters(assignments, shownCharacters, fortuneTellerRedHerringId, demonBluffCharacterIds);
         });
       },
       startGame(): void {
@@ -458,12 +571,21 @@ export function createRoomSessionStore(
       changePhase(phase): void {
         send('phase', (activeClient) => activeClient.changePhase(phase));
       },
+      finalizeDay(): void {
+        send('finalize-day', (activeClient) => activeClient.finalizeDay());
+      },
       nominate(playerId): void {
         send('nominate', (activeClient) => activeClient.nominate(playerId));
       },
       castVote(decision): void {
         send('vote', (activeClient) => activeClient.castVote(decision));
       },
+      recordVote(playerId, decision): void {
+        send('record-vote', (activeClient) => activeClient.recordVote(playerId, decision));
+      },
+      advanceNominationStage(): void { send('vote', client => client.advanceNominationStage()); },
+      controlNominationTimer(action): void { send('vote', client => client.controlNominationTimer(action)); },
+      expireNominationTimer(deadline): void { send('vote', client => client.expireNominationTimer(deadline)); },
       resolveNomination(): void {
         send('resolve-vote', (activeClient) => activeClient.resolveNomination());
       },
@@ -479,11 +601,29 @@ export function createRoomSessionStore(
       submitNightAction(actionType, targetIds, result): void {
         send('night-action', (activeClient) => activeClient.submitNightAction(actionType, targetIds, result));
       },
+      confirmNightAction(targetIds, result): void {
+        send('confirm-night-action', (activeClient) => activeClient.confirmNightAction(targetIds, result));
+      },
+      acknowledgeNightAction(): void {
+        send('acknowledge-night-action', (activeClient) => activeClient.acknowledgeNightAction());
+      },
+      skipNightAction(): void {
+        send('skip-night-action', (activeClient) => activeClient.skipNightAction());
+      },
+      prepareDawn(): void {
+        send('prepare-dawn', (activeClient) => activeClient.prepareDawn());
+      },
+      confirmDawn(deathPlayerIds): void {
+        send('confirm-dawn', (activeClient) => activeClient.confirmDawn(deathPlayerIds));
+      },
       resolveNight(): void {
         send('resolve-night', (activeClient) => activeClient.resolveNight());
       },
       endGame(winner, description): void {
         send('end-game', (activeClient) => activeClient.endGame(winner, description));
+      },
+      publishGrimoire(): void {
+        send('publish-grimoire', (activeClient) => activeClient.publishGrimoire());
       },
     };
   });

@@ -1863,3 +1863,1998 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 - 将 `hub_v2.go` 恢复为直接调用 `Registry.JoinObserved`。
 - 从 `session_test.go` 删除 `conflictReplace` 测试开关与 `TestJoinRevisionConflictRollsBackAndMarksSessionUnhealthy`。
 - 删除 `work.md` 中标题以 `2026-07-14 16:52:07` 开头的本节记录。
+
+## 2026-09-03 12:00:48 +08:00 --- 本机缺少 Go 与项目依赖，项目无法启动 --- 使用 Scoop 安装 Go、按锁文件安装依赖、构建共享包并启动后端与微信小程序监听 --- 修改本机工具链、生成目录与 `work.md`
+
+### 发现什么问题
+- 本机没有可用的 `go` 命令，项目要求 Go 1.22+。
+- 仓库尚未安装 pnpm 工作区依赖，也没有 `@clocktower/core` 的 `dist` 入口产物，无法直接启动前端。
+- 后端启动要求进程内提供至少 32 字节的 `CLOCKTOWER_CREDENTIAL_KEY`。
+
+### 使用什么方式解决
+- 通过既有 Scoop 安装 Go 1.27.1（windows/amd64），并以 `go version` 验证安装结果。
+- 使用项目锁定的 pnpm 9.15.0 执行冻结锁文件安装，随后直接调用本地 TypeScript 编译器构建 `@clocktower/core`。
+- 运行全部 Go 后端测试；使用仅存在于进程内的随机开发凭证启动后端，并启动 Taro 微信小程序监听构建。
+- 验证 `GET http://localhost:8080/health` 返回 `200 ok`，前端首次 Webpack 编译成功并生成微信小程序产物。
+
+### 修改了哪些文件
+- Scoop 安装目录 `D:\Scoop\apps\go\1.27.1`、`D:\Scoop\apps\go\current` 与 Go/gofmt shim。
+- Go 用户模块/构建缓存、Taro 用户配置缓存。
+- 工作区忽略目录 `node_modules/`、`packages/core/dist/`、`packages/frontend/dist/`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 在对应开发终端按 `Ctrl+C` 停止后端与前端监听进程。
+- 执行 `scoop uninstall go` 卸载本次安装的 Go；如不再需要缓存，可执行 `go clean -cache -modcache`。
+- 删除本次生成的 `node_modules/`、`packages/core/dist/` 与 `packages/frontend/dist/`；若 Taro 用户配置目录此前不存在且不再需要，可删除 `C:\Users\Asurf\.taro3.7`。
+- 删除 `work.md` 中标题以 `2026-09-03 12:00:48` 开头的本节记录。
+
+## 2026-09-03 14:08:27 +08:00 --- 完整可玩性审计需要核实现有工程基线与页面闭环 --- 按仓库固定版本恢复依赖并执行类型、测试、构建与后端健康检查 --- 刷新忽略的依赖/构建产物并修改 `work.md`
+
+### 发现什么问题
+- 当前五个前端路由可以编译，创建/加入、发身份、昼夜、提名投票与结算也已连接权威 WebSocket 状态；“不可玩”主要来自产品流程和规则模型缺口，而非源码无法构建。
+- Codex fallback pnpm 与仓库锁定的 pnpm 9.15.0 依赖布局不一致，首次验证时触发依赖目录重建，导致链接包内容不完整。
+
+### 使用什么方式解决
+- 使用 `corepack pnpm` 按 `packageManager` 固定的 pnpm 9.15.0 和冻结锁文件强制恢复依赖，没有改动清单或锁文件。
+- 直接运行 TypeScript build、Go 全包测试、Vitest 与 Taro 微信小程序构建；检查本地后端 `/health` 返回 `ok`。
+- 最终结果：TypeScript 类型检查通过，Go 全包测试通过，Vitest 13 个测试文件共 207 项通过，微信小程序构建成功。
+
+### 修改了哪些文件
+- 工作区忽略目录 `node_modules/`、`packages/frontend/dist/` 与 TypeScript/Taro 构建缓存。
+- `work.md`。
+- 未修改任何产品源码、协议、测试源码或锁文件。
+
+### 撤回方式 [Rollback Strategy]
+- 删除本次刷新的忽略目录 `node_modules/`、`packages/frontend/dist/` 及相关构建缓存；需要继续开发时再执行 `corepack pnpm install --frozen-lockfile` 和对应构建命令。
+- 删除 `work.md` 中标题以 `2026-09-03 14:08:27` 开头的本节记录。
+
+## 2026-09-03 14:55:26 +08:00 --- 房间缺少可由房主明确设置的顺时针座位顺序 --- 以 WebSocket v2 公开接口完成首个 RED→GREEN 行为切片 --- 修改协议、权威会话、玩法座次、生成契约、集成测试与 `work.md`
+
+### 发现什么问题
+- 现有系统把加入顺序隐式当作物理座位顺序，房主无法在身份锁定前按真实围坐顺序调整座位。
+- 共情者、厨师以及后续顺时针投票都需要稳定且对所有接收者一致的座位顺序。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 集成测试，描述房主提交完整顺时针座位顺序后，所有成员收到相同权威玩家顺序的外部行为。
+- RED 阶段确认测试因缺少 `SET_SEAT_ORDER` 和 `seatOrder` 协议字段而失败。
+- GREEN 阶段新增房主专属座位命令；Gameplay 验证提交内容是当前全部玩家 ID 的无重复完整排列，然后直接重排权威 `players` 切片。既有快照、重连与接收者投影自然保留该顺序，不建立平行座位状态。
+- 重新生成 Go/TypeScript 协议契约，并通过目标集成测试、协议漂移检查、Go 全包测试及 TypeScript build。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/seat_order_test.go`。
+- `proto/game.proto`。
+- `packages/backend/internal/session/types.go`。
+- `packages/backend/internal/session/session.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/protocol_generated.go`。
+- `packages/core/src/websocket/protocol.generated.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/ws/seat_order_test.go`。
+- 从 `proto/game.proto` 删除 `SET_SEAT_ORDER` 与 `seat_order`，再运行协议生成器恢复生成契约。
+- 从 Session、Gameplay 与 WebSocket Hub 删除 `CommandSetSeatOrder`/`SetSeatOrderCmd` 的分发、权限与重排实现。
+- 删除 `work.md` 中标题以 `2026-09-03 14:55:26` 开头的本节记录。
+
+## 2026-09-03 14:58:57 +08:00 --- Core 客户端尚不能发送座位顺序命令 --- 完成单个公开客户端 RED→GREEN 行为切片 --- 修改 WebSocket 客户端、测试与 `work.md`
+
+### 发现什么问题
+- 后端协议已接受 `SET_SEAT_ORDER`，但 `GameWebSocketClient` 没有供前端调用的类型安全方法。
+
+### 使用什么方式解决
+- 新增一个且仅一个客户端集成测试，要求 `setSeatOrder` 发送带当前客户端序号和完整 `seatOrder` 的权威房间命令。
+- RED 阶段确认 `client.setSeatOrder is not a function`。
+- GREEN 阶段新增类型安全的 `setSeatOrder` 公共方法，通过既有单航班序列队列发送 `SET_SEAT_ORDER`。
+- 目标 Vitest 已通过。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `sends the complete clockwise seat order as a sequenced room command`。
+- 删除 `GameWebSocketClient.setSeatOrder`。
+- 删除 `work.md` 中标题以 `2026-09-03 14:58:57` 开头的本节记录。
+
+## 2026-09-03 15:00:38 +08:00 --- 前端会话 Store 尚未暴露座位顺序操作 --- 完成单个 Store 公开行为 RED→GREEN 切片 --- 修改 Store、测试与 `work.md`
+
+### 发现什么问题
+- 页面层尚无通过应用级会话 Store 调用 Core `setSeatOrder` 的入口。
+- 座位提交不能在前端先行篡改权威投影，必须等待服务端提交后的完整 `RoomState`。
+
+### 使用什么方式解决
+- 新增一个且仅一个 Store 行为测试，要求完整顺序被转交给 Core、操作进入 `settings` pending 状态且本地权威投影保持不变。
+- RED 阶段确认 `setSeatOrder is not a function`。
+- GREEN 阶段把 Core `setSeatOrder` 纳入 SessionClient 接缝，并由 RoomSessionState 复用 `settings` pending 通道发送；不维护乐观座位副本。
+- 目标 Frontend Vitest 已通过。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 FakeClient 的 `setSeatOrder` 测试接缝和测试 `forwards the complete seat order without changing the authoritative projection locally`。
+- 从 `SessionClient`、`RoomSessionState` 和 Store 实现删除 `setSeatOrder`。
+- 删除 `work.md` 中标题以 `2026-09-03 15:00:38` 开头的本节记录。
+
+## 2026-09-03 15:02:28 +08:00 --- 设置页会把换座误判为成员变化并重抽角色草稿 --- 完成单个成员集合 RED→GREEN 行为切片 --- 修改设置页、工具、测试与 `work.md`
+
+### 发现什么问题
+- `game-setup` 使用保留数组顺序的 `playerKey` 驱动随机配角 effect；权威座位重排会改变该键并无提示地覆盖未提交草稿。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯行为测试，要求同一批玩家无论座次如何排列都产生相同成员集合键。
+- RED 阶段确认设置页成员工具不存在。
+- GREEN 阶段新增顺序无关的 `membershipKey`，设置页只在成员集合真正变化时重新生成角色草稿，单纯换座不再覆盖草稿。
+- 目标 Vitest 已通过。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-setup/utils.test.ts`。
+- `packages/frontend/src/pages/game-setup/utils.ts`。
+- `packages/frontend/src/pages/game-setup/index.tsx`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/frontend/src/pages/game-setup/utils.test.ts`。
+- 删除 `packages/frontend/src/pages/game-setup/utils.ts`，并恢复 `game-setup/index.tsx` 原有保序 `playerKey` 计算。
+- 删除 `work.md` 中标题以 `2026-09-03 15:02:28` 开头的本节记录。
+
+## 2026-09-03 15:08:00 +08:00 --- 设置页缺少可提交的顺时针座位编辑界面 --- 以本地表单草稿接入权威 `SET_SEAT_ORDER` 垂直切片 --- 修改座位工具、编辑组件、设置页样式与测试
+
+### 发现什么问题
+- `RoomState.players` 已承载权威顺时针座次，Core 与会话 Store 也已提供提交入口，但设置页仍只能只读显示加入顺序，房主无法在发身份前按线下围坐情况调整座次。
+- 前端不得在提交命令后乐观改写权威房间投影，否则拒绝、断线重放或并发更新时会显示并未提交的座次。
+
+### 使用什么方式解决
+- RED 阶段只新增一个 `moveSeatClockwise` 行为测试，验证末位玩家顺时针移动后循环到首位；亲自运行确认因函数不存在而失败。
+- GREEN 阶段新增最小纯函数实现，并新增 `SeatOrderEditor`：编辑过程只维护明确标注的本机草稿，可还原；确认时一次提交完整玩家 ID 顺序，组件不把草稿写入 Room Experience，等待服务器返回的新 `RoomState.players` 后才重置为权威顺序。
+- 设置页仅在“当前身份是房主、已指定说书人、参与者未冻结”三个条件同时满足时呈现编辑器；其他成员继续只读查看权威座位列表。
+- 使用可换行的 Flex 布局和窄屏媒体规则兼容微信小程序与 H5。目标测试 2 项、Frontend 全量测试 58 项、TypeScript project build 与微信小程序构建均通过；微信构建在沙箱内受 pnpm 上级目录读取权限限制后，于获准的沙箱外环境成功完成。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-setup/utils.test.ts`。
+- `packages/frontend/src/pages/game-setup/utils.ts`。
+- `packages/frontend/src/pages/game-setup/seat-order-editor.tsx`。
+- `packages/frontend/src/pages/game-setup/index.tsx`。
+- `packages/frontend/src/pages/game-setup/index.css`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 从 `utils.test.ts` 删除 `moveSeatClockwise` 导入及其“末位循环到首位”测试，并从 `utils.ts` 删除该函数，保留既有 `membershipKey` 行为。
+- 删除 `seat-order-editor.tsx`，从 `game-setup/index.tsx` 删除对应导入、`setSeatOrder` selector 与仅房主可见的“调整顺时针座次”区块。
+- 从 `game-setup/index.css` 删除所有 `seatOrder*`、`seatMoveButton` 样式及本次窄屏媒体规则。
+- 删除 `work.md` 中标题以 `2026-09-03 15:08:00` 开头的本节记录。
+
+## 2026-09-03 15:09:26 +08:00 --- 房间没有玩家准备状态 --- 完成单个 WebSocket 权威投影 RED→GREEN 行为切片 --- 修改协议、玩家模型、玩法命令、生成器、生成契约、集成测试与 `work.md`
+
+### 发现什么问题
+- 实际入座玩家无法公开标记自己是否准备完成，说书人也无法从权威状态判断发身份条件。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 集成测试，要求 `p1` 设置准备后，自己、说书人和另一玩家的同一提交投影中只有 `p1` 为已准备。
+- RED 阶段确认 `SET_READY`、`ready` 请求字段和 `Player.IsReady` 均不存在。
+- GREEN 阶段新增 `SET_READY`，请求必须明确携带布尔值；玩法层只允许未发身份的实际入座玩家修改自己的准备状态。
+- 准备状态直接属于权威玩家对象，沿既有克隆、快照、持久化和接收者投影传播，不建立第二份状态。
+- 目标 WebSocket 集成测试已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/ready_state_test.go`。
+- `proto/game.proto`。
+- `scripts/generate-protocol-contracts.mjs`。
+- `packages/backend/internal/game/game.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/protocol_generated.go`。
+- `packages/core/src/websocket/protocol.generated.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/ws/ready_state_test.go`。
+- 从 Proto、生成器覆盖、玩家模型、Gameplay 与 Hub 删除 `SET_READY`/`ready`/`isReady`，再重新生成协议契约。
+- 删除 `work.md` 中标题以 `2026-09-03 15:09:26` 开头的本节记录。
+
+## 2026-09-03 15:11:44 +08:00 --- 说书人可以在仍有玩家未准备时发放身份 --- 完成单个 WebSocket 开局门禁 RED→GREEN 切片 --- 修改玩法门禁、集成测试、既有测试夹具与 `work.md`
+
+### 发现什么问题
+- `ASSIGN_CHARACTERS` 目前只验证角色组合，不验证所有实际玩家是否完成准备。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 测试：五名玩家中四人准备、一人未准备时，合法角色组合仍必须以稳定 `INVALID_COMMAND` 拒绝，且说书人序号不前进。
+- RED 阶段确认未准备的合法角色配置被错误提交并冻结房间。
+- GREEN 阶段在 Gameplay 角色分配入口要求所有实际入座玩家均已准备。
+- 既有 Gameplay/协议测试夹具显式标记为已准备或通过真实 `SET_READY` 命令准备，不放宽生产规则；TypeScript 房间投影夹具补齐新增必填字段。
+- 目标测试与 Go 全包测试均已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/ready_state_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/game_session_test_helpers_test.go`。
+- `packages/backend/internal/gameplay/*_test.go` 中所有直接分配角色的既有夹具。
+- `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `packages/backend/internal/ws/protocol_v2_contract_test.go`。
+- `packages/frontend/src/lib/room-experience.test.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestProtocolV2StorytellerCannotAssignCharactersUntilEveryPlayerIsReady`。
+- 删除角色分配的全员准备门禁和 `markAllPlayersReady` 测试辅助，并撤回既有测试夹具中的准备步骤。
+- 从 TypeScript 投影夹具移除为本轮兼容新增的 `isReady` 字段（仅在同时撤回准备协议字段时）。
+- 删除 `work.md` 中标题以 `2026-09-03 15:11:44` 开头的本节记录。
+
+## 2026-09-03 15:17:31 +08:00 --- 换座后旧准备状态仍然有效 --- 完成单个准备失效 RED→GREEN 行为切片 --- 修改玩法座次、准备状态集成测试与 `work.md`
+
+### 发现什么问题
+- 玩家确认准备所依据的邻接座位发生变化后，现有实现仍保留旧准备标记。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 测试，要求房主真正改变顺时针座次后清空所有实际玩家的准备状态。
+- RED 阶段确认换座后的权威投影仍把两名玩家标为已准备。
+- GREEN 阶段检测提交顺序是否真正发生变化；仅在真实换座时统一清空所有准备标记，相同顺序的幂等提交不误清空。
+- 目标 WebSocket 测试已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/ready_state_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestProtocolV2ChangingSeatOrderClearsEveryPlayersReadyState`。
+- 删除 `clearReadyLocked` 及座位变更检测/清空调用，恢复直接重排。
+- 删除 `work.md` 中标题以 `2026-09-03 15:17:31` 开头的本节记录。
+
+## 2026-09-03 15:19:16 +08:00 --- 新玩家加入后旧准备状态仍然有效 --- 以单个成员变化测试完成 RED-GREEN --- 修改准备状态集成测试、游戏会话与 `work.md`
+
+### 发现什么问题
+- 已有玩家确认准备后，房间仍允许新玩家加入，但原准备标记不会失效。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 测试，要求新成员加入后，重连投影中的全部实际玩家均恢复未准备。
+- RED 阶段确认 P2 加入后 P1 仍为 `isReady=true`，测试按预期失败。
+- GREEN 阶段仅在 `GameSession.AddPlayer` 的实际新增分支追加全员准备状态清理；已有 ID 的重连/改名分支提前返回，不会误清准备状态。
+- 定向测试 `go test ./internal/ws -run TestProtocolV2JoiningPlayerClearsExistingReadyState -count=1` 已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/ready_state_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestProtocolV2JoiningPlayerClearsExistingReadyState`。
+- 删除 `GameSession.AddPlayer` 新增玩家分支中的 `gs.clearReadyLocked()` 调用。
+- 删除 `work.md` 中标题以 `2026-09-03 15:19:16` 开头的本节记录。
+
+## 2026-09-03 15:23:19 +08:00 --- 玩家离开后剩余准备状态可能过期 --- 以单个成员移除测试完成 RED-GREEN --- 修改准备状态集成测试、游戏会话与 `work.md`
+
+### 发现什么问题
+- 玩家确认准备后，其他玩家仍可能在角色分配前离开；现有实现尚未证明剩余玩家会重新确认当前成员构成。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 测试：P1 准备后 P2 离开，P1 重连投影必须显示未准备。
+- 首次运行发现通用命令夹具错误地要求主动离房回执携带房间状态；已校准为校验离房者无状态成功回执，并从仍在房间的 P1 广播投影断言业务行为。
+- RED 阶段确认 P2 离开后 P1 仍为 `isReady=true`，测试按预期失败。
+- GREEN 阶段仅在 `GameSession.RemovePlayer` 确实移除一名座位玩家时清空剩余玩家准备状态；无匹配 ID 时不产生副作用。
+- 定向测试 `go test ./internal/ws -run TestProtocolV2LeavingPlayerClearsRemainingReadyState -count=1` 已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/ready_state_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestProtocolV2LeavingPlayerClearsRemainingReadyState`。
+- 删除 `GameSession.RemovePlayer` 移除分支中的 `gs.clearReadyLocked()` 调用。
+- 删除 `work.md` 中标题以 `2026-09-03 15:23:19` 开头的本节记录。
+
+## 2026-09-03 15:25:48 +08:00 --- 选择说书人会改变实际座位玩家集合 --- 以单个说书人选择测试完成 RED-GREEN --- 修改准备状态集成测试、游戏会话与 `work.md`
+
+### 发现什么问题
+- 协议允许玩家在房主选择说书人前确认准备；被选者随后从实际玩家列表移除，因此其他人的旧准备确认必须失效。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 测试：P1 先准备，房主再把 P2 设为说书人，权威投影中的 P1 必须恢复未准备。
+- RED 阶段确认 P2 成为说书人并退出玩家集合后，P1 仍为 `isReady=true`，测试按预期失败。
+- GREEN 阶段仅在 `applySetStoryteller` 成功重建座位玩家列表后清空全员准备状态。
+- 定向测试 `go test ./internal/ws -run TestProtocolV2SelectingStorytellerClearsRemainingReadyState -count=1` 已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/ready_state_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestProtocolV2SelectingStorytellerClearsRemainingReadyState`。
+- 删除 `applySetStoryteller` 成功分支中的 `gs.clearReadyLocked()` 调用。
+- 删除 `work.md` 中标题以 `2026-09-03 15:25:48` 开头的本节记录。
+
+## 2026-09-03 15:27:50 +08:00 --- Core 尚未暴露准备/取消准备命令 --- 以单个 `false` 序列化测试完成 RED-GREEN --- 修改 WebSocket 客户端及测试与 `work.md`
+
+### 发现什么问题
+- 后端已有 `SET_READY`，但共享 Core 客户端没有公共方法；尤其取消准备的 `false` 值容易被条件展开错误遗漏。
+
+### 使用什么方式解决
+- 新增一个且仅一个 Core WebSocket 公共接口测试，要求 `setReady(false)` 发出带客户端序号且显式包含 `ready:false` 的命令。
+- RED 阶段确认 `client.setReady` 不存在，测试按预期失败。
+- GREEN 阶段新增 `setReady(ready)`，直接通过 `sendSequenced` 发送完整布尔值，不会丢失 `false`。
+- 定向 Vitest 已通过（1 passed，20 skipped）。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `sends false ready state as a sequenced room command`。
+- 删除 `GameWebSocketClient.setReady` 方法。
+- 删除 `work.md` 中标题以 `2026-09-03 15:27:50` 开头的本节记录。
+
+## 2026-09-03 15:29:39 +08:00 --- 前端 Store 尚未转发准备命令 --- 以单个权威投影测试完成 RED-GREEN --- 修改 Store、测试与 `work.md`
+
+### 发现什么问题
+- Core 已能发送准备命令，但页面状态层尚无 `setReady` 操作；实现还必须避免在服务器确认前乐观改写权威玩家投影。
+
+### 使用什么方式解决
+- 为测试替身新增 `setReady` 调用记录能力。
+- 新增一个且仅一个 Store 公共接口测试：转发 `true`、设置 `pendingCommand='ready'`，同时保持服务器投影中的 `isReady=false` 不变。
+- RED 阶段确认 Store 没有 `setReady` 方法，测试按预期失败。
+- GREEN 阶段增加 `ready` 待处理类型、Core 客户端能力及 `setReady` 公共操作；实现只调用 `send`，没有乐观修改房间投影。
+- 定向 Vitest 已通过（1 passed，11 skipped）。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `forwards readiness without changing the authoritative projection locally` 及测试替身的 `setReady` 方法。
+- 从 `PendingCommand`、`SessionClient`、`RoomSessionState` 和 Store 返回对象中删除准备状态接线。
+- 删除 `work.md` 中标题以 `2026-09-03 15:29:39` 开头的本节记录。
+
+## 2026-09-03 15:31:37 +08:00 --- 准备 UI 缺少可测试的权威汇总策略 --- 以单个纯函数测试完成 RED-GREEN --- 修改 setup 工具、测试与 `work.md`
+
+### 发现什么问题
+- setup 页面需要同时判断本人准备状态、已准备人数与是否全员准备；直接散落在 JSX 中会让发放身份门禁难以独立验证。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯函数测试，要求两名玩家中一人准备时返回 `1/2`、`allReady=false`，并识别当前玩家已准备。
+- RED 阶段确认 `summarizeReadiness` 不存在，测试按预期失败。
+- GREEN 阶段实现纯函数：计算准备人数/总人数，空房不视为全员准备，并在本人不属于实际座位玩家时返回 `selfReady=null`。
+- 定向 Vitest 已通过（1 passed，2 skipped）。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-setup/utils.test.ts`。
+- `packages/frontend/src/pages/game-setup/utils.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `summarizes authoritative readiness for the current player and the room` 及新增导入。
+- 删除 `summarizeReadiness` 函数。
+- 删除 `work.md` 中标题以 `2026-09-03 15:31:37` 开头的本节记录。
+
+## 2026-09-03 15:33:50 +08:00 --- 页面发放按钮尚未受全员准备约束 --- 以单个发放决策测试完成 RED-GREEN 并接入准备 UI --- 修改 setup 工具、页面、样式、测试与 `work.md`
+
+### 发现什么问题
+- 即使后端已有硬门禁，前端在角色配置合法时仍会显示可发放，无法向说书人准确表达“仍在等待玩家准备”。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯决策测试，要求角色配置合法但未全员准备时仍禁止发放。
+- RED 阶段确认 `canAssignCharacters` 不存在，测试按预期失败。
+- GREEN 阶段实现“配置合法且全员准备”决策，并把已测试的准备汇总/决策薄接入 setup 页面。
+- 实际座位玩家现在可准备或取消；成员列表公开显示准备徽标；说书人看到人数进度且全员准备前无法发放身份。所有状态与按钮文案只读取服务器权威投影，没有本地乐观改写。
+- 依据 Context7 返回的 Taro 官方文档，沿用跨微信小程序/H5 的 `Button disabled` 与 `onClick` 接口。
+- 准备流程相关 Vitest 共 37 条通过，全仓 TypeScript 构建检查通过；Taro H5 与微信小程序构建均成功。H5 仅保留既有入口资源体积警告（`app.js` 约 256 KiB），无编译错误。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-setup/utils.test.ts`。
+- `packages/frontend/src/pages/game-setup/utils.ts`。
+- `packages/frontend/src/pages/game-setup/index.tsx`。
+- `packages/frontend/src/pages/game-setup/index.css`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `does not allow assignment while any seated player is unready` 及新增导入。
+- 删除 `canAssignCharacters`，并从 setup 页面移除 `setReady`、准备汇总/徽标/操作区及全员准备发放门禁。
+- 删除 `index.css` 中 `.readyBadge*`、`.readiness*` 样式。
+- 删除 `work.md` 中标题以 `2026-09-03 15:33:50` 开头的本节记录。
+
+## 2026-09-03 15:37:44 +08:00 --- 身份发放后缺少玩家确认闭环 --- 以单个接收者投影集成测试完成 RED-GREEN --- 新增身份确认协议、领域实现、测试并修改 `work.md`
+
+### 发现什么问题
+- 服务器会私下投影角色，但没有“玩家已查看并确认”的持久状态，说书人无法判断能否安全开始首夜。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 公共接口测试：P1 确认自己的已分配角色后，本人、说书人和其他玩家均看到确认状态；P2 仍看不到 P1 的角色且不会被代确认。
+- RED 阶段确认 `CONFIRM_CHARACTER` 与 `hasConfirmedCharacter` 均不存在，测试按预期编译失败。
+- GREEN 阶段在 Proto 中增加必填公开确认字段与无载荷序列命令，重新生成 Go/TypeScript 契约；领域命令仅允许 setup 阶段、已获身份的实际座位玩家确认自己。
+- 分配角色时显式重置确认标记；接收者投影继续沿用既有角色脱敏，仅公开确认状态。
+- 定向测试 `go test ./internal/ws -run TestProtocolV2PlayerConfirmsOwnAssignedCharacter -count=1` 已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/character_confirmation_test.go`。
+- `proto/game.proto`。
+- `packages/backend/internal/game/game.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/protocol_generated.go`（生成产物）。
+- `packages/core/src/websocket/protocol.generated.ts`（生成产物）。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/ws/character_confirmation_test.go`。
+- 从 Proto 删除 `Player.has_confirmed_character` 与 `CONFIRM_CHARACTER`，重新运行 `node scripts/generate-protocol-contracts.mjs`。
+- 从 `game.Player`、`GameSession` 和 WebSocket 映射中删除对应字段、命令、分配时重置和确认处理函数。
+- 删除 `work.md` 中标题以 `2026-09-03 15:37:44` 开头的本节记录。
+
+## 2026-09-03 15:54:52 +08:00 --- 说书人仍可在玩家未确认身份时开局 --- 以单个全员确认门禁测试完成 RED-GREEN --- 修改开局规则、身份确认测试与 `work.md`
+
+### 发现什么问题
+- 确认状态已经可持久化和投影，但 `START_GAME` 尚未使用它，仍可能在最后一名玩家未看清身份时进入首夜。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 测试：五名玩家中仅四人确认时，`START_GAME` 必须返回 `INVALID_COMMAND`，且失败命令不能消耗说书人的客户端序号。
+- RED 阶段确认未确认的 P5 不会阻止开局，测试按预期失败。
+- GREEN 阶段在现有角色完整性检查中追加全员 `HasConfirmedCharacter` 硬门禁，不改变其他开局逻辑。
+- 定向测试 `go test ./internal/ws -run TestProtocolV2StorytellerCannotStartUntilEveryPlayerConfirmsCharacter -count=1` 已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/character_confirmation_test.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestProtocolV2StorytellerCannotStartUntilEveryPlayerConfirmsCharacter`。
+- 删除 `applyStartGame` 中的 `HasConfirmedCharacter` 检查。
+- 删除 `work.md` 中标题以 `2026-09-03 15:54:52` 开头的本节记录。
+
+## 2026-09-03 15:59:41 +08:00 --- 新开局门禁使旧规则测试缺少明确前置条件 --- 显式补齐测试身份确认并完成全量 Go 回归 --- 修改 gameplay/ws 测试夹具与 `work.md`
+
+### 发现什么问题
+- 全量 Go 回归显示，旧的夜间/角色规则测试在分配身份后直接开局，未表达“玩家已经查看并确认身份”的新公共前置条件；完整 WebSocket 流程的修订号与玩家序号也因此需要顺延。
+
+### 使用什么方式解决
+- 新增测试辅助函数 `markAllPlayersConfirmed`，只在意图测试开局后规则的 gameplay 用例中，于 `StartGameCmd` 前显式确认全部现有玩家。
+- 完整 WebSocket 与协议契约用例通过真实 `CONFIRM_CHARACTER` 命令确认每名玩家；同步把新增五次提交后的固定修订号 `20/23` 调整为 `25/28`，P2 序号由 `2` 调整为 `3`。
+- 未修改或放宽生产门禁；`go test ./...` 已全部通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/game_session_test_helpers_test.go`。
+- `packages/backend/internal/gameplay/drunk_test.go`。
+- `packages/backend/internal/gameplay/chef_test.go`。
+- `packages/backend/internal/gameplay/empath_test.go`。
+- `packages/backend/internal/gameplay/first_night_information_test.go`。
+- `packages/backend/internal/gameplay/fortune_teller_test.go`。
+- `packages/backend/internal/gameplay/game_session_test.go`。
+- `packages/backend/internal/gameplay/poison_test.go`。
+- `packages/backend/internal/gameplay/ravenkeeper_test.go`。
+- `packages/backend/internal/gameplay/undertaker_test.go`。
+- `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `packages/backend/internal/ws/protocol_v2_contract_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `markAllPlayersConfirmed` 及上述 gameplay 测试中紧邻 `StartGameCmd` 的对应调用。
+- 删除两个 WebSocket 测试中的确认命令循环，并把完整流程固定修订号/序号恢复为 `20/23` 与 `2`。
+- 删除 `work.md` 中标题以 `2026-09-03 15:59:41` 开头的本节记录。
+
+## 2026-09-03 16:00:37 +08:00 --- 新必填身份确认字段暴露三个旧 TS 夹具缺口 --- 显式补充未确认初值并通过类型检查 --- 修改前端测试夹具与 `work.md`
+
+### 发现什么问题
+- 生成契约把 `hasConfirmedCharacter` 正确设为必填后，全仓 TypeScript 检查定位到三个旧 `RoomPlayer` 夹具没有声明该字段。
+
+### 使用什么方式解决
+- 在对应的初始/死亡/准备状态测试玩家中显式加入 `hasConfirmedCharacter:false`，不把协议字段降级为可选。
+- `.\\node_modules\\.bin\\tsc.cmd --build` 已通过。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-experience.test.ts`。
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 从三个测试玩家夹具中删除 `hasConfirmedCharacter:false`（仅应与整个身份确认协议一并撤回）。
+- 删除 `work.md` 中标题以 `2026-09-03 16:00:37` 开头的本节记录。
+
+## 2026-09-03 16:00:56 +08:00 --- Core 尚未暴露身份确认命令 --- 以单个序列命令测试完成 RED-GREEN --- 修改 WebSocket 客户端、测试与 `work.md`
+
+### 发现什么问题
+- 服务端已支持当前连接玩家确认自己的角色，但共享客户端没有公共方法供 H5/微信页面调用。
+
+### 使用什么方式解决
+- 新增一个且仅一个 Core WebSocket 测试，要求 `confirmCharacter()` 发出带当前身份和客户端序号的无目标 `CONFIRM_CHARACTER` 命令。
+- RED 阶段确认 `client.confirmCharacter` 不存在，测试按预期失败。
+- GREEN 阶段新增无参数方法并复用 `sendSequenced`；玩家身份只取当前认证连接，不允许客户端指定被确认者。
+- 定向 Vitest 已通过（1 passed，21 skipped）。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `confirms the current players character as a sequenced room command`。
+- 删除 `GameWebSocketClient.confirmCharacter` 方法。
+- 删除 `work.md` 中标题以 `2026-09-03 16:00:56` 开头的本节记录。
+
+## 2026-09-03 16:02:02 +08:00 --- 前端 Store 尚未转发身份确认 --- 以单个权威投影测试完成 RED-GREEN --- 修改 Store、测试与 `work.md`
+
+### 发现什么问题
+- 页面状态层尚不能发起身份确认；实现还必须保证服务器拒绝或断线时不会乐观显示为已确认。
+
+### 使用什么方式解决
+- 为测试替身增加 `confirmCharacter` 调用记录。
+- 新增一个且仅一个 Store 测试：转发无参数确认、设置 `pendingCommand='confirm-character'`，同时保持权威投影中的确认值为 `false`。
+- RED 阶段确认 Store 没有 `confirmCharacter` 方法，测试按预期失败。
+- GREEN 阶段新增待处理类型、Core 能力白名单与 Store 公共方法；只转发请求，不改本地房间状态。
+- 定向 Vitest 已通过（1 passed，12 skipped）。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `forwards character confirmation without changing the authoritative projection locally` 及测试替身方法。
+- 从 `PendingCommand`、`SessionClient`、`RoomSessionState` 与 Store 返回对象中删除身份确认接线。
+- 删除 `work.md` 中标题以 `2026-09-03 16:02:02` 开头的本节记录。
+
+## 2026-09-03 16:03:56 +08:00 --- 私密角色卡缺少可验证的遮罩状态模型 --- 以单个初始/揭示时限测试完成 RED-GREEN --- 新增可见性模块、测试并修改 `work.md`
+
+### 发现什么问题
+- 当前角色会直接明文显示；在接入触摸和页面生命周期前，需要先固定“默认遮罩、首次按住揭示、最长 30 秒”的纯状态语义。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯函数测试，要求初始状态不可见且未查看；按下时标记已查看并记录当前时间后 30 秒的强制遮罩时刻。
+- RED 阶段确认可见性模块不存在，测试按预期加载失败。
+- GREEN 阶段新增纯状态模型、默认遮罩工厂、30 秒常量和按下揭示转换。
+- 定向 Vitest 已通过（1 passed）。
+
+### 修改了哪些文件
+- `packages/frontend/src/components/private-character-visibility.test.ts`。
+- `packages/frontend/src/components/private-character-visibility.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/frontend/src/components/private-character-visibility.test.ts`。
+- 删除 `packages/frontend/src/components/private-character-visibility.ts`。
+- 删除 `work.md` 中标题以 `2026-09-03 16:03:56` 开头的本节记录。
+
+## 2026-09-03 16:05:16 +08:00 --- 私密卡尚无统一立即遮罩转换 --- 以单个隐藏状态测试完成 RED-GREEN --- 修改可见性模块、测试与 `work.md`
+
+### 发现什么问题
+- 松手、触摸取消、切后台和超时都需要同一种安全隐藏语义；若隐藏时把“已查看”也清掉，玩家将无法在松手后确认身份。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯函数测试，要求隐藏后 `revealed=false`、截止时间清空，同时保留 `hasRevealed=true`。
+- RED 阶段确认 `concealPrivateCharacter` 不存在，测试按预期失败。
+- GREEN 阶段新增统一隐藏转换，供松手、取消、后台与超时路径共同调用。
+- 定向 Vitest 已通过（1 passed，1 skipped）。
+
+### 修改了哪些文件
+- `packages/frontend/src/components/private-character-visibility.test.ts`。
+- `packages/frontend/src/components/private-character-visibility.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `conceals immediately without forgetting that the character was viewed` 及新增导入。
+- 删除 `concealPrivateCharacter` 函数。
+- 删除 `work.md` 中标题以 `2026-09-03 16:05:16` 开头的本节记录。
+
+## 2026-09-03 16:06:38 +08:00 --- setup 缺少身份确认进度决策 --- 以单个权威确认汇总测试完成 RED-GREEN --- 修改 setup 工具、测试与 `work.md`
+
+### 发现什么问题
+- 服务端会拒绝未全员确认时开局，但 setup 页面还无法提前显示确认进度和禁用开局操作。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯函数测试，要求两名玩家中一人确认时返回 `1/2`、`allConfirmed=false`，并识别当前玩家未确认。
+- RED 阶段确认 `summarizeCharacterConfirmation` 不存在，测试按预期失败。
+- GREEN 阶段实现确认人数/总人数、非空全员确认与本人确认状态汇总。
+- 定向 Vitest 已通过（1 passed，4 skipped）。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-setup/utils.test.ts`。
+- `packages/frontend/src/pages/game-setup/utils.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `summarizes authoritative character confirmations before the first night` 及新增导入。
+- 删除 `summarizeCharacterConfirmation` 函数。
+- 删除 `work.md` 中标题以 `2026-09-03 16:06:38` 开头的本节记录。
+
+## 2026-09-03 16:08:18 +08:00 --- setup/play 明文显示玩家身份且缺少确认交互 --- 接入跨端按住揭示私密卡与权威确认进度 --- 新增组件/样式并修改两页与 `work.md`
+
+### 发现什么问题
+- setup 成员行、setup 身份面板、play 页面标题/成员行/侧栏会持续明文展示玩家角色；没有松手隐藏、后台隐藏、30 秒强制隐藏、水印或“看过后确认”交互。
+
+### 使用什么方式解决
+- 新增复用 `PrivateCharacterCard`：遮罩状态下不渲染角色名称/能力；触摸按下才显示，触摸结束/取消、Taro `useDidHide` 和 30 秒定时器共用立即遮罩转换。
+- 揭示层叠加房间号与玩家名水印，不触发震动或声音；明确提示截图无法从技术上阻止的屏幕私密风险。
+- setup 玩家至少查看一次后才能提交确认，按钮状态只读服务器 `hasConfirmedCharacter`；说书人看到确认进度，全员确认前“开始游戏”禁用。
+- setup/play 的非说书人标题和成员行不再明文泄漏本人角色；说书人仍保留完整角色视图。
+- Context7 的 Taro 4 官方文档确认 `useDidHide` 覆盖微信小程序与 H5；本地 Taro 4 类型确认 `View` 支持 `onTouchStart/onTouchEnd/onTouchCancel`。
+- 相关 Vitest 共 42 条通过，全仓 TypeScript 与 Proto 生成漂移检查通过；Taro H5/微信小程序构建均成功。H5 仅有既有入口资源体积警告，无编译错误。
+- 本地真实 H5 多会话验收：一个说书人页面与五个独立来源玩家页面共同建房/入房，五人准备实时汇总为 `5/5`，身份成功发放；玩家 DOM 仅包含遮罩提示，不含“间谍”等角色明文，确认按钮在未查看前确实为禁用；390×844 移动端视口截图显示卡片和操作区无横向溢出。
+
+### 修改了哪些文件
+- `packages/frontend/src/components/private-character-card.tsx`。
+- `packages/frontend/src/components/private-character-card.css`。
+- `packages/frontend/src/pages/game-setup/index.tsx`。
+- `packages/frontend/src/pages/game-play/index.tsx`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `private-character-card.tsx/.css`，恢复 setup/play 原有角色面板、标题与成员行显示。
+- 从 setup 页面移除确认汇总、`confirmCharacter` 接线和开局按钮确认门禁。
+- 删除 `work.md` 中标题以 `2026-09-03 16:08:18` 开头的本节记录。
+
+## 2026-09-03 16:22:39 +08:00 --- 死亡玩家投反对也会消耗幽灵票 --- 以单个幽灵票保留测试完成 RED-GREEN --- 新增投票规则测试并修改投票实现与 `work.md`
+
+### 发现什么问题
+- `applyCastVote` 在读取赞成/反对决定前就标记死亡玩家已使用幽灵票，违反“只有死者投赞成才消耗一次性票”的规则。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 公共命令测试：死者投反对后投票成功、内部未标记消耗，公开投影仍列出该玩家的可用幽灵票。
+- RED 阶段确认反对票会立即把 `ghostVotesUsed` 标记为真，测试按预期失败。
+- GREEN 阶段把幽灵票可用性检查和消耗限定为 `!IsAlive && Decision`；死者仍可在后续提名中投反对。
+- 定向 Go 测试已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/gameplay/voting_rules_test.go` 中 `TestDeadPlayerVotingNoKeepsGhostVote`。
+- 把 `applyCastVote` 的死者幽灵票条件恢复为不区分赞成/反对。
+- 删除 `work.md` 中标题以 `2026-09-03 16:22:39` 开头的本节记录。
+
+## 2026-09-03 16:24:12 +08:00 --- 被拒绝的死者重复赞成票仍会消耗幽灵票 --- 以单个无副作用测试完成 RED-GREEN --- 修改投票规则测试、投票实现与 `work.md`
+
+### 发现什么问题
+- 幽灵票消耗发生在重复投票校验之前，导致命令最终报错但一次性资源已经被扣除。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：已投反对的死者再投赞成必须被拒绝，且 `ghostVotesUsed` 仍为假。
+- RED 阶段确认重复赞成票报错前已经消耗幽灵票，测试按预期失败。
+- GREEN 阶段把幽灵票检查/扣除移动到重复投票和管家能力校验之后，只有通过全部校验的死者赞成票才会扣除资源。
+- 定向 Go 测试已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestRejectedDuplicateYesVoteDoesNotSpendGhostVote`。
+- 把 `applyCastVote` 的幽灵票检查/扣除块移回重复投票校验之前。
+- 删除 `work.md` 中标题以 `2026-09-03 16:24:12` 开头的本节记录。
+
+## 2026-09-03 16:26:41 +08:00 --- 过半票会被错误地立即处决并结束白天 --- 以单个“上台而非处决”测试完成 RED-GREEN --- 修改投票历史/投影/快照、规则测试与 `work.md`
+
+### 发现什么问题
+- 现有 `ResolveNomination` 把达到存活半数直接等同于处决、死亡和进入夜晚，无法继续当天后续提名，也无法比较全日最高票。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：5 人局获 3 票者应成为唯一待处决候选并记录票数，但仍存活、无死亡记录、阶段回到白天。
+- RED 阶段确认待处决候选投影不存在，且旧结算会立即杀人入夜。
+- GREEN 阶段新增不可变 `NominationResult` 历史（含逐人票型、赞成/反对/门槛和天数）并纳入快照；候选/最高票/并列从当天历史派生，避免散字段漂移。
+- 提名结算现在只追加公开记录并回到白天，不再杀死被提名者；定向 Go 测试已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/game/game.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/game_session_snapshot.go`。
+- `packages/backend/internal/gameplay/projection.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestResolvedMajorityPutsNomineeOnBlockWithoutExecuting`。
+- 删除 `game.NominationResult`、GameSession/快照中的提名历史、投影候选字段及派生函数，并恢复 `applyResolveNomination` 的即时处决/入夜逻辑。
+- 删除 `work.md` 中标题以 `2026-09-03 16:26:41` 开头的本节记录。
+
+## 2026-09-03 16:29:59 +08:00 --- 日终缺少“系统候选→说书人确认→处决”事务 --- 以单个日终确认测试完成 RED-GREEN --- 修改日终命令/规则、投票测试与 `work.md`
+
+### 发现什么问题
+- 提名已能产生候选，但没有单一、显式的说书人日终确认命令来执行唯一候选并推进夜晚；复用普通切阶段会绕过人工确认语义。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：说书人提交 `FinalizeDayCmd` 后，唯一候选产生处决死亡记录/事件，随后进入夜晚。
+- RED 阶段确认 `FinalizeDayCmd` 不存在，测试按预期编译失败。
+- GREEN 阶段新增显式日终命令：仅说书人、白天且无活动提名时可提交；唯一候选在该事务内处决并检查胜负，否则检查市长无处决胜利，未结束才进入夜晚。
+- 定向 Go 测试已通过；普通 `CHANGE_PHASE` 的绕过路径将在下一条独立测试中关闭。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestStorytellerFinalizesDayByExecutingUniqueCandidateAndStartingNight`。
+- 删除 `FinalizeDayCmd`、命令标记/分派与 `applyFinalizeDay`。
+- 删除 `work.md` 中标题以 `2026-09-03 16:29:59` 开头的本节记录。
+
+## 2026-09-03 16:31:35 +08:00 --- 普通切阶段仍可绕过日终确认事务 --- 以单个旁路拒绝测试完成 RED-GREEN 并清理旧路径 --- 修改投票规则测试、阶段实现与 `work.md`
+
+### 发现什么问题
+- 新增 `FinalizeDayCmd` 后，旧 `ChangePhaseCmd(day→night)` 仍能直接切夜晚，跳过候选处决、市长判断和日终人工确认。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试，要求白天到夜晚的普通切阶段命令被拒绝且阶段保持白天。
+- RED 阶段确认 `CHANGE_PHASE` 仍可直接进入夜晚，测试按预期失败。
+- GREEN 阶段明确要求使用 `FINALIZE_DAY`；重构删除旧切阶段中的市长/中毒/开夜副作用，并把黄昏中毒清理迁入唯一日终事务。
+- 定向 Go 测试已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestChangePhaseCannotBypassDayFinalization`。
+- 恢复 `applyChangePhase` 的 day→night 分支及其中市长、黄昏清理和开夜逻辑，并从 `applyFinalizeDay` 删除迁移的黄昏清理。
+- 删除 `work.md` 中标题以 `2026-09-03 16:31:35` 开头的本节记录。
+
+## 2026-09-03 16:33:52 +08:00 --- 日终候选与票史尚未进入 WebSocket 公共契约 --- 以单个五连接纵切面测试完成 RED-GREEN --- 新增协议/映射/投影与投票流程测试并修改 `work.md`
+
+### 发现什么问题
+- 领域层已有正确候选和日终命令，但 Proto/Hub/接收者投影尚无对应字段与命令，H5/微信客户端无法显示或确认。
+
+### 使用什么方式解决
+- 新增一个且仅一个 WebSocket v2 纵切面测试：五名玩家完成首夜，P2 获 3 票后投影公开唯一候选与一条完整票史；说书人 `FINALIZE_DAY` 后 P2 才死亡并进入夜晚。
+- RED 阶段确认 RoomState 候选/票史字段和 `FINALIZE_DAY` 均不存在，测试按预期编译失败。
+- GREEN 阶段在 Proto 增加 `NominationResult`、候选/最高票/并列投影及日终命令，更新生成器的领域类型映射，重新生成 Go/TypeScript 契约并接入 Hub/SessionEngine。
+- 候选 ID、票数与并列被建模为同一组可选状态：无候选时可整体省略，客户端按 `0/false` 解释；避免要求所有非投票房间夹具伪造候选值。全仓 TypeScript 检查通过。
+- 定向五连接 WebSocket 测试已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/voting_flow_test.go`。
+- `proto/game.proto`。
+- `scripts/generate-protocol-contracts.mjs`。
+- `packages/backend/internal/ws/protocol_generated.go`（生成产物）。
+- `packages/core/src/websocket/protocol.generated.ts`（生成产物）。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/session_engine.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/ws/voting_flow_test.go`。
+- 从 Proto 删除 `NominationResult`、RoomState 新字段及 `FINALIZE_DAY`，恢复生成器映射后重新生成契约。
+- 删除 Hub 的日终映射与 SessionEngine 的候选/票史投影赋值。
+- 删除 `work.md` 中标题以 `2026-09-03 16:33:52` 开头的本节记录。
+
+## 2026-09-03 16:37:47 +08:00 --- 旧规则测试仍通过普通切阶段或期待过半即结束 --- 迁移到显式日终确认并完成全量 Go 回归 --- 修改 gameplay/ws 测试与 `work.md`
+
+### 发现什么问题
+- 全量回归中，夜间轮转、市长、中毒、守鸦人、入殓师等旧测试仍用 `ChangePhaseCmd(day→night)`；完整 WebSocket 流程则仍期待 `RESOLVE_NOMINATION` 直接处决恶魔。
+
+### 使用什么方式解决
+- 将意图为“结束白天”的测试调用迁移到 `FinalizeDayCmd`，保留专门的旁路拒绝测试继续使用 `ChangePhaseCmd`。
+- 完整 WebSocket 流程先断言恶魔成为候选，再显式 `FINALIZE_DAY`，最终修订号由 28 顺延至 29。
+- `go test ./...` 已全部通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/endgame_test.go`。
+- `packages/backend/internal/gameplay/day_number_test.go`。
+- `packages/backend/internal/gameplay/game_session_test.go`。
+- `packages/backend/internal/gameplay/poison_test.go`。
+- `packages/backend/internal/gameplay/ravenkeeper_test.go`。
+- `packages/backend/internal/gameplay/undertaker_test.go`。
+- `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 将上述旧测试的 `FinalizeDayCmd` 调用恢复为原 `ChangePhaseCmd(day→night)`；删除完整流程新增候选断言/日终命令并把最终修订号恢复为 28（仅应与整套日终事务一并撤回）。
+- 删除 `work.md` 中标题以 `2026-09-03 16:37:47` 开头的本节记录。
+
+## 2026-09-03 16:39:27 +08:00 --- Core 尚未暴露日终确认命令 --- 以单个序列命令测试完成 RED-GREEN --- 修改 WebSocket 客户端、测试与 `work.md`
+
+### 发现什么问题
+- `FINALIZE_DAY` 已存在于服务端协议，但共享 Core 客户端尚无公共调用方法。
+
+### 使用什么方式解决
+- 新增一个且仅一个 Core WebSocket 测试，要求 `finalizeDay()` 发出带当前认证身份和客户端序号的无载荷命令。
+- RED 阶段确认 `client.finalizeDay` 不存在，测试按预期失败。
+- GREEN 阶段新增 `finalizeDay()` 并复用序列命令队列。
+- 定向 Vitest 已通过（1 passed，22 skipped）。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `finalizes the day as a sequenced room command`。
+- 删除 `GameWebSocketClient.finalizeDay` 方法。
+- 删除 `work.md` 中标题以 `2026-09-03 16:39:27` 开头的本节记录。
+
+## 2026-09-03 16:40:29 +08:00 --- 前端 Store 尚未转发日终确认 --- 以单个待处理态测试完成 RED-GREEN --- 修改 Store、测试与 `work.md`
+
+### 发现什么问题
+- Core 已支持 `FINALIZE_DAY`，但页面状态层没有对应动作和独立待处理态，无法防止日终确认重复提交。
+
+### 使用什么方式解决
+- 为测试替身增加 `finalizeDay` 调用记录。
+- 新增一个且仅一个 Store 测试，要求调用被无参数转发且 `pendingCommand='finalize-day'`。
+- RED 阶段确认 Store 没有 `finalizeDay` 方法，测试按预期失败。
+- GREEN 阶段增加独立待处理类型、Core 能力白名单与 Store 公共转发方法。
+- 定向 Vitest 已通过（1 passed，13 skipped）。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `forwards day finalization as its own pending command` 及测试替身方法。
+- 从 Store 的待处理类型、客户端能力、公开接口和返回对象中删除 `finalizeDay` 接线。
+- 删除 `work.md` 中标题以 `2026-09-03 16:40:29` 开头的本节记录。
+
+## 2026-09-03 16:41:48 +08:00 --- 日终 UI 缺少“候选不是即时处决”表达 --- 以单个候选文案测试完成 RED-GREEN 并接入日终确认 UI --- 新增 game-play 工具/测试并修改页面、样式与 `work.md`
+
+### 发现什么问题
+- 后端已把投票与处决分离，但前端尚无统一文案向全桌说明当前最高票只是等待说书人确认的提案。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯函数测试：唯一候选文案包含玩家名、票数，并明确“确认日终后才会被处决”。
+- RED 阶段确认 `executionProposalText` 模块不存在，测试按预期加载失败。
+- GREEN 阶段实现唯一候选、并列、无人上台三种文案；play 页面公开显示当前提案和当天逐轮票数/门槛。
+- 只有说书人能点击“确认日终并进入夜晚”，二次确认弹窗后才调用 `finalizeDay`；删除旧 `changePhase('night')` 页面入口。
+- 定向 Vitest 已通过。
+- TypeScript 首轮检查发现异步确认函数闭包中的 `room` 未被控制流永久收窄；改用可选访问后，全仓 `tsc --build` 已通过。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-play/utils.test.ts`。
+- `packages/frontend/src/pages/game-play/utils.ts`。
+- `packages/frontend/src/pages/game-play/index.tsx`。
+- `packages/frontend/src/pages/game-play/index.css`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/frontend/src/pages/game-play/utils.test.ts`。
+- 删除 `utils.ts`，移除 play 页的处决提案/票史/确认弹窗，恢复说书人工具中的 `changePhase('night')` 按钮并删除新增样式。
+- 删除 `work.md` 中标题以 `2026-09-03 16:41:48` 开头的本节记录。
+
+## 2026-09-03 16:44:40 +08:00 --- 投票没有从被提名者开始的顺时针权威顺序 --- 以单个座次顺序测试完成 RED-GREEN --- 修改提名领域/快照/规则测试与 `work.md`
+
+### 发现什么问题
+- 当前提名只保存双方和票表，任何玩家都可任意时刻投票；无法实现从被提名者开始逐席 3 秒的面杀节奏。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：座次 P1→P2→P3→P4、P2 提名 P4 时，权威投票顺序必须为 P4→P1→P2→P3，并从索引 0 开始；死亡 P3 仍保留席位。
+- RED 阶段确认 `VoterOrder/CurrentVoterIndex` 不存在，测试按预期编译失败。
+- GREEN 阶段在活动提名中持久化完整顺时针玩家 ID 顺序和当前索引；从被提名者的权威座次开始循环，快照克隆会深拷贝顺序。
+- 定向 Go 测试已通过。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/game/game.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `packages/backend/internal/gameplay/game_session_snapshot.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestNominationBuildsClockwiseVoterOrderFromNominee`。
+- 从 `game.Nomination` 删除顺序/索引，删除 `clockwiseVoterOrderLocked` 与提名初始化/快照克隆接线。
+- 删除 `work.md` 中标题以 `2026-09-03 16:44:40` 开头的本节记录。
+
+## 2026-09-03 16:46:18 +08:00 --- 玩家仍可越过顺时针当前席抢先投票 --- 以单个失败测试驱动服务端轮次门禁完成 RED→GREEN --- 修改投票实现、规则测试与 `work.md`
+
+### 发现什么问题
+- 虽然提名已记录投票顺序，`applyCastVote` 尚未读取当前索引，非当前席仍可写入票表。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：当前应由 P2 投票时，P1 的赞成票必须被拒绝，票表和当前索引保持不变。
+- 已运行定向测试并确认 RED：P1 的越序投票被旧实现接纳。
+- 在写票、校验管家和消耗幽灵票之前校验当前索引与当前玩家；投票序列完成后也拒绝新增票，保证失败请求不改变任何状态。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestOnlyCurrentClockwiseSeatCanVote`。
+- 从 `applyCastVote` 删除当前索引范围和 `currentVoterID` 校验。
+- 删除 `work.md` 中标题以 `2026-09-03 16:46:18` 开头的本节记录。
+
+## 2026-09-03 16:49:33 +08:00 --- 当前席投票后轮次不会推进 --- 以单个失败测试驱动索引推进完成 RED→GREEN --- 修改投票实现、规则测试与 `work.md`
+
+### 发现什么问题
+- 服务端已能拒绝越序投票，但合法当前席写票后 `CurrentVoterIndex` 仍停在原位，下一席永远无法获得投票权。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：P2 作为当前席投赞成后，票必须落盘且索引从 0 推进到 1。
+- 已运行定向测试并确认 RED：合法票写入后当前索引仍为 0。
+- 在合法票完成全部校验并写入后将当前索引推进一席；任何失败请求仍不会推进。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestCurrentClockwiseVoteAdvancesToNextSeat`。
+- 从 `applyCastVote` 删除写票后的 `CurrentVoterIndex` 自增。
+- 删除 `work.md` 中标题以 `2026-09-03 16:49:33` 开头的本节记录。
+
+## 2026-09-03 16:51:58 +08:00 --- 说书人可以提前结算未完成的票圈 --- 以单个失败测试驱动完整性门禁完成 RED→GREEN --- 修改投票实现、规则测试与 `work.md`
+
+### 发现什么问题
+- 当前仍有玩家未表态时，`RESOLVE_NOMINATION` 可直接把不完整票表写成公开结果，既绕过顺时针流程，也无法保证“无响应视为否”。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：三席票圈只完成首席后，提前结算必须失败，阶段、提名和历史保持原样。
+- 已运行定向测试并确认 RED：只完成第一席时旧实现仍接受结算。
+- 结算前要求投票顺序非空且当前索引已走完全部席位；拒绝时不写公开历史、不切换阶段。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestStorytellerCannotResolveBeforeEverySeatHasARecordedDecision`。
+- 从 `applyResolveNomination` 删除票圈顺序和索引完整性校验。
+- 删除 `work.md` 中标题以 `2026-09-03 16:51:58` 开头的本节记录。
+
+## 2026-09-03 16:53:23 +08:00 --- 当前席无响应时票圈无法继续 --- 以单个失败测试驱动说书人代记命令完成 RED→GREEN --- 修改领域命令、投票实现、规则测试与 `work.md`
+
+### 发现什么问题
+- 玩家断线或三秒内无响应时，没有权威方式为当前席记录默认“否”，顺时针票圈会永久卡住。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：说书人为当前死亡席代记“否”后，票表写入 false、索引推进且不消耗幽灵票。
+- 已运行定向测试并确认 RED：`RecordVoteCmd` 尚不存在，测试按预期编译失败。
+- 新增只允许当前说书人调用的 `RecordVoteCmd`；它以目标玩家身份复用唯一的投票写入路径，因此轮次、重复票、管家和幽灵票规则不会分叉。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `TestStorytellerCanRecordNoForTheCurrentUnresponsiveSeat`。
+- 删除 `RecordVoteCmd` 类型、命令标记与 `Apply` 分派。
+- 删除 `applyRecordVote`。
+- 删除 `work.md` 中标题以 `2026-09-03 16:53:23` 开头的本节记录。
+
+## 2026-09-03 16:54:59 +08:00 --- 顺时针轮次与说书人代记尚未穿透 WebSocket v2 --- 以单条真实多端失败测试驱动协议接线完成 RED→GREEN --- 修改协议、网关、生成契约、流程测试与 `work.md`
+
+### 发现什么问题
+- 领域层已有轮次与代记能力，但协议没有 `RECORD_VOTE`，客户端也看不到当前索引，真实多连接流程无法使用。
+- 原投票流程测试按 P1、P2、P3 抢投，已不符合从被提名者 P2 开始的顺时针顺序。
+
+### 使用什么方式解决
+- 只改造一条真实 WebSocket 流程测试：P2、P3 依次赞成，说书人为 P4、P5 代记反对，P1 最后赞成；并断言代记后票表与当前索引公开同步。
+- 已运行定向测试并确认 RED：`MsgRecordVote` 尚不存在，测试按预期编译失败。
+- 协议新增 `RECORD_VOTE`，复用 `targetPlayerId + decision` 表达说书人代记；活动提名公开 `voterOrder/currentVoterIndex`。
+- WebSocket v2 将新命令纳入鉴权、序号、持久化和广播的统一命令管线，并校验必填参数。
+- 重新生成 Go/TypeScript 契约，避免手写协议漂移。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/voting_flow_test.go`。
+- `proto/game.proto`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/protocol_generated.go`。
+- `packages/core/src/websocket/protocol.generated.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 将 `TestProtocolV2StorytellerFinalizesTheUniqueExecutionCandidate` 的投票段恢复为 P1/P2/P3 直接投票。
+- 从 proto 删除 `RECORD_VOTE` 与提名的 `voter_order/current_voter_index` 后重新生成契约。
+- 从 Hub 的命令白名单与转换分支删除 `MsgRecordVote`。
+- 删除 `work.md` 中标题以 `2026-09-03 16:54:59` 开头的本节记录。
+
+## 2026-09-03 16:56:50 +08:00 --- Core 客户端无法发送说书人代记票 --- 以单个失败测试驱动受序号保护的方法完成 RED→GREEN --- 修改 WebSocket 客户端与测试、`work.md`
+
+### 发现什么问题
+- 服务端协议已支持 `RECORD_VOTE`，但共享 Core 客户端没有对应方法，前端无法通过受序号保护的命令管线调用。
+
+### 使用什么方式解决
+- 新增一个且仅一个 Core WebSocket 测试：`recordVote('p4', false)` 必须发送含玩家、目标、决定和客户端序号的 `RECORD_VOTE`。
+- 已运行定向测试并确认 RED：运行时明确报告 `client.recordVote is not a function`。
+- 新增 `recordVote(targetPlayerId, decision)`，通过现有 `sendSequenced` 统一携带身份、恢复凭据、客户端序号并参与重放保护。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `lets the storyteller record a decision for the current voter`。
+- 删除 `GameWebSocketClient.recordVote`。
+- 删除 `work.md` 中标题以 `2026-09-03 16:56:50` 开头的本节记录。
+
+## 2026-09-03 16:58:03 +08:00 --- 前端会话仓库无法调用说书人代记票 --- 以单个失败测试驱动仓库动作完成 RED→GREEN --- 修改会话仓库与测试、`work.md`
+
+### 发现什么问题
+- Core 客户端方法已经可用，但 Zustand 会话仓库没有动作和独立 pending 状态，页面无法调用或防止重复提交。
+
+### 使用什么方式解决
+- 新增一个且仅一个仓库测试：`recordVote('p4', false)` 必须原样转发给客户端，并将 pending 标记为 `record-vote`。
+- 已运行定向测试并确认 RED：运行时明确报告 `recordVote is not a function`。
+- 将 `recordVote` 纳入客户端能力、公开仓库动作和 `record-vote` pending 类型，通过现有统一 `send` 包装转发并复用错误恢复行为。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `forwards a storyteller proxy decision as its own pending command`。
+- 从测试 FakeClient、SessionClient、RoomSessionState、PendingCommand 和仓库实现删除 `recordVote` 接线。
+- 删除 `work.md` 中标题以 `2026-09-03 16:58:03` 开头的本节记录。
+
+## 2026-09-03 16:59:03 +08:00 --- 投票页不能从权威索引识别唯一当前席 --- 以单个失败测试驱动纯函数完成 RED→GREEN --- 修改投票页工具与测试、`work.md`
+
+### 发现什么问题
+- 协议已下发票圈顺序和当前索引，但页面仍仅按“自己是否投过”启用按钮，无法保证只有当前席操作。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯函数测试：有效索引返回对应玩家，索引走出票圈后返回 `undefined`。
+- 已运行定向测试并确认 RED：运行时明确报告 `currentVoterId is not a function`。
+- 新增只读取权威 `voterOrder/currentVoterIndex` 的纯函数；非法或完成后的索引安全返回 `undefined`。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-play/utils.test.ts`。
+- `packages/frontend/src/pages/game-play/utils.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `clockwise ballot` 测试组和 `currentVoterId` 导入。
+- 删除 `currentVoterId` 实现。
+- 删除 `work.md` 中标题以 `2026-09-03 16:59:03` 开头的本节记录。
+
+## 2026-09-03 17:00:12 +08:00 --- 游戏页仍以全员抢投呈现新票圈 --- 接入权威当前席、代记否与完整性门禁 --- 修改游戏页、样式与 `work.md`
+
+### 发现什么问题
+- 页面未消费 `voterOrder/currentVoterIndex`，所有未投玩家仍同时看到可用按钮，说书人也可提前结算。
+- 死者投反对的提示和门禁错误：幽灵票只应在赞成时消耗，幽灵票用尽仍必须能在轮到时记录反对。
+
+### 使用什么方式解决
+- 以已转绿的 `currentVoterId` 纯函数为页面门禁，只允许权威当前席操作；赞成额外检查存活或仍有幽灵票，反对始终允许当前席提交。
+- 逐席显示已投、当前、等待状态和进度；说书人可为当前无响应席代记反对，只有全部席位完成后才可结算。
+- 修正文案，明确死者仅投赞成才消耗幽灵票。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-play/index.tsx`。
+- `packages/frontend/src/pages/game-play/index.css`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复页面原 `canVote` 条件、按票表渲染和无条件结算按钮，移除 `recordVote/currentVoterId` 接线。
+- 删除新增 `.voteTurn`、`.voteDecisionWaiting`、`.voteRecordCurrent` 样式。
+- 删除 `work.md` 中标题以 `2026-09-03 17:00:12` 开头的本节记录。
+
+## 2026-09-03 17:01:23 +08:00 --- 提名协议新增必填字段后旧前端夹具无法类型检查 --- 补齐权威票圈字段 --- 修改房间体验测试夹具与 `work.md`
+
+### 发现什么问题
+- TypeScript 全量构建发现旧 `RoomNomination` 测试夹具缺少新必填的 `voterOrder/currentVoterIndex`。
+
+### 使用什么方式解决
+- 为该替换语义测试补入两席顺序与初始索引，不改变测试原本要验证的“完整投影替换可选状态”行为。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-experience.test.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 从该测试的 nomination 夹具删除 `voterOrder/currentVoterIndex`。
+- 删除 `work.md` 中标题以 `2026-09-03 17:01:23` 开头的本节记录。
+
+## 2026-09-03 17:02:53 +08:00 --- 旧后端测试夹具绕过完整顺时针票圈 --- 迁移普通提名夹具到权威顺序模型 --- 修改 gameplay 测试与 `work.md`
+
+### 发现什么问题
+- 全量 gameplay 回归显示旧辅助函数只让任意一名玩家投票便结算，静态提名也没有顺序与完成索引；新完整性门禁正确拒绝了这些旧夹具。
+
+### 使用什么方式解决
+- `resolveNominationWithoutExecutionBy` 改为读取活动提名的权威当前席，逐席记录反对直到票圈完成，再请求结算。
+- 死者幽灵票和多数票静态夹具补齐顺序、索引及明确的反对票，使测试表达完整票圈而非绕过生产约束。
+- 管家规则测试暂不混入本次机械迁移，留作独立语义追踪子弹。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/game_session_test.go`。
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 将 `resolveNominationWithoutExecutionBy` 恢复为只用传入玩家投一张反对票。
+- 从三处静态提名夹具删除顺序/索引，并移除多数票夹具的 P4/P5 反对票。
+- 删除 `work.md` 中标题以 `2026-09-03 17:02:53` 开头的本节记录。
+
+## 2026-09-03 17:04:02 +08:00 --- 管家服务端门禁与公开顺时针票圈冲突 --- 依据官方裁定以单个失败测试移除泄密门禁完成 RED→GREEN --- 修改投票实现、管家测试与 `work.md`
+
+### 发现什么问题
+- 现实现要求主人已经被计为赞成后才接纳管家赞成；当顺时针标记先经过管家时会永久卡住，也会通过错误暴露隐藏身份。
+- 官方管家裁定明确说明座次先后不重要、说书人应照常计入误投，守规则责任在玩家本人；同桌程序不应在服务端拒绝并泄密。
+
+### 使用什么方式解决
+- 只改写一条管家测试：说书人先为被提名席代记反对使标记到达管家，主人的席位尚未经过时，当前管家的赞成必须照常计入并推进。
+- 已运行定向测试并确认 RED：旧实现以“主人尚未赞成”拒绝当前管家，正好复现卡死与身份泄漏。
+- 删除服务器对管家投票的隐藏角色校验；同桌玩家依照桌面手势自行遵守能力，服务端只执行公开轮次、存活/幽灵票和重复票规则。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/butler_test.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复原 `TestButlerCannotVoteYesBeforeMasterVotesYes` 测试内容。
+- 恢复 `applyCastVote` 对 `validateButlerVoteLocked` 的调用与该校验函数。
+- 删除 `work.md` 中标题以 `2026-09-03 17:04:02` 开头的本节记录。
+
+## 2026-09-03 17:05:18 +08:00 --- 其余管家测试仍假定旧服务端隐藏角色门禁 --- 迁移到公开轮次与私密状态分离模型 --- 修改管家测试与 `work.md`
+
+### 发现什么问题
+- 首条官方语义测试转绿后，其余管家测试仍越过被提名席抢投，且有一条期待服务器以缺少主人为由公开拒绝投票。
+- 快照测试把“主人映射是否持久化”与已不成立的乱序投票流程耦合。
+
+### 使用什么方式解决
+- 添加测试辅助方法，由说书人为 P6 代记反对后再让当前 P1 管家表态。
+- 将缺少主人场景改为验证公开投票不泄露私密能力状态；快照场景直接验证主人映射恢复。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/butler_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `advanceVoteMarkerToButler` 及各调用，恢复缺少主人时应报错和快照后的旧投票断言。
+- 删除 `work.md` 中标题以 `2026-09-03 17:05:18` 开头的本节记录。
+
+## 2026-09-03 17:06:36 +08:00 --- 完整 WebSocket 对局测试仍从非当前席抢投 --- 按被提名席起始完成五席票圈并更新修订断言 --- 修改完整对局测试与 `work.md`
+
+### 发现什么问题
+- 后端全量测试只剩完整对局场景失败：P5 被提名后测试直接让 P1 投票，违反新权威顺序，也少了 P4/P5 的明确决定。
+
+### 使用什么方式解决
+- 让说书人先为当前 P5 代记反对，再由 P1、恢复后的 P2、P3 依次赞成，最后为 P4 代记反对，形成完整五席票圈。
+- 两次新增提交使恢复点修订号和终局修订号分别从 25/29 更新为 26/31；仍验证断线恢复保持序号和票表。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复原 P1/P2/P3 三票流程、票表断言及修订号 25/29。
+- 删除 `work.md` 中标题以 `2026-09-03 17:06:36` 开头的本节记录。
+
+## 2026-09-03 17:08:13 +08:00 --- 玩家夜间选择提交后没有待说书人审核状态 --- 以单个失败测试驱动可持久化待审核状态完成 RED→GREEN --- 修改夜间领域、快照、测试与 `work.md`
+
+### 发现什么问题
+- 玩家提交当前角色的夜间选择会直接追加到混合行动列表，却没有可由说书人审核的唯一待处理状态；效果虽未生效，但无法形成可靠确认流程。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：投毒者本人选择目标后应生成 `pendingNightAction`，但唤醒索引、已确认行动和中毒状态都不得改变。
+- 已运行定向测试并确认 RED：`GameSession` 不存在 `pendingNightAction`，测试按预期编译失败。
+- 玩家合法提交时只写唯一 `pendingNightAction` 并广播“已提交”事件，不推进唤醒索引、不写确认行动、不应用中毒等效果；已有待审核选择时拒绝重复提交。
+- 待审核选择深拷贝进入会话快照，开新夜晚或结算夜晚时清空，保证服务器重启后不会丢失或串夜。
+- 测试使用第二夜，使投毒者确为首个活动步骤；首夜爪牙互认步骤应先于投毒，未通过篡改索引绕过。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/night_player_flow_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/information.go`。
+- `packages/backend/internal/gameplay/night.go`。
+- `packages/backend/internal/gameplay/game_session_snapshot.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `night_player_flow_test.go`。
+- 删除 `pendingNightAction` 会话/快照字段及其克隆、清理逻辑，恢复玩家提交直接追加 `nightActions` 的旧流程。
+- 删除 `work.md` 中标题以 `2026-09-03 17:08:13` 开头的本节记录。
+
+## 2026-09-03 17:10:21 +08:00 --- 说书人无法审核并确认玩家夜间选择 --- 以单个失败测试驱动可持久化确认状态完成 RED→GREEN --- 修改夜间领域、快照、测试与 `work.md`
+
+### 发现什么问题
+- 玩家选择已有待审核槽位，但说书人没有独立确认命令，也无法在确认时调整目标/结果；更没有“效果已确认但等待玩家阅知”的状态。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：说书人确认待处理投毒后，应清除 pending、写入 confirmed 与确认行动、应用中毒，但在玩家确认已阅前不推进唤醒索引。
+- 已运行定向测试并确认 RED：确认命令和 `confirmedNightAction` 字段均不存在，测试按预期编译失败。
+- 新增仅说书人可用的确认命令：复核当前步骤、可调整目标/结果、自动生成信息结果，随后才写入权威行动并应用投毒/管家等效果。
+- 确认后的行动进入可持久化 `confirmedNightAction`，在玩家已阅前不推进步骤；这期间拒绝新提交或重复确认。
+- 已确认的玩家选择与说书人代办统一视为权威行动，夜间保护/击杀/守鸦人判断不再依赖 `ActorID == storyteller`。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/night_player_flow_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/night.go`。
+- `packages/backend/internal/gameplay/information.go`。
+- `packages/backend/internal/gameplay/game_session_snapshot.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `TestStorytellerConfirmationAppliesPendingChoiceButWaitsForPlayerAcknowledgement`。
+- 删除确认命令、`confirmedNightAction` 会话/快照字段与夜间结果/效果辅助函数，恢复只处理说书人 ActorID 的旧结算筛选。
+- 删除 `work.md` 中标题以 `2026-09-03 17:10:21` 开头的本节记录。
+
+## 2026-09-03 17:14:16 +08:00 --- 玩家无法确认已阅并推进夜间步骤 --- 以单个失败测试驱动可持久化已阅推进完成 RED→GREEN --- 修改夜间领域、快照、测试与 `work.md`
+
+### 发现什么问题
+- 说书人确认后会正确停在当前步骤，但没有玩家“已阅”命令，夜晚仍无法从审核态继续。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：当前投毒者确认已阅后，唤醒索引推进、confirmed 清空，同时保留已确认行动和已应用效果。
+- 已运行定向测试并确认 RED：`AcknowledgeNightActionCmd` 尚不存在，测试按预期编译失败。
+- 新增玩家已阅命令，只允许当前步骤匹配的存活角色确认；每名角色只能确认一次。
+- 单人步骤确认后立即推进并清理 confirmed；阵营级多人步骤会等待所有匹配玩家确认，已阅集合随快照持久化并在换夜/结算时清理。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/night_player_flow_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/night.go`。
+- `packages/backend/internal/gameplay/information.go`。
+- `packages/backend/internal/gameplay/game_session_snapshot.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `TestActingPlayerAcknowledgementAdvancesToTheNextNightStep`。
+- 删除已阅命令、`nightAcknowledged` 会话/快照字段和 `applyAcknowledgeNightAction`。
+- 删除 `work.md` 中标题以 `2026-09-03 17:14:16` 开头的本节记录。
+
+## 2026-09-03 17:16:00 +08:00 --- 当前夜间角色拿不到私密步骤且待审核选择无法投影 --- 以单个失败测试驱动接收者投影完成 RED→GREEN --- 修改夜间投影、测试与 `work.md`
+
+### 发现什么问题
+- 领域状态已存在，但 `ProjectionFor` 仍只给说书人夜间步骤；当前角色手机无法知道自己被唤醒，旁观隐私边界也没有测试保护。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 投影测试：当前投毒者收到 `awaiting_player` 与步骤，旁观者完全看不到；提交后投毒者收到 `awaiting_storyteller` 与自己的待审核选择，旁观者仍为空。
+- 已运行定向测试并确认 RED：夜间状态常量及投影字段均不存在，测试按预期编译失败。
+- 投影新增三态 `awaiting_player/awaiting_storyteller/awaiting_acknowledgement` 以及当前 pending/confirmed 行动。
+- 说书人获得完整步骤与审核数据；仅匹配当前步骤的存活角色获得当前步骤，只有提交者看自己的 pending，确认结果可给当前相关角色；旁观者仍为空。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/night_player_flow_test.go`。
+- `packages/backend/internal/gameplay/projection.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `TestOnlyTheActingPlayerReceivesThePrivateNightTurnProjection`。
+- 删除夜间投影三态常量、字段和按接收者分支。
+- 删除 `work.md` 中标题以 `2026-09-03 17:16:00` 开头的本节记录。
+
+## 2026-09-03 17:17:46 +08:00 --- 玩家确认前断线会卡住整夜 --- 以单个失败测试驱动说书人跳过兜底完成 RED→GREEN --- 修改夜间领域、测试与 `work.md`
+
+### 发现什么问题
+- 当前角色若在说书人确认结果后断线，所有匹配角色无法完成已阅，唤醒索引永久停留。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：说书人跳过已确认步骤的玩家已阅后，应推进并清理临时态，但保留已确认行动与已生效的投毒结果。
+- 已运行定向测试并确认 RED：`SkipNightActionCmd` 尚不存在，测试按预期编译失败。
+- 新增仅说书人可用的跳过命令：无论当前处于等待玩家、待审核或待已阅，都推进一席并清理临时选择/确认/已阅集合；已确认并已生效的行动保留。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/night_player_flow_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/night.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `TestStorytellerCanSkipAConfirmedStepWhenTheActorCannotAcknowledge`。
+- 删除 `SkipNightActionCmd`、命令分派和 `applySkipNightAction`。
+- 删除 `work.md` 中标题以 `2026-09-03 17:17:46` 开头的本节记录。
+
+## 2026-09-03 17:19:20 +08:00 --- 间谍旧投影测试禁止其看到自己正在参与的爪牙步骤 --- 区分当前私密步骤与说书人管理数据 --- 修改 gameplay 投影测试与 `work.md`
+
+### 发现什么问题
+- gameplay 全量回归只剩间谍投影断言失败：首夜当前正是爪牙互认，间谍作为存活爪牙现在应收到自己的当前步骤；旧测试把它误当成泄漏说书人面板。
+
+### 使用什么方式解决
+- 改为要求间谍只看到当前 `learn_demon` 私密步骤，同时仍看不到完整唤醒列表、夜间行动历史与中毒状态。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/game_session_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复“CurrentNightWakeStep 必须为空”的旧断言。
+- 删除 `work.md` 中标题以 `2026-09-03 17:19:20` 开头的本节记录。
+
+## 2026-09-03 17:20:06 +08:00 --- 夜间玩家状态机尚未穿透 WebSocket v2 --- 以单个真实六端失败测试驱动协议接线完成 RED→GREEN --- 修改协议、生成器、网关、投影适配、测试与 `work.md`
+
+### 发现什么问题
+- 领域层已有提交、审核、已阅和隐私投影，但协议没有确认/已阅/跳过命令，也没有投影字段，微信/H5 客户端无法参与。
+
+### 使用什么方式解决
+- 新增一个且仅一个真实 WebSocket 流程测试：五名玩家与说书人完成开局，当前爪牙独享首夜步骤并提交，说书人看到待审核且确认，只有行动者收到结果，行动者已阅后推进至恶魔步骤。
+- 同时断言旁观者在选择前后均看不到步骤或待审核数据。
+- 已运行定向测试并确认 RED：RoomState 字段和确认/已阅消息常量均不存在，测试按预期编译失败。
+- 协议新增确认、已阅、跳过三条命令，以及夜间状态、pending、confirmed 三个接收者特定投影字段。
+- Hub 将新命令纳入统一鉴权/序号/事务管线，SessionEngine 透传领域隐私投影；生成器为两个 NightAction 指针补显式 Go 类型并重新生成双端契约。
+- 生成后的 Go RoomState 直接复用强类型 `game.NightActionType`，测试按该枚举比较而非错误转换为 string。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/night_player_flow_test.go`。
+- `proto/game.proto`。
+- `scripts/generate-protocol-contracts.mjs`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/session_engine.go`。
+- `packages/backend/internal/ws/protocol_generated.go`。
+- `packages/core/src/websocket/protocol.generated.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `packages/backend/internal/ws/night_player_flow_test.go`。
+- 从 proto 删除三条夜间命令和三个 RoomState 字段，删除生成器类型覆盖后重新生成。
+- 从 Hub 与 SessionEngine 删除相应命令/投影接线。
+- 删除 `work.md` 中标题以 `2026-09-03 17:20:06` 开头的本节记录。
+
+## 2026-09-03 17:22:16 +08:00 --- Core 客户端缺少夜间审核生命周期方法 --- 以单个失败测试驱动三条有序方法完成 RED→GREEN --- 修改 Core WebSocket 客户端、测试与 `work.md`
+
+### 发现什么问题
+- 服务端协议纵切已完成，但共享客户端无法发送说书人确认、玩家已阅或说书人跳过命令。
+
+### 使用什么方式解决
+- 新增一个且仅一个客户端测试：确认（含调整目标/结果）、已阅、跳过必须依次经序号 1/2/3 发出，并等待前一命令确认后再发送下一条。
+- 已运行定向测试并确认 RED：运行时明确报告 `confirmNightAction is not a function`。
+- 新增确认、已阅、跳过三个方法，全部通过 `sendSequenced` 排队；确认携带说书人最终目标和去空白结果。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `sends the night review lifecycle through sequenced commands`。
+- 删除三个 GameWebSocketClient 夜间生命周期方法。
+- 删除 `work.md` 中标题以 `2026-09-03 17:22:16` 开头的本节记录。
+
+## 2026-09-03 17:23:16 +08:00 --- Zustand 会话仓库缺少夜间审核生命周期动作 --- 以单个失败测试驱动三动作转发完成 RED→GREEN --- 修改会话仓库、测试与 `work.md`
+
+### 发现什么问题
+- Core 已支持确认、已阅和跳过，但页面使用的会话仓库尚无对应动作及 pending 分类。
+
+### 使用什么方式解决
+- 新增一个且仅一个仓库测试：三个动作必须按参数原样转发，最后一条跳过将 pending 标记为 `skip-night-action`。
+- 已运行定向测试并确认 RED：运行时明确报告 `confirmNightAction is not a function`。
+- 将确认、已阅、跳过加入 SessionClient/RoomSessionState 和三个独立 pending 类型，统一通过现有 `send` 错误边界转发。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `forwards the three night review lifecycle actions`。
+- 从 FakeClient、能力 Pick、仓库接口/实现和 PendingCommand 删除三动作接线。
+- 删除 `work.md` 中标题以 `2026-09-03 17:23:16` 开头的本节记录。
+
+## 2026-09-03 17:24:55 +08:00 --- 夜间玩家与说书人仍停留在旧单机表单 --- 接入三阶段私密交互、断线兜底与横屏面板 --- 修改游戏页、样式与 `work.md`
+
+### 发现什么问题
+- 非说书人夜晚仍只显示闭眼等待，无法使用已经贯通的私密步骤；说书人表单也不会区分等待玩家、待复核、待玩家已阅。
+
+### 使用什么方式解决
+- 当前角色手机按权威状态显示：私密选人/提交、等待说书人、裁定结果/已阅；阵营级步骤支持一人提交后相关角色共同等待与分别已阅。
+- 说书人面板自动带入玩家选择，可调整目标和最终结果后确认；无玩家提交时仍可代办，任一阶段均可在二次确认后跳过断线步骤。
+- 已确认效果在跳过“已阅”时保留；玩家提交不允许填写裁定结果。
+- 新增夜间高对比私密视觉，并在宽屏横向设备将主流程与说书人侧栏改为双栏、侧栏吸顶。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-play/index.tsx`。
+- `packages/frontend/src/pages/game-play/index.css`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复夜间仅说书人直接提交、非说书人统一等待的两段旧 JSX，并移除三个仓库动作选择器/审核辅助函数。
+- 删除新增夜间审核、玩家唤醒和横屏媒体查询样式。
+- 删除 `work.md` 中标题以 `2026-09-03 17:24:55` 开头的本节记录。
+
+## 2026-09-03 17:27:26 +08:00 --- 完整对局旧隐私断言禁止当前角色看自己的夜间步骤 --- 收紧为角色匹配的私密投影断言 --- 修改 WebSocket 完整对局测试与 `work.md`
+
+### 发现什么问题
+- 后端全量回归只剩旧断言失败：它要求所有玩家的 `CurrentNightWakeStep` 永远为空，与新“仅当前角色手机亮起”的目标冲突。
+
+### 使用什么方式解决
+- 继续严格禁止完整唤醒列表、行动历史、pending/confirmed 和中毒状态泄漏。
+- 若玩家收到单个当前步骤，则验证其真实角色或阵营类型确实匹配，并且状态只能是 `awaiting_player`；无步骤时也不得单独泄漏状态。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复玩家 `CurrentNightWakeStep` 必须为空的旧断言并删除 gameplay 导入。
+- 删除 `work.md` 中标题以 `2026-09-03 17:27:26` 开头的本节记录。
+
+## 2026-09-03 17:29:17 +08:00 --- 随机配包没有生成小恶魔三张伪装身份 --- 以单个失败测试驱动配置与验证完成 RED→GREEN --- 修改剧本核心、测试与 `work.md`
+
+### 发现什么问题
+- 暗流涌动首夜小恶魔必须得知三张不在场善良身份，当前 `ScriptSetup` 和随机配包完全没有该数据。
+
+### 使用什么方式解决
+- 新增一个且仅一个 Core 测试：随机配置必须包含恰好三张、不重复、不在实际配置中且阵营为善良的伪装身份。
+- 已运行定向测试并确认 RED：随机配置的 `demonBluffCharacterIds` 为 undefined。
+- `ScriptSetup` 新增三张伪装身份；随机器从未实际在场、未作为酒鬼展示且阵营为善良的角色中无重复抽取三张。
+- 配置验证新增 `INVALID_DEMON_BLUFFS`，拒绝数量、重复、在场、酒鬼展示占用、邪恶或未知角色；补齐原手写合法夹具。
+
+### 修改了哪些文件
+- `packages/core/src/scripts/__tests__/scripts.test.ts`。
+- `packages/core/src/scripts/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `generates three unique out-of-play good characters as Demon bluffs`。
+- 从 ScriptSetup、验证和随机器删除伪装身份字段/规则，恢复两个手写夹具。
+- 删除 `work.md` 中标题以 `2026-09-03 17:29:17` 开头的本节记录。
+
+## 2026-09-03 17:31:13 +08:00 --- 后端首夜恶魔信息仍只有爪牙名单 --- 以单个失败测试驱动持久化伪装信息完成 RED→GREEN --- 修改配包领域、快照、信息计算、测试与 `work.md`
+
+### 发现什么问题
+- 即使前端配置将生成伪装身份，后端会话尚未保存，首夜恶魔信息仍只返回爪牙。
+
+### 使用什么方式解决
+- 只改写一条已有首夜测试：恶魔必须同时得到爪牙名单与确定的三张不在场善良身份（厨师、共情者、占卜师）。
+- 已运行定向测试并确认 RED：旧结果只有 `Minions: P4 (Poisoner)`。
+- 角色发放命令与会话快照新增三张伪装身份；显式输入严格校验为不重复、不在场/不占用酒鬼展示且为善良角色。
+- 为兼容旧保存与测试，未显式传入时按剧本顺序确定性补足三张合法伪装；首夜恶魔信息同时输出爪牙和伪装身份。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/evil_team_information_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/game_session_snapshot.go`。
+- `packages/backend/internal/gameplay/information.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 将首夜恶魔期望恢复为仅 `Minions: P4 (Poisoner)`。
+- 删除发放命令/会话/快照的伪装字段、`resolveDemonBluffCharacterIDs` 和首夜结果拼接。
+- 删除 `work.md` 中标题以 `2026-09-03 17:31:13` 开头的本节记录。
+
+## 2026-09-03 17:32:53 +08:00 --- 小恶魔伪装身份尚未穿透 WebSocket 发放与投影 --- 以单个完整对局失败测试驱动协议接线完成 RED→GREEN --- 修改协议、领域投影、网关、生成契约、测试与 `work.md`
+
+### 发现什么问题
+- 领域层能保存并生成伪装信息，但协议发放消息没有字段，说书人也无法在最终配置投影核对。
+
+### 使用什么方式解决
+- 只改造完整 WebSocket 对局测试：发放明确的厨师/共情者/占卜师三张伪装，断言说书人投影保留，首夜恶魔结果完整包含它们。
+- 已运行定向测试并确认 RED：ClientMessage 不接受伪装字段，RoomState 也无对应投影。
+- 协议在角色发放和 RoomState 中新增三张伪装身份；Hub 传入领域命令，Projection 只向说书人公开原始配置，SessionEngine 透传并重新生成双端契约。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `proto/game.proto`。
+- `packages/backend/internal/gameplay/projection.go`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/session_engine.go`。
+- `packages/backend/internal/ws/protocol_generated.go`。
+- `packages/core/src/websocket/protocol.generated.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复发放命令不带伪装、删除说书人投影断言，并恢复旧恶魔结果字符串和 slices 导入。
+- 删除协议字段、Hub/Projection/SessionEngine 接线并重新生成契约。
+- 删除 `work.md` 中标题以 `2026-09-03 17:32:53` 开头的本节记录。
+
+## 2026-09-03 17:34:44 +08:00 --- Core 角色发放方法无法携带三张恶魔伪装 --- 以单个失败测试驱动出站字段完成 RED→GREEN --- 修改 Core WebSocket 客户端、测试与 `work.md`
+
+### 发现什么问题
+- 协议已支持伪装字段，但 Core `assignCharacters` 仍只有角色、酒鬼展示和红鲱鱼三个配置参数。
+
+### 使用什么方式解决
+- 新增一个且仅一个客户端测试：第四个参数的三张伪装必须原序写入 `ASSIGN_CHARACTERS.demonBluffCharacterIds`。
+- 已运行定向测试并确认 RED：ASSIGN_CHARACTERS 消息缺少 `demonBluffCharacterIds`。
+- `assignCharacters` 新增可选第四参数，非空时原序写入受序号保护的发放消息。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `sends the three configured Demon bluffs with character assignment`。
+- 删除 `assignCharacters` 第四参数及消息字段。
+- 删除 `work.md` 中标题以 `2026-09-03 17:34:44` 开头的本节记录。
+
+## 2026-09-03 17:35:44 +08:00 --- Zustand 角色发放动作会丢弃恶魔伪装 --- 以单个失败测试驱动第四参数转发完成 RED→GREEN --- 修改会话仓库、测试与 `work.md`
+
+### 发现什么问题
+- Core 发放方法已扩展，但前端仓库接口仍只有三个参数，设置页的三张伪装无法送达服务端。
+
+### 使用什么方式解决
+- 新增一个且仅一个仓库测试：第四参数三张伪装必须与角色、酒鬼展示、红鲱鱼一起原样转发。
+- 已运行定向测试并确认 RED：FakeClient 只收到前三个发放参数，伪装数组被丢弃。
+- 扩展 RoomSessionState 签名和实现，将第四参数原样交给 Core 客户端。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `forwards Demon bluffs with the character setup`。
+- 删除仓库发放动作第四参数及转发。
+- 删除 `work.md` 中标题以 `2026-09-03 17:35:44` 开头的本节记录。
+
+## 2026-09-03 17:37:14 +08:00 --- 说书人换角后原恶魔伪装可能变成在场或重复 --- 以单个失败测试驱动规范化工具完成 RED→GREEN --- 修改设置工具、测试与 `work.md`
+
+### 发现什么问题
+- 随机配置初始合法，但说书人逐席换角或改变酒鬼展示后，原三张伪装可能不再可用；直接保留会导致发放被服务端拒绝。
+
+### 使用什么方式解决
+- 新增一个且仅一个纯函数测试：保留仍合法的现有选择，去掉在场/重复项，再按候选顺序补足三张。
+- 已运行定向测试并确认 RED：运行时明确报告 `normalizeDemonBluffs is not a function`。
+- 新增纯函数：按原顺序保留候选集中且不重复的当前选择，再按候选顺序补到最多三张。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-setup/utils.test.ts`。
+- `packages/frontend/src/pages/game-setup/utils.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除规范化测试和导入。
+- 删除 `normalizeDemonBluffs`。
+- 删除 `work.md` 中标题以 `2026-09-03 17:37:14` 开头的本节记录。
+
+## 2026-09-03 17:38:20 +08:00 --- 设置页无法核对或调整小恶魔三张伪装 --- 接入合法候选、冲突修复、发放与首夜中文展示 --- 修改设置页、结果显示与 `work.md`
+
+### 发现什么问题
+- 随机配置虽已有伪装数据，但页面不显示、不允许调整，发放动作也未传入；换角后可能保留冲突选择。
+- 首夜英文结果中的 `Bluffs` 段没有中文本地化。
+
+### 使用什么方式解决
+- 设置页列出所有未在场、未作为酒鬼展示的善良身份，允许说书人保持三选；换角/酒鬼展示时用已测试纯函数保留合法项并补足。
+- 发放时携带三张伪装，身份锁定后的最终配置仅向说书人展示以便核对。
+- 私密首夜结果把 `Bluffs` 本地化为“伪装身份”。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-setup/index.tsx`。
+- `packages/frontend/src/lib/character-display.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 eligible/toggle/normalize 逻辑、两处伪装身份 UI 和发放第四参数。
+- 恢复 `nightResultDisplay` 不处理 Bluffs 段。
+- 删除 `work.md` 中标题以 `2026-09-03 17:38:20` 开头的本节记录。
+
+## 2026-09-03 17:39:18 +08:00 --- 公共投影泄露死亡原因和击杀者 --- 以单个失败测试驱动服务端脱敏完成 RED→GREEN --- 修改投影实现、契约测试与 `work.md`
+
+### 发现什么问题
+- 当前 `Deaths` 原样发给每个玩家，夜杀、能力致死和 `killedBy` 会泄露说书人私密裁定，违反已确认的黎明只公布姓名规则。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 投影测试：普通玩家只能得到死亡玩家和天数，死因/击杀者为空；说书人仍得到完整记录。
+- 已运行定向测试并确认 RED：玩家收到完整 `night_kill` 与击杀者 P1。
+- 接收者能力新增 `seeDeathCauses`，仅说书人/内部可信投影可见；普通玩家的死亡记录保留玩家与天数，但清空死因和击杀者。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/projection_contract_test.go`。
+- `packages/backend/internal/gameplay/projection.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `TestPlayerProjectionHidesPrivateDeathCauseAndKiller`。
+- 删除死亡记录副本脱敏与 `seeDeathCauses` 能力。
+- 删除 `work.md` 中标题以 `2026-09-03 17:39:18` 开头的本节记录。
+
+## 2026-09-03 17:40:48 +08:00 --- 页面仍把脱敏后的空死因当作公开标签 --- 统一玩家端只显示死亡日，说书人保留原因 --- 修改进行中页、结果页与 `work.md`
+
+### 发现什么问题
+- 服务端已脱敏，但进行中与结果页仍按死因字典渲染，空值会产生残缺文案，且旧代码语义仍鼓励公开死因。
+
+### 使用什么方式解决
+- 普通玩家的状态行与时间线只显示“第 N 天死亡”；进行中说书人视图额外显示私密死因。
+- 结果页的公开身份卡与死亡时间线同样只保留死亡日，移除死因字典。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-play/index.tsx`。
+- `packages/frontend/src/pages/game-over/index.tsx`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复两页按 `DEATH_CAUSE_LABELS` 公开渲染的旧文案和结果页字典。
+- 删除 `work.md` 中标题以 `2026-09-03 17:40:48` 开头的本节记录。
+
+## 2026-09-03 17:41:23 +08:00 --- 游戏结束瞬间自动向全员揭示身份 --- 以单个失败测试驱动说书人揭幕门禁完成 RED→GREEN --- 修改终局领域、快照、投影、测试与 `work.md`
+
+### 发现什么问题
+- `Finished` 阶段自动启用全角色可见，绕过已确认的说书人揭幕控制，胜负产生与公开魔典无法分开。
+
+### 使用什么方式解决
+- 只改写一条终局投影测试：结束后普通玩家仍看不到他人身份；说书人执行 `PublishGrimoireCmd` 后才向其揭示小恶魔。
+- 已运行定向测试并确认 RED：`PublishGrimoireCmd` 尚不存在（旧投影同时会提前揭示）。
+- 新增仅说书人可在已结束且有胜负时执行的幂等揭幕命令；`grimoireRevealed` 随快照持久化并进入投影。
+- 普通玩家只有在揭幕标记为真后才获得全角色；说书人始终保留其私密全局视图。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/game_session_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/endgame.go`。
+- `packages/backend/internal/gameplay/game_session_snapshot.go`。
+- `packages/backend/internal/gameplay/projection.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复 `TestGameSessionFinishedStateRevealsCharactersToPlayers` 的结束即揭示断言。
+- 删除揭幕命令、状态/快照/投影字段，并恢复 Finished 自动 `seeAllCharacters`。
+- 删除 `work.md` 中标题以 `2026-09-03 17:41:23` 开头的本节记录。
+
+## 2026-09-03 17:43:23 +08:00 --- 说书人揭幕门禁尚未穿透真实 WebSocket 对局 --- 以单个完整对局失败测试驱动协议接线完成 RED→GREEN --- 修改协议、网关、投影适配、生成契约、测试与 `work.md`
+
+### 发现什么问题
+- 领域门禁已完成，但协议无发布命令/标记；原完整对局还假定结束广播自动带全角色与公开死因。
+
+### 使用什么方式解决
+- 改造唯一完整对局测试：终局时说书人仍看全局、每位玩家只看自己且 `grimoireRevealed=false`；发布命令提交后全员才看到全部角色，修订号推进到 32。
+- 同时让公共终局断言只检查死亡玩家与天数，不再要求已被脱敏的死因。
+- 已运行定向测试并确认 RED：发布命令常量与 RoomState 揭幕标记均不存在。
+- 协议新增 `PUBLISH_GRIMOIRE` 与必填 `grimoire_revealed`；Hub 进入统一命令事务，SessionEngine 透传领域标记并重新生成双端契约。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `proto/game.proto`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/session_engine.go`。
+- `packages/backend/internal/ws/protocol_generated.go`。
+- `packages/core/src/websocket/protocol.generated.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复终局立即对所有广播调用全角色断言、修订号 31 和公开处决死因断言，删除发布步骤。
+- 删除协议发布命令/标记、Hub/SessionEngine 接线并重新生成契约。
+- 删除 `work.md` 中标题以 `2026-09-03 17:43:23` 开头的本节记录。
+
+## 2026-09-03 17:44:51 +08:00 --- Core 客户端不能发送发布魔典命令 --- 以单个失败测试驱动受序号保护的方法完成 RED→GREEN --- 修改 Core WebSocket 客户端、测试与 `work.md`
+
+### 发现什么问题
+- 服务端发布命令已贯通，但共享客户端没有方法，结果页无法调用。
+
+### 使用什么方式解决
+- 新增一个且仅一个客户端测试：`publishGrimoire()` 必须发送携带身份与客户端序号的 `PUBLISH_GRIMOIRE`。
+- 已运行定向测试并确认 RED：运行时明确报告 `publishGrimoire is not a function`。
+- 新增 `publishGrimoire()` 并通过统一 `sendSequenced` 管线发送。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `publishes the grimoire through a sequenced command`。
+- 删除 `GameWebSocketClient.publishGrimoire`。
+- 删除 `work.md` 中标题以 `2026-09-03 17:44:51` 开头的本节记录。
+
+## 2026-09-03 17:45:48 +08:00 --- Zustand 仓库无法触发终局揭幕 --- 以单个失败测试驱动动作与 pending 完成 RED→GREEN --- 修改会话仓库、测试与 `work.md`
+
+### 发现什么问题
+- 结果页只能访问会话仓库，Core 方法不能被页面直接安全调用。
+
+### 使用什么方式解决
+- 新增一个且仅一个仓库测试：发布动作必须调用客户端并设置独立 `publish-grimoire` pending 状态。
+- 已运行定向测试并确认 RED：运行时明确报告 `publishGrimoire is not a function`。
+- 将客户端能力、公开仓库动作和 `publish-grimoire` pending 分类完整接线。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `forwards grimoire publication as its own pending command`。
+- 从 FakeClient、SessionClient、RoomSessionState、PendingCommand 与仓库实现删除发布接线。
+- 删除 `work.md` 中标题以 `2026-09-03 17:45:48` 开头的本节记录。
+
+## 2026-09-03 17:47:07 +08:00 --- 结果页没有揭幕控制且遗漏投票复盘 --- 接入说书人发布魔典与完整提名时间线 --- 修改结果页与 `work.md`
+
+### 发现什么问题
+- 后端已区分胜负与揭幕，但结果页仍直接渲染“身份缺失”卡片，也没有发布入口。
+- 已持久化的 `nominationResults` 未在最终复盘展示。
+
+### 使用什么方式解决
+- 说书人结束后先看到私密魔典，并可通过不可逆二次确认向全员公开；普通玩家公开前只看到胜负、等待提示和公共时间线。
+- 揭幕后统一显示身份卡；新增按天展示提名者、被提名者、赞成、反对和门槛的投票时间线。
+- 顶部动作同时容纳发布魔典与关闭/离开。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-over/index.tsx`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复结果页固定标题与无条件身份列表，删除发布动作、等待视图和投票时间线。
+- 删除 `work.md` 中标题以 `2026-09-03 17:47:07` 开头的本节记录。
+
+## 2026-09-03 17:48:21 +08:00 --- 夜间死亡缺少黎明批量审核关口 --- 以单个失败测试驱动建议/编辑/确认状态机完成 RED→GREEN --- 修改夜间领域、快照、测试与 `work.md`
+
+### 发现什么问题
+- 当前结束夜晚会立即应用击杀并广播，不能先让说书人核对保护、士兵、镇长转移等结果，也不能确认零人或多人死亡。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：系统先建议 P1 死亡且不改变阶段/存活/死亡历史；说书人改为 P1、P2 两人并确认后，才作为同一黎明批次进入第 1 天。
+- 已运行定向测试并确认 RED：准备/确认命令及待审核字段均不存在，测试按预期编译失败。
+- 新增 `PrepareDawnCmd`：全部夜间步骤完成后，根据恶魔存活/中毒、僧侣保护、士兵与镇长规则生成零/多名建议，仅写私密待审状态。
+- 新增 `ConfirmDawnCmd`：说书人可提交任意不重复的存活玩家批次，确认后原子写入死亡、推进天数和胜负；待审状态随快照持久化。
+- 旧 `ResolveNightCmd` 保留为兼容快速路径，但一旦进入审核态便不能绕过 `CONFIRM_DAWN`。
+- 测试为四名善良玩家补齐角色阵营，避免只有小恶魔被计入存活人数而误触“最终两人”胜负。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/dawn_review_test.go`。
+- `packages/backend/internal/gameplay/game_session.go`。
+- `packages/backend/internal/gameplay/night.go`。
+- `packages/backend/internal/gameplay/information.go`。
+- `packages/backend/internal/gameplay/game_session_snapshot.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `dawn_review_test.go`。
+- 删除两条黎明命令、待审会话/快照字段与建议/确认辅助函数，恢复 ResolveNight 内联直接结算。
+- 删除 `work.md` 中标题以 `2026-09-03 17:48:21` 开头的本节记录。
+
+## 2026-09-03 17:51:29 +08:00 --- 黎明审核尚未穿透 WebSocket 且隐私未验证 --- 以单个完整对局失败测试驱动协议接线完成 RED→GREEN --- 修改协议、领域投影、网关、生成契约、测试与 `work.md`
+
+### 发现什么问题
+- 新领域路径没有协议消息或 RoomState 字段，页面无法使用；也未证明死亡建议只对说书人可见。
+
+### 使用什么方式解决
+- 将完整六端对局的首夜从直接 Resolve 改为 `PREPARE_DAWN → CONFIRM_DAWN`：首夜建议为空且仍在夜晚，只对说书人可见；确认后进入第一天。
+- 多一次持久提交使后续恢复、终局和揭幕修订号整体加一（27/32/33）。
+- 已运行定向测试并确认 RED：准备/确认消息和 RoomState 待审字段均不存在。
+- 协议新增 `PREPARE_DAWN/CONFIRM_DAWN`，确认复用 `targetIds` 传零/多名最终死亡；RoomState 新增待审标记与建议名单。
+- 领域投影只在说书人夜间管理能力下填充建议；Hub 进入统一事务，SessionEngine 透传并重新生成双端契约。
+
+### 修改了哪些文件
+- `packages/backend/internal/ws/protocol_v2_game_flow_test.go`。
+- `proto/game.proto`。
+- `packages/backend/internal/gameplay/projection.go`。
+- `packages/backend/internal/ws/hub_v2.go`。
+- `packages/backend/internal/ws/session_engine.go`。
+- `packages/backend/internal/ws/protocol_generated.go`。
+- `packages/core/src/websocket/protocol.generated.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复单条 `RESOLVE_NIGHT`，删除建议隐私断言，并恢复修订号 26/31/32。
+- 删除黎明协议消息/字段、Projection/Hub/SessionEngine 接线并重新生成契约。
+- 删除 `work.md` 中标题以 `2026-09-03 17:51:29` 开头的本节记录。
+
+## 2026-09-03 17:53:21 +08:00 --- Core 客户端不能调用黎明审核协议 --- 以单个失败测试驱动两条有序方法完成 RED→GREEN --- 修改 Core WebSocket 客户端、测试与 `work.md`
+
+### 发现什么问题
+- 服务端已有准备/确认消息，但 Core 客户端仍只能调用旧的直接 `resolveNight`。
+
+### 使用什么方式解决
+- 新增一个且仅一个客户端测试：先发送序号 1 的 `PREPARE_DAWN`，确认后再发送序号 2 且携带 P2/P4 的 `CONFIRM_DAWN`。
+- 已运行定向测试并确认 RED：运行时明确报告 `prepareDawn is not a function`。
+- 新增 `prepareDawn()` 与 `confirmDawn(deathPlayerIds)`，均通过序号队列发送，确认使用 targetIds 保留零/多人批次。
+
+### 修改了哪些文件
+- `packages/core/src/websocket/__tests__/websocket-client.test.ts`。
+- `packages/core/src/websocket/index.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `sends dawn preparation and the edited death batch in sequence`。
+- 删除两个 GameWebSocketClient 黎明方法。
+- 删除 `work.md` 中标题以 `2026-09-03 17:53:21` 开头的本节记录。
+
+## 2026-09-03 17:54:22 +08:00 --- Zustand 仓库不能调用黎明审核方法 --- 以单个失败测试驱动两动作转发完成 RED→GREEN --- 修改会话仓库、测试与 `work.md`
+
+### 发现什么问题
+- 结果已到 Core，但说书人页面仍不能经 Zustand 调用准备和确认。
+
+### 使用什么方式解决
+- 新增一个且仅一个仓库测试：准备无参数，确认原样转发 P2/P4，并将最后 pending 标记为 `confirm-dawn`。
+- 已运行定向测试并确认 RED：运行时明确报告 `prepareDawn is not a function`。
+- 将两个客户端能力、仓库动作及 `prepare-dawn/confirm-dawn` pending 分类完整接线。
+
+### 修改了哪些文件
+- `packages/frontend/src/lib/room-session-store.test.ts`。
+- `packages/frontend/src/lib/room-session-store.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除测试 `forwards dawn preparation and edited death confirmation`。
+- 从 FakeClient、SessionClient、RoomSessionState、PendingCommand 与实现删除两条黎明动作。
+- 删除 `work.md` 中标题以 `2026-09-03 17:54:22` 开头的本节记录。
+
+## 2026-09-03 17:55:37 +08:00 --- 说书人页面仍用旧的一键结束夜晚 --- 接入私密建议、多选编辑与确认黎明 --- 修改游戏页、样式与 `work.md`
+
+### 发现什么问题
+- 页面仍调用兼容用的 `resolveNight`，会绕过新审核；没有零/多人死亡编辑界面或最终确认文案。
+
+### 使用什么方式解决
+- 全部唤醒步骤完成后只开放“生成黎明死亡建议”；说书人投影返回建议后自动预选。
+- 显示全部存活玩家作为可切换死亡批次，支持清空为零人或追加多人；弹窗列出最终名单，确认后才发送 `CONFIRM_DAWN` 并天亮。
+- 旁观玩家在整个待审阶段仍维持普通夜晚等待视图。
+
+### 修改了哪些文件
+- `packages/frontend/src/pages/game-play/index.tsx`。
+- `packages/frontend/src/pages/game-play/index.css`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复 `resolveNight` 选择器和单个“结束夜晚”按钮，删除黎明本地状态、同步 effect、切换/确认函数与审核面板。
+- 删除 `.dawnReviewPanel` 样式。
+- 删除 `work.md` 中标题以 `2026-09-03 17:55:37` 开头的本节记录。
+
+## 2026-09-03 17:57:39 +08:00 --- 提名后直接开放投票，缺少控方陈述阶段 --- 以单个失败测试驱动定时阶段与投票门禁完成 RED→GREEN --- 修改游戏模型、白天流程、测试与 `work.md`
+
+### 发现什么问题
+- 当前提名立刻进入全席投票，已确认的“控方 30 秒→辩方 30 秒→逐席 3 秒”前两阶段不存在。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：提名必须以带服务端截止时间的 accusation 阶段开始，当前被提名席此时也不能投票。
+- 已运行定向测试并确认 RED：Nomination 阶段、常量与截止字段均不存在。
+- 提名模型新增 accusation/defense/voting、服务端毫秒截止、暂停与剩余时间字段；新提名以 30 秒控方阶段开始。
+- CastVote 仅在 voting 阶段接纳；空阶段仅作为旧快照/手写夹具兼容，不影响新生产提名。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `packages/backend/internal/game/game.go`。
+- `packages/backend/internal/gameplay/day.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `TestNominationStartsWithTimedAccusationBeforeVotesOpen`。
+- 删除 Nomination 定时字段/阶段常量和新提名初始化/投票门禁。
+- 删除 `work.md` 中标题以 `2026-09-03 17:57:39` 开头的本节记录。
+
+## 2026-09-03 17:59:02 +08:00 --- 控方阶段无法推进到辩方和逐席投票 --- 新增单个两段推进测试进入 RED --- 修改投票规则测试与 `work.md`
+
+### 发现什么问题
+- 新提名会停在 accusation，没有说书人提前/到时推进命令，无法进入辩方与正式投票。
+
+### 使用什么方式解决
+- 新增一个且仅一个 gameplay 测试：说书人连续推进后依次进入带未来截止时间的 defense 和 voting（首席三秒）阶段。
+- 当前处于 TDD RED 阶段，`AdvanceNominationStageCmd` 尚不存在。
+
+### 修改了哪些文件
+- `packages/backend/internal/gameplay/voting_rules_test.go`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 删除 `TestStorytellerAdvancesAccusationToDefenseAndVoting` 和 time 导入。
+- 删除 `work.md` 中标题以 `2026-09-03 17:59:02` 开头的本节记录。
+
+## 2026-09-03 17:56:27 +08:00 --- 新揭幕标记作为必填字段破坏旧投影夹具兼容 --- 改为缺省即未揭幕并重新生成契约 --- 修改 proto、生成契约与 `work.md`
+
+### 发现什么问题
+- TypeScript 全量构建显示所有旧 RoomState 夹具都必须机械补 `grimoireRevealed=false`；历史服务投影缺字段时也会产生不必要的不兼容。
+
+### 使用什么方式解决
+- 将协议字段改为 optional，缺失与 false 都表示未揭幕；页面和后端领域仍使用明确布尔语义。
+- 重新生成 Go/TypeScript 契约，避免批量污染无关测试夹具。
+
+### 修改了哪些文件
+- `proto/game.proto`。
+- `packages/backend/internal/ws/protocol_generated.go`。
+- `packages/core/src/websocket/protocol.generated.ts`。
+- `work.md`。
+
+### 撤回方式 [Rollback Strategy]
+- 恢复 `grimoire_revealed` 的 `json_required` 选项并重新生成契约。
+- 删除 `work.md` 中标题以 `2026-09-03 17:56:27` 开头的本节记录。
+
+## 2026-09-07 10:28 +08:00 --- 投票计时断点与暂停/超时缺失 --- 单个失败测试驱动暂停、恢复、重开与带截止令牌的超时默认否 --- 修改 game_session.go、day.go、新增 nomination_timer.go 和 nomination_timer_test.go
+
+- 已验证 RED（命令不存在）；实现仅说书人控制计时，参与者可请求服务端验证过期，旧截止令牌不能推进下一席。补接上次已写入的控辩推进逻辑。
+- 撤回：删除两个新文件及两个命令/分派、暂停门禁；保留此前用户修改。删除本节记录。
+
+## 2026-09-07 10:33 +08:00 --- 控辩计时未贯通页面 --- 同步协议与命令、迁移旧对局测试到先控辩后投票、页面倒计时与暂停/重开 --- 修改 proto、生成器/生成契约、hub_v2.go、Core 客户端、会话仓库、game-play/index.tsx 与投票测试辅助
+
+- 计时以服务端截止时间为准；说书人前台提交到期请求，服务端校验截止令牌且默认记否。说书人离线期间保留状态，重连后继续。
+- 撤回：移除本次三条计时协议和双端接线，恢复测试旧投票流程后重新生成协议。
+
+## 2026-09-07 10:33 +08:00 --- 缺少私人服务器部署方案 --- 子代理补 Docker 多阶段构建、Redis 持久卷和 Caddy HTTPS/WSS --- 修改 Dockerfile、compose.yaml、deploy/Caddyfile、.dockerignore、.env.example、docs/deployment.md、.gitignore
+
+- YAML 静态解析通过；当前机器没有 Docker，容器与公网验收仍待部署环境执行。
+- 撤回：删除新部署文件，仅撤回 .env.example/.gitignore 新段落，保留真实 .env 与数据卷。
+
+## 2026-09-07 10:39 +08:00 --- 终局房间不能复用且房主不能移交 --- Session 事务权限校验与 Gameplay 重赛清理 --- 修改 session/types.go、session.go、新 lifecycle_test.go、gameplay/restart.go/restart_test.go、WS adapter/hub 与 proto
+
+- 两个 Session 主行为及 gameplay 清理先 RED 后 GREEN，验证权限、幂等、持久失败回滚。重赛保留当前成员顺时针座位与说书人，清空角色、投票、死亡、毒、夜间临时信息及揭幕状态。
+- 撤回：删除新重赛文件、Session 两分支及接口，删除协议命令与适配接线后重新生成。
+
+## 2026-09-07 10:39 +08:00 --- 手机页面样式割裂且夜间结果裸露 --- 子代理统一主题和私密结果遮罩 --- 修改 app.css、五个页面 CSS、私密角色 CSS；新增 private-night-result.tsx/test.tsx；修改 night.go/information.go/projection.go/night_player_flow_test.go
+
+- 统一暗色金色主题、46px 触控区、安全区与横屏双栏；信息角色只请求信息，由说书人选择线索；已阅玩家不再收到秘密；结果卡长按查看，后台/松手/30秒隐藏。
+- 验证 CSS 解析 7/7，私密组件 3 条测试和夜间行为测试通过。撤回：移除 CSS 末尾主题块和新增组件，逆向移除信息角色/已阅投影逻辑，不触及此前改动。
+
+## 2026-09-07 10:37 +08:00 --- 恢复身份入口缺失、夜间结果未接隐私组件 --- 测试驱动恢复并接线私密结果 --- 修改 room-session-store.ts/test.ts、game-play/index.tsx、character-display.ts；新增 room-recovery-panel.tsx/css、room-recovery.ts/test.ts、room-invite.ts/test.ts；修改首页和 setup 邀请
+
+- 恢复码解析与导入公开接口先 RED 后 GREEN；导出默认遮罩主动确认，导入密码输入后台清空；复用原座位凭据而非重新加入。当前为持凭据恢复，不包含说书人审批。
+- 邪恶互认仅显示玩家姓名，补齐爪牙同伴，修改 information.go、night_player_flow_test.go、evil_team_information_test.go、protocol_v2_game_flow_test.go，相关 Go 回归通过。
+- 撤回：移除新增恢复文件、导入入口及其测试，恢复邀请路径拼接和夜间明文块；逆向移除互认名单改动及相应断言，不回滚其他工作。
+
+## 2026-09-07 10:40 +08:00 --- 重赛/转房主无前端入口，旧夜晚命令可绕过审核 --- 补全客户端入口并禁用旧客户端夜晚结算 --- 修改 core websocket index/test、frontend store/test、setup/index.tsx、game-over/index.tsx、ws/hub_v2.go；新增 ws/legacy_night_test.go
+
+- 生命周期测试先红后绿，Core/Store 共 50 项通过，TypeScript 编译通过。转让和再开均二次确认，等待服务器权威投影；旧 RESOLVE_NIGHT 回归先失败后禁用，使用生成建议/确认黎明两步。
+- 撤回：仅移除转让/重赛方法、对应类型和入口、新增测试；恢复旧命令映射。保留之前房间与夜间代码。
+
+## 2026-09-07 10:44 +08:00 --- 夜间规则边界错误、验收范围不透明 --- 修复并文档化实际交付边界 --- 修改 gameplay/information.go、night.go 与夜间测试及 WS fixture；README.md；新增 docs/playtest-checklist.md；修改 SessionShell、恢复组件、app.css、room-invite.ts
+
+- 共情跨死亡邻座、空信息确认拒绝、5–6人无邪恶互认、只有实际小恶魔自杀才传位，四项先红后绿。
+- 房内接恢复面板，CSS 单点导入消除微信顺序警告；H5/微信构建和 tsc 已通过；19 文件 243 条前端测试通过，协议漂移检查通过。
+- 验收文档明确未实现的审批/撤销/清理及未验证公网/真机，不将构建成功等同产品全部完成。
+- 撤回：逐项逆向撤销上述逻辑及断言；移除新验收文档和 README 本轮说明；移除 Shell 面板，恢复组件 CSS import。不整体还原共享文件。
+
+## 2026-09-07 10:49 +08:00 --- 手机实测样式缺陷、投票顺序与重赛边界、间谍魔典缺失 --- 子代理实测并修复，扩展完整对局回归 --- 修改 app.css、恢复面板CSS、准备页CSS/TSX、game-play/index.tsx、私密角色CSS；gameplay/day.go、game_session.go及投票/重赛测试；WS完整对局测试；game/game.go、characters.go、gameplay/night.go/information.go/projection.go及夜间测试；core night-phase/scripts及测试
+
+- 390×844 实测创建、指定说书人、独立origin加入、准备/取消、刷新恢复和恢复遮罩通过，无横向溢出。修复 disabled="false" 被误灰化、2×2 概况卡盒模型和弹层按钮间距。
+- 官方顺时针票序以被提名人最后投；再开清空秘密后可换说书人，原说书人回到目标座位。完整 WS 测试覆盖结束→公开→再开→换说书人。
+- 间谍每晚专属步骤复用私密结果卡，不再整夜下发所有人的角色字段；中毒必须手填假魔典。增加中文动作名称与换行显示。
+- Go 全量与 -race 通过，tsc 通过；间谍相关16个TS测试通过。最终双端构建另行复验。
+- 撤回：仅逐项逆向移除上述选择器/盒模型/间距、票序和交换ST分支及其测试、新间谍动作/步骤/结果格式和投影限制；不要整体还原共享文件或删除其他工作。
+
+## 2026-09-07 10:49 +08:00 --- 需要最终构建与验收状态 --- 顺序构建 weapp 后 H5 并补实测范围 --- 修改 docs/playtest-checklist.md
+
+- 前端/核心244条测试通过，最终 weapp 构建8.17秒无警告，H5构建9.96秒仅包体积提示；最终dist为本地预览H5，连接127.0.0.1:8080，不是公网发布配置。
+- 浏览器验收限于已列出的房间/恢复路径，完整游戏自动化另列，避免混淆。撤回：移除清单新增验证段与间谍入口说明；构建产物可用对应构建命令重新生成。
+
+## 2026-09-07 10:53 +08:00 --- 不活跃房间长期保留、到期提示不准确 --- 事务活动时间与七天安全清理、补提示并复验 --- 修改 session/types.go、registry.go、session.go；新增 session/expiry.go/test、ws/expiry.go/test；修改 cmd/server/main.go、backend README/CONTEXT、frontend room-session-store.ts、docs/playtest-checklist.md、gameplay/restart.go注释
+
+- 成功持久化才续期；恰好七天、未来时间及旧无时间戳记录不直接删除。旧记录CAS写入完整宽限期，过期房间CAS删除成功后才关闭连接，失败保留。启动及每小时扫描，进程信号触发HTTP关闭。
+- 新增边界、失败、恢复、已连接玩家通知回归，最终Go全量和-race通过，tsc通过，weapp 9.97秒无警告，H5 12.14秒仅体积提示。最新后端健康检查200。
+- 重启本轮临时内存预览后端，测试房间已清除且不可恢复；没有删除真实持久化存档。正式清理删除的数据需从部署备份恢复。
+- 撤回：删除新增expiry文件与LastActiveAt写入/扫描接线、恢复文档及提示的本轮段落；不要删除真实数据卷。restart注释可直接逆向恢复。
+
+## 2026-09-07 11:09 +08:00 --- 恢复审批可被旧凭据绕过、缺少撤销和守鸦人触发 --- 独立签名恢复凭据及持久授权、有限历史事务、延迟黎明发布 --- 修改 proto/game.proto及生成器/生成文件；session/types.go/session.go，新增recovery.go/test及recovery_approval_test.go；ws/hub.go/hub_v2.go/session_engine.go，新增recovery.go/test、history.go/test；修改core websocket及测试、frontend恢复码/store/utils及测试/组件；新增game-history-panel.tsx/test；修改game-play、SessionShell；修改gameplay夜间/信息与守鸦人测试；backend README
+
+- CT3仅导出独立recoveryCredential；签名不能用于RESUME，旧CT2拒绝。批准前不换连接、不保存新身份、不下发角色投影；ST审批、恢复ST由房主审批、唯一审批者不能自批。批准原子轮换nonce并保留10分钟签名绑定授权用于丢包/重启重试，旧设备凭据失效并收到替换通知。
+- Session真实HMAC回归覆盖权限、签名、持久失败、nonce轮换、重启、幂等及二次轮换；WS申请→等待→批准→旧凭据失效先红后绿。
+- 日志仅ST可见，最近100条/30步；只回滚游戏状态与锁定标记，成员、凭据和序列不变；跨阶段二次确认，恢复投票默认暂停，成员/座位改变清历史边界。私密面板测试先红后绿。
+- 守鸦人仅在ST锁定其死亡后唤醒，私密选择/审核/已阅后统一天亮；多人死亡和快照恢复回归通过，无新proto字段。
+- 撤回：按上述文件本轮差异逐块逆向移除，不整体覆盖共享改动；历史额外snapshot字段旧加载器可忽略。协议与客户端/服务端须共同回滚；旧恢复码不能混用，回滚后需重新导出。保留真实持久化数据及备份。
+
+## 2026-09-07 11:15 +08:00 --- 审批重放误踢、拒绝改判、恢复竞态与等待页刷新丢请求 --- 边缘回归和有界恢复票据 --- 修改 ws/recovery.go、hub_v2.go、expiry.go；新增 ws/recovery_edges_test.go；修改core/websocket与frontend/store及测试、docs/playtest-checklist.md
+
+- 五组WS边缘回归先红后绿：重复批准只重发结果、终态不允许新序列改判；恢复认证和连接接管与撤销互斥；每分钟清理过期恢复请求；批准丢包及服务端重启授权可重放而不带投影。
+- 前端只保存requestId/roomId/playerId非秘密票据，刷新后重贴同码可重用原请求；未批准身份和恢复凭据不落盘，终态删除票据。
+- Session真实签名测试及全Go、-race通过；前端新增测试和tsc通过。重启本轮临时预览后端到最新版本，仅清理自动验收内存房间，无真实存档删除。
+- 撤回：逐块移除终态与重放/互斥/恢复票据逻辑及新测试，恢复相应文档；不整体回滚共享文件。不建议单独撤回安全修复，协议两端需保持一致。
+
+## 2026-09-07 11:26 +08:00 --- 真机尺寸实测发现弹窗长度与复制备用入口问题、旧领域文档过时 --- 三端实测修复并最终验收 --- 修改恢复面板TSX/CSS、game-play/index.tsx；新增lib/dialog-contract.test.ts；修改README、三包CONTEXT、docs/playtest-checklist.md
+
+- Taro确认按钮最多4字；复制恢复码、确认并天亮、无处决入夜三处5字已改短，新增全页面弹窗契约检查先红后绿。测试使用NodeURL避免Taro全局URL类型冲突。
+- 默认仍遮罩，新增主动显示恢复码备用入口：二次确认，30秒/关闭/后台隐藏，不额外落盘恢复凭据。实测复制成功提示、可见CT3不含直接resume凭据，30秒从DOM移除。
+- 三独立origin实测：准备→撤销→重做双端同步；申请→刷新重贴同码保持同请求→ST批准→新端原座位与ready保留→旧端退出→新码轮换。未读取隐藏存储绕过流程，测试标签关闭且工具变量中测试码清空。
+- 最终22文件255条前端/核心测试通过，Go全量和-race通过，tsc/协议漂移/git diff --check通过；weapp 5.90秒无警告，H5 9.82秒仅体积提示。最终dist保留临时本地H5预览；公网Docker/Redis/Caddy与真实微信设备尚未验收，没有执行公网部署或开源发布。
+- 撤回：仅逆向上述文案、备用显示入口、测试及文档补充；保留CT3分离审批安全约束。产物可重新构建。改动均保留本地，未执行git reset/覆盖用户既有更改。
+
+## 2026-09-07 11:54 +08:00 --- 页面缺乏官网氛围且管理表单堆叠成长页 --- 官网视觉参考与桌游App分区布局 --- 修改SessionShell；新增room-navigation.tsx/test.tsx；修改准备/对局/结算/图鉴页面TSX，新增pages/layout.test.tsx、game-play/workspace.test.tsx
+
+- 参考官网实际呈现的深紫黑、羊皮纸、复古衬线层次，以及BGA官方移动端布局指引中的主桌优先/窄屏重排；不复制官方图片、标志或字体文件。
+- 公共框架改顶栏+独立滚动区+底部主桌/图鉴/记录/更多，辅助日志/审批/恢复从主桌移出；记录仍只使用权威投影，ST私密日志权限保留。准备和对局改局部标签工作区，图鉴搜索筛选，结算身份卡阵列与折叠时间线。
+- 导航SSR先RED后GREEN；准备/图鉴/结算及默认行动/私密卡边界测试通过，TypeScript检查通过。CSS与最终视觉验收继续进行。
+- 撤回：仅逆向本轮布局/局部UI状态/props差异，删除新增导航和本轮布局测试；不要整体还原页面或触动此前完成的业务逻辑、协议、存储与权限。
+- 工具简报：Context7查询Taro4 ScrollView固定高度及导航限制；CUA查看官网与旧本地界面；web读取BGA官方移动端指引。时间2026-09-07。
+
+## 2026-09-07 12:01 +08:00 --- 大厅重复输入与各页样式叠加不统一 --- 单表单大厅及全局视觉系统重写 --- 修改首页TSX、pages/layout.test.tsx、app.config.ts；重写app.css、5页CSS、私密身份CSS、恢复面板CSS
+
+- 大厅只保留一份昵称，创建/加入切换；邀请只切加入并预填不自动提交。增加原创CSS钟楼介绍区和剧本辅卡，开发工具移更多。默认及邀请页面SSR先红后绿。
+- 统一深紫黑/羊皮纸/酒红/古金、中文衬线标题与易读正文；去除旧主题叠加覆盖。共享座位卡/标签/主次栏，底部导航与操作栏分层，滚动区固定高度与安全区留白。原生导航栏背景同步主题。
+- 263条前端/核心测试及TypeScript通过，8份CSS解析通过；开始手机/桌面实际视觉验收。
+- 撤回：仅逆向本轮首页/样式/app.config差异及新增首页测试；保留上一轮游戏功能、审批和存储协议。不整体回滚仓库。
+
+## 2026-09-07 12:05 +08:00 --- 手机截图出现标签横滚、白色外滚条、概况过高 --- 按实测元素尺寸修正布局 --- 修改app.css、game-setup/index.css及index.tsx；新增docs/ui-design.md
+
+- pageTab显式width:auto/min-width:0/flex收缩，三标签同屏；H5外层taro_page关闭滚动，仅保留Shell固定高度滚动区；手机隐藏内部滚条。概况卡紧凑四列、ST长名省略，菱形分隔居中。
+- 准备页按权限将准备/配置/开始主操作固定底部，私密卡前置且仍需长按确认；少于5玩家时明确提示邀请。新增设计规范与来源说明。
+- 撤回：仅逆向上述微调及新增设计文档，保留私密机制与业务回调。首轮H5构建通过，正在复验双端构建及截图。
+
+## 2026-09-07 12:15 +08:00 --- Taro路由后加载样式覆盖滚动约束、图鉴刷新后返回失效 --- 提高外层选择器优先级并验证页面栈导航 --- 修改app.css、SessionShell；新增lib/table-navigation.ts/test.ts
+
+- 实测390px有效页面宽仅375px，CSSOM确认后加载.taro_page覆盖；改为.taro_router直接子页选择器，实际外层overflow:hidden、页面宽390、三标签各115px同屏。
+- 图鉴刷新后navigateBack可能成功返回但无路由变化；使用官方getCurrentPages寻找目标主桌并保留有效页面栈，否则reLaunch权威状态对应路由。新增导航边界测试先RED后GREEN；tsc通过。
+- 撤回：仅逆向选择器与导航helper接线、删除helper/test；不修改服务器或现有房间身份。
+- 工具简报：CUA检查CSSOM、375/390截图、搜索与标签切换；Context7查询Taro4 getCurrentPages/navigateBack/reLaunch，2026-09-07。
+
+## 2026-09-07 12:23 +08:00 --- 全站视觉与布局交付验收 --- 自动化检查及真实浏览器响应式验证 --- 修改work.md（验收记录）
+
+- 最终26个测试文件、264条前端/核心测试通过，TypeScript构建通过，H5与微信构建通过；H5仅有包体积提示，git diff --check通过。
+- 浏览器验证375/390px手机及1440px桌面布局；大厅创建/加入切换、图鉴搜索与夜序、更多、房间设置和记录入口正常；图鉴刷新后可返回大厅，页面没有横向溢出。
+- 对局与结算以页面测试、类型及构建验证，未对用户当前零玩家房间模拟开局；未修改房间成员、后端、协议或游戏规则，未进行微信真机或公网部署验收。
+- 保留新版大厅预览http://localhost:10124/#/pages/index/index；原房间回到默认座位分区。设计来源与约束见docs/ui-design.md。
+- 撤回：本条仅为验收记录，可删除本节；代码撤回按本轮各条日志逐项逆向补丁，不整体还原既有未提交成果。
+- 工具简报：Context7核对Taro4布局和导航约束；CUA完成页面交互与响应式实测；终端执行测试、类型检查、双端构建及差异检查。时间2026-09-07。
+
+## 2026-09-07 13:30 +08:00 --- 当前阶段成果尚未提交 --- 按用户要求创建本地Git提交 --- 修改work.md并提交当前源码、测试、部署模板与文档
+
+- 范围包含此前房间/对局/恢复流程成果及本轮全站布局优化；检查新增文件清单和部署环境模板，常见私钥及令牌模式扫描未命中，真实.env和构建产物不纳入提交。
+- 本次仅提交到当前main分支，不推送远端；复用上轮已完成的264条测试、类型和双端构建验收，本次另执行差异空白检查。
+- 撤回：需要撤销本次成果时使用git revert对本次提交生成反向提交；本条日志可随反向提交撤回，不使用硬重置或删除工作区。

@@ -58,6 +58,7 @@ export interface ScriptSetup {
   readonly assignments: Readonly<Record<string, string>>;
   readonly shownCharacters: Readonly<Record<string, string>>;
   readonly fortuneTellerRedHerringId: string | null;
+  readonly demonBluffCharacterIds: readonly string[];
 }
 
 export type ScriptSetupValidation =
@@ -68,7 +69,8 @@ export type ScriptSetupValidation =
       readonly code:
         | 'PLAYER_ASSIGNMENT_MISMATCH'
         | 'INVALID_DRUNK_SHOWN_CHARACTER'
-        | 'INVALID_FORTUNE_TELLER_RED_HERRING';
+        | 'INVALID_FORTUNE_TELLER_RED_HERRING'
+        | 'INVALID_DEMON_BLUFFS';
       readonly message: string;
     };
 
@@ -336,6 +338,10 @@ export const TROUBLE_BREWING_FIRST_NIGHT_ORDER: readonly NightWakeStep[] = [
     minTargets: 1,
     maxTargets: 1,
   },
+  {
+    characterId: 'spy', order: 11, actionType: 'show_grimoire',
+    prompt: '间谍查看说书人确认的魔典，包括全部角色与状态。', minTargets: 0, maxTargets: 0,
+  },
 ];
 
 export const TROUBLE_BREWING_SUBSEQUENT_NIGHT_ORDER: readonly NightWakeStep[] = [
@@ -402,6 +408,10 @@ export const TROUBLE_BREWING_SUBSEQUENT_NIGHT_ORDER: readonly NightWakeStep[] = 
     prompt: '如果守鸦人今晚死亡，他选择一名玩家并得知其角色。',
     minTargets: 1,
     maxTargets: 1,
+  },
+  {
+    characterId: 'spy', order: 9, actionType: 'show_grimoire',
+    prompt: '间谍查看说书人确认的魔典，包括全部角色与状态。', minTargets: 0, maxTargets: 0,
   },
 ];
 
@@ -657,6 +667,23 @@ export function validateScriptSetup(
     }
   }
 
+  const bluffIds = setup.demonBluffCharacterIds;
+  const unavailableBluffs = new Set([...characterIds, ...Object.values(setup.shownCharacters)]);
+  if (
+    bluffIds.length !== 3 ||
+    new Set(bluffIds).size !== 3 ||
+    bluffIds.some((characterId) => {
+      const character = getScriptCharacterById(characterId, scriptId);
+      return !character || character.team !== 'good' || unavailableBluffs.has(characterId);
+    })
+  ) {
+    return {
+      ok: false,
+      code: 'INVALID_DEMON_BLUFFS',
+      message: 'Demon bluffs must be three unique out-of-play good characters',
+    };
+  }
+
   return assignmentValidation;
 }
 
@@ -741,10 +768,18 @@ export function randomizeScriptAssignments(
     }
   }
 
+  const bluffCandidates = script.characters.filter(
+    (character) => character.team === 'good' &&
+      !characterIds.includes(character.id) &&
+      !Object.values(shownCharacters).includes(character.id),
+  );
+  const demonBluffCharacterIds = selectRandomCharacterIds(bluffCandidates, 3, random);
+
   const setup: ScriptSetup = {
     assignments,
     shownCharacters,
     fortuneTellerRedHerringId,
+    demonBluffCharacterIds,
   };
   const validation = validateScriptSetup(setup, players, scriptId);
   if (!validation.ok) {

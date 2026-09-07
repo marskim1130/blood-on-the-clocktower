@@ -6,29 +6,23 @@ import (
 	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
 )
 
-func TestButlerCannotVoteYesBeforeMasterVotesYes(t *testing.T) {
+func TestButlerCurrentSeatVoteIsTalliedBeforeMasterVotes(t *testing.T) {
 	gs := preparedButlerDay(t, false)
 	startButlerNomination(t, gs)
+	advanceVoteMarkerToButler(t, gs)
 
-	_, err := gs.Apply(CastVoteCmd{SenderID: "p1", Decision: true})
-	if err == nil {
-		t.Fatal("expected Butler yes vote before master to be rejected")
-	}
-	if err.Error() != "butler p1 cannot vote until master p2 votes yes" {
-		t.Fatalf("expected Butler master vote error, got %q", err.Error())
-	}
-
-	if _, err := gs.Apply(CastVoteCmd{SenderID: "p2", Decision: true}); err != nil {
-		t.Fatalf("expected master yes vote to be accepted: %v", err)
-	}
 	if _, err := gs.Apply(CastVoteCmd{SenderID: "p1", Decision: true}); err != nil {
-		t.Fatalf("expected Butler yes vote after master to be accepted: %v", err)
+		t.Fatalf("the current Butler vote must be tallied even before the master's seat: %v", err)
+	}
+	if !gs.nomination.Votes["p1"] || gs.nomination.CurrentVoterIndex != 1 {
+		t.Fatalf("Butler vote must be recorded and advance the marker: %+v", gs.nomination)
 	}
 }
 
 func TestButlerCanVoteNoBeforeMasterVotes(t *testing.T) {
 	gs := preparedButlerDay(t, false)
 	startButlerNomination(t, gs)
+	advanceVoteMarkerToButler(t, gs)
 
 	if _, err := gs.Apply(CastVoteCmd{SenderID: "p1", Decision: false}); err != nil {
 		t.Fatalf("expected Butler no vote before master to be accepted: %v", err)
@@ -38,36 +32,29 @@ func TestButlerCanVoteNoBeforeMasterVotes(t *testing.T) {
 func TestPoisonedButlerCanVoteYesBeforeMasterVotes(t *testing.T) {
 	gs := preparedButlerDay(t, true)
 	startButlerNomination(t, gs)
+	advanceVoteMarkerToButler(t, gs)
 
 	if _, err := gs.Apply(CastVoteCmd{SenderID: "p1", Decision: true}); err != nil {
 		t.Fatalf("expected poisoned Butler yes vote to be accepted: %v", err)
 	}
 }
 
-func TestButlerWithoutMasterCannotVoteYes(t *testing.T) {
+func TestButlerVoteDoesNotRevealMissingMaster(t *testing.T) {
 	gs := preparedButlerDay(t, false)
 	delete(gs.butlerMasters, "p1")
 	startButlerNomination(t, gs)
+	advanceVoteMarkerToButler(t, gs)
 
-	_, err := gs.Apply(CastVoteCmd{SenderID: "p1", Decision: true})
-	if err == nil {
-		t.Fatal("expected Butler without master to be rejected")
-	}
-	if err.Error() != "butler p1 has not chosen a master" {
-		t.Fatalf("expected missing Butler master error, got %q", err.Error())
+	if _, err := gs.Apply(CastVoteCmd{SenderID: "p1", Decision: true}); err != nil {
+		t.Fatalf("public voting must not reveal missing private Butler state: %v", err)
 	}
 }
 
 func TestButlerMasterSurvivesSnapshotRestore(t *testing.T) {
 	gs := preparedButlerDay(t, false)
 	restored := newGameSessionFromSnapshot(gs.snapshot())
-	startButlerNomination(t, restored)
-
-	if _, err := restored.Apply(CastVoteCmd{SenderID: "p2", Decision: true}); err != nil {
-		t.Fatalf("expected restored master yes vote to be accepted: %v", err)
-	}
-	if _, err := restored.Apply(CastVoteCmd{SenderID: "p1", Decision: true}); err != nil {
-		t.Fatalf("expected restored Butler yes vote after master to be accepted: %v", err)
+	if got := restored.butlerMasters["p1"]; got != "p2" {
+		t.Fatalf("restored Butler master = %q, want p2", got)
 	}
 }
 
@@ -118,4 +105,9 @@ func startButlerNomination(t *testing.T, gs *GameSession) {
 	if _, err := gs.Apply(NominateCmd{SenderID: "p2", NomineeID: "p6"}); err != nil {
 		t.Fatalf("Nominate failed: %v", err)
 	}
+}
+
+func advanceVoteMarkerToButler(t *testing.T, gs *GameSession) {
+	t.Helper()
+	openNominationVoting(t, gs)
 }

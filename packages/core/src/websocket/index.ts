@@ -140,6 +140,7 @@ export interface ClientRoomIdentity {
   readonly roomId: string;
   readonly playerId: string;
   readonly resumeCredential: string;
+  readonly recoveryCredential?: string;
 }
 
 interface PendingIdentity {
@@ -168,6 +169,7 @@ export class GameWebSocketClient {
   private _status: ConnectionStatus = 'disconnected';
   private resumeSession: ClientRoomIdentity | null = null;
   private pendingIdentity: PendingIdentity | null = null;
+  private pendingRecovery: ClientMessage | null = null;
   private resumeRequestPending = false;
   private resumeRequestSent = false;
   private nextClientSequence: number | null = null;
@@ -203,7 +205,7 @@ export class GameWebSocketClient {
   }
 
   get hasPendingRequest(): boolean {
-    return this.pendingIdentity !== null ||
+    return this.pendingRecovery !== null || this.pendingIdentity !== null ||
       this.resumeRequestPending ||
       this.pendingSequencedCommand !== null ||
       this.queuedSequencedCommands.length > 0;
@@ -332,6 +334,26 @@ export class GameWebSocketClient {
     this.sendSequenced({ type: 'CLOSE_ROOM' });
   }
 
+  requestRecovery(roomId: string, playerId: string, recoveryCredential: string, requestId = this.options.requestIdFactory()): string {
+    if (this.resumeSession) throw new Error('请先离开当前房间');
+    this.pendingRecovery = { protocolVersion: 2, type: 'REQUEST_RECOVERY', roomId, playerId, recoveryCredential, requestId };
+    if (this.transport?.readyState === READY_STATE_OPEN) this.send(this.pendingRecovery);
+    return requestId;
+  }
+
+  getRecoveryRequests(): void { this.sendAuthenticated({ type: 'GET_RECOVERY_REQUESTS' }); }
+  reviewRecovery(recoveryRequestId: string, decision: boolean): void { this.sendSequenced({ type: 'REVIEW_RECOVERY', recoveryRequestId, decision }); }
+  undoGame(confirmPhaseChange = false): void { this.sendSequenced({ type: 'UNDO_GAME', confirmPhaseChange }); }
+  redoGame(confirmPhaseChange = false): void { this.sendSequenced({ type: 'REDO_GAME', confirmPhaseChange }); }
+
+  transferOwnership(targetPlayerId: string): void {
+    this.sendSequenced({ type: 'TRANSFER_OWNERSHIP', targetPlayerId });
+  }
+
+  restartGame(): void {
+    this.sendSequenced({ type: 'RESTART_GAME' });
+  }
+
   leaveRoom(): void {
     this.sendSequenced({ type: 'LEAVE_ROOM' });
   }
@@ -352,16 +374,30 @@ export class GameWebSocketClient {
     this.sendSequenced({ type: 'SET_STORYTELLER', targetPlayerId });
   }
 
+  setSeatOrder(seatOrder: readonly string[]): void {
+    this.sendSequenced({ type: 'SET_SEAT_ORDER', seatOrder });
+  }
+
+  setReady(ready: boolean): void {
+    this.sendSequenced({ type: 'SET_READY', ready });
+  }
+
+  confirmCharacter(): void {
+    this.sendSequenced({ type: 'CONFIRM_CHARACTER' });
+  }
+
   assignCharacters(
     assignments: Record<string, string>,
     shownCharacters?: Record<string, string>,
     fortuneTellerRedHerringId?: string,
+    demonBluffCharacterIds?: readonly string[],
   ): void {
     this.sendSequenced({
       type: 'ASSIGN_CHARACTERS',
       assignments,
       ...(shownCharacters && Object.keys(shownCharacters).length > 0 ? { shownCharacters } : {}),
       ...(fortuneTellerRedHerringId ? { fortuneTellerRedHerringId } : {}),
+      ...(demonBluffCharacterIds && demonBluffCharacterIds.length > 0 ? { demonBluffCharacterIds } : {}),
     });
   }
 
@@ -377,12 +413,28 @@ export class GameWebSocketClient {
     this.sendSequenced({ type: 'CHANGE_PHASE', phase });
   }
 
+  finalizeDay(): void {
+    this.sendSequenced({ type: 'FINALIZE_DAY' });
+  }
+
   nominate(nomineeId: string): void {
     this.sendSequenced({ type: 'NOMINATE', nomineeId });
   }
 
   castVote(decision: boolean): void {
     this.sendSequenced({ type: 'CAST_VOTE', decision });
+  }
+
+  recordVote(targetPlayerId: string, decision: boolean): void {
+    this.sendSequenced({ type: 'RECORD_VOTE', targetPlayerId, decision });
+  }
+
+  advanceNominationStage(): void { this.sendSequenced({type:'ADVANCE_NOMINATION_STAGE'}); }
+  controlNominationTimer(timerAction: 'pause' | 'resume' | 'restart'): void {
+    this.sendSequenced({type:'CONTROL_NOMINATION_TIMER',timerAction});
+  }
+  expireNominationTimer(deadlineUnixMs: number): void {
+    this.sendSequenced({type:'EXPIRE_NOMINATION_TIMER',deadlineUnixMs});
   }
 
   resolveNomination(): void {
@@ -410,6 +462,30 @@ export class GameWebSocketClient {
     });
   }
 
+  confirmNightAction(targetIds: readonly string[], result?: string): void {
+    this.sendSequenced({
+      type: 'CONFIRM_NIGHT_ACTION',
+      targetIds,
+      ...(result?.trim() ? { result: result.trim() } : {}),
+    });
+  }
+
+  acknowledgeNightAction(): void {
+    this.sendSequenced({ type: 'ACKNOWLEDGE_NIGHT_ACTION' });
+  }
+
+  skipNightAction(): void {
+    this.sendSequenced({ type: 'SKIP_NIGHT_ACTION' });
+  }
+
+  prepareDawn(): void {
+    this.sendSequenced({ type: 'PREPARE_DAWN' });
+  }
+
+  confirmDawn(deathPlayerIds: readonly string[]): void {
+    this.sendSequenced({ type: 'CONFIRM_DAWN', targetIds: deathPlayerIds });
+  }
+
   resolveNight(): void {
     this.sendSequenced({ type: 'RESOLVE_NIGHT' });
   }
@@ -421,6 +497,10 @@ export class GameWebSocketClient {
       reason: 'storyteller_decision',
       ...(description?.trim() ? { description: description.trim() } : {}),
     });
+  }
+
+  publishGrimoire(): void {
+    this.sendSequenced({ type: 'PUBLISH_GRIMOIRE' });
   }
 
   send(msg: OutboundClientMessage): void {
@@ -455,6 +535,20 @@ export class GameWebSocketClient {
   }
 
   private captureProtocolState(msg: ServerMessage): void {
+    if (msg.type === 'RECOVERY_STATUS' && this.pendingRecovery && msg.recoveryRequestId === this.pendingRecovery.requestId) {
+      if (msg.recoveryStatus === 'approved' && msg.roomId && msg.playerId && msg.roomId === this.pendingRecovery.roomId && msg.playerId === this.pendingRecovery.playerId && msg.resumeCredential && msg.recoveryCredential) {
+        this.pendingRecovery = null;
+        this.resumeRoom(msg.roomId, msg.playerId, msg.resumeCredential);
+        this.resumeSession = { ...this.resumeSession!, recoveryCredential: msg.recoveryCredential };
+      } else if (msg.recoveryStatus === 'rejected' || msg.recoveryStatus === 'expired') {
+        this.pendingRecovery = null;
+      }
+    }
+    if (msg.type === 'SESSION_REPLACED') {
+      this.clearRoomIdentity();
+      this.disconnect();
+      return;
+    }
     if (typeof msg.roomRevision === 'number') {
       this.roomRevision = msg.roomRevision;
     }
@@ -469,6 +563,7 @@ export class GameWebSocketClient {
     }
 
     if (msg.type === 'ERROR') {
+      this.pendingRecovery = null;
       this.pendingIdentity = null;
       this.resumeRequestPending = false;
       this.resumeRequestSent = false;
@@ -486,6 +581,7 @@ export class GameWebSocketClient {
         roomId: msg.roomId,
         playerId: this.pendingIdentity.playerId,
         resumeCredential: msg.resumeCredential,
+        ...(msg.recoveryCredential ? { recoveryCredential: msg.recoveryCredential } : {}),
       };
       this.pendingIdentity = null;
       this.resumeRequestPending = false;
@@ -493,6 +589,7 @@ export class GameWebSocketClient {
     }
 
     if (msg.type === 'RESUME_ROOM_RESULT') {
+      if (this.resumeSession && msg.recoveryCredential) this.resumeSession = { ...this.resumeSession, recoveryCredential: msg.recoveryCredential };
       this.resumeRequestPending = false;
       this.resumeRequestSent = false;
     }
@@ -539,6 +636,7 @@ export class GameWebSocketClient {
   }
 
   private acceptProjection(msg: ServerMessage): ServerMessage {
+    if (this.pendingRecovery) return withoutProjection(msg);
     if (!msg.state || typeof msg.roomRevision !== 'number') return msg;
 
     const currentRevision = this.roomRevision;
@@ -614,6 +712,7 @@ export class GameWebSocketClient {
   }
 
   private clearRoomIdentity(): void {
+    this.pendingRecovery = null;
     this.resumeSession = null;
     this.pendingIdentity = null;
     this.resumeRequestPending = false;
@@ -626,6 +725,10 @@ export class GameWebSocketClient {
   }
 
   private replayIdentityRequestIfNeeded(): void {
+    if (this.pendingRecovery) {
+      this.send(this.pendingRecovery);
+      return;
+    }
     if (this.pendingIdentity) {
       try {
         this.send(this.pendingIdentity.message);

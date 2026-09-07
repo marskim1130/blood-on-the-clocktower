@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/marskim1130/blood-on-the-clocktower/internal/ws"
 )
@@ -40,6 +45,11 @@ func main() {
 		log.Printf("in-memory room storage enabled; data will not survive restart; single active backend instance required")
 	}
 
+	cleanupContext, stopCleanup := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopCleanup()
+	go hub.RunInactiveRoomCleanup(cleanupContext)
+	log.Printf("room cleanup enabled: only successful persisted writes refresh the seven-day inactivity window")
+
 	http.HandleFunc("/ws", hub.HandleWebSocket)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if !hub.Healthy() {
@@ -52,8 +62,17 @@ func main() {
 	})
 
 	addr := ":8080"
+	server := &http.Server{Addr: addr, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		<-cleanupContext.Done()
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownContext); err != nil {
+			log.Printf("server shutdown: %v", err)
+		}
+	}()
 	log.Printf("WebSocket server listening on %s", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("failed to serve: %v", err)
 	}
 }

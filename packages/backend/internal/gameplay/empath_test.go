@@ -22,6 +22,7 @@ func TestEmpathAutoComputesEvilNeighbors(t *testing.T) {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
 
+	markAllPlayersReady(gs)
 	if _, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -35,6 +36,7 @@ func TestEmpathAutoComputesEvilNeighbors(t *testing.T) {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
 
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}
@@ -252,10 +254,12 @@ func setupAndStartGame(t *testing.T, gs *GameSession, assignments map[string]str
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
 
+	markAllPlayersReady(gs)
 	if _, err := gs.Apply(AssignCharactersCmd{SenderID: "storyteller", Assignments: assignments}); err != nil {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
 
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}

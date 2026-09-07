@@ -4,65 +4,84 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 0 22px;
-  border: 1px solid #cfd4d2;
-  border-radius: 6px;
-  padding-right: 16px;
-  padding-left: 16px;
+  padding: 20px 24px;
+  margin-bottom: 20px;
+  border: 1px solid #866b43;
+  border-radius: 8px;
+  background: linear-gradient(110deg,#3e2d2f,#24182d);
 }
 
-.phaseName,
-.phaseCounter,
-.nominationTitle,
-.voteThreshold,
-.wakeStepName,
-.wakeStepPrompt,
-.nightActionResult,
-.timelineTitle,
-.timelineMeta {
+.phaseName,.phaseCounter,.nominationTitle,.voteThreshold,.wakeStepName,.wakeStepPrompt,.nightActionResult,.timelineTitle,.timelineMeta {
   display: block;
 }
 
 .phaseName {
-  color: #191d1c;
-  font-size: 31px;
+  color: var(--paper);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 25px;
   font-weight: 700;
 }
 
 .phaseCounter {
-  color: #7b2028;
-  font-size: 23px;
-  font-weight: 700;
+  color: var(--gold);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gameStatusTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.gameStatusMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .gameGrid {
   display: flex;
   flex-direction: column;
-  gap: 30px;
+  gap: 20px;
 }
 
 .gameAside {
-  flex: 1 1 260px;
   min-width: 0;
+}
+
+.gameWorkspace {
+  align-items: start;
 }
 
 .nominationPanel {
   padding: 20px;
-  border: 1px solid #7b2028;
-  border-radius: 6px;
-  background: #fff1f2;
+  border: 1px solid #9c6070;
+  border-radius: 8px;
+  background: #392331;
 }
 
 .nominationTitle {
-  color: #191d1c;
-  font-size: 27px;
+  color: var(--paper);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 21px;
   font-weight: 700;
 }
 
 .voteThreshold {
   margin-top: 8px;
-  color: #66706d;
-  font-size: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.voteTurn {
+  display: block;
+  margin-top: 12px;
+  color: #e0c28a;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.7;
 }
 
 .voteRecord {
@@ -70,16 +89,55 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 54px;
+  min-height: 44px;
+  padding: 8px 12px;
   margin-bottom: 8px;
-  padding: 0 10px;
-  border: 1px solid #dfe3e1;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  font-size: 20px;
+  background: var(--surface);
+  font-size: 13px;
 }
 
-.voteDecisionYes { color: #0b6a5f; font-weight: 700; }
-.voteDecisionNo { color: #8c202a; font-weight: 700; }
+.voteRecordCurrent {
+  border-color: var(--gold);
+  background: #433329;
+  box-shadow: inset 3px 0 var(--gold);
+}
+
+.voteDecisionYes {
+  color: var(--good);
+  font-weight: 700;
+}
+
+.voteDecisionNo {
+  color: var(--bad);
+  font-weight: 700;
+}
+
+.voteDecisionWaiting {
+  color: var(--muted);
+}
+
+.executionProposal {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+}
+
+.executionProposalActive {
+  border-color: #92566a;
+  background: #412734;
+}
+
+.executionProposalText {
+  display: block;
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.8;
+}
 
 .wakeList {
   margin-top: 18px;
@@ -89,95 +147,197 @@
   display: flex;
   align-items: flex-start;
   gap: 12px;
+  padding: 12px;
   margin-bottom: 8px;
-  padding: 14px;
-  border: 1px solid #cfd4d2;
+  border: 1px solid var(--line);
   border-radius: 6px;
+  background: var(--surface);
 }
 
 .wakeStepIndex {
   display: block;
-  width: 38px;
-  height: 38px;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  background: #dfe3e1;
-  color: #4c5552;
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 38px;
+  background: #45334d;
+  color: #d6c5dc;
+  font-size: 12px;
+  line-height: 28px;
   text-align: center;
 }
 
-.wakeStepCurrent .wakeStepIndex { background: #d5b45c; color: #29230f; }
-.wakeStepDone .wakeStepIndex { background: #176f68; color: #ffffff; }
+.wakeStepCurrent {
+  border-color: var(--gold);
+  background: #34292b;
+}
+
+.wakeStepCurrent .wakeStepIndex {
+  background: var(--gold);
+  color: #261b23;
+}
+
+.wakeStepDone .wakeStepIndex {
+  background: #3f644a;
+  color: #deeddf;
+}
 
 .wakeStepName {
-  color: #252b29;
-  font-size: 21px;
-  font-weight: 700;
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .wakeStepPrompt {
   margin-top: 5px;
-  color: #66706d;
-  font-size: 19px;
-  line-height: 27px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .targetGrid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
   gap: 10px;
   margin-top: 14px;
 }
 
 .targetGrid .choiceButton {
-  flex: 1 1 220px;
-  min-width: 200px;
+  min-width: 0;
+  padding-right: 10px;
+  padding-left: 10px;
 }
 
-.nightActionEntry,
-.timelineEntry {
+.nightActionEntry,.timelineEntry {
   margin-bottom: 8px;
-  padding: 12px;
-  border: 1px solid #dfe3e1;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid #907147;
   border-radius: 6px;
+  background: var(--surface);
 }
 
-.nightActionResult,
-.timelineMeta {
-  margin-top: 5px;
-  color: #66706d;
-  font-size: 19px;
-  line-height: 27px;
+.nightActionResult,.timelineMeta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.75;
 }
 
 .timelineTitle {
-  color: #252b29;
-  font-size: 21px;
-  font-weight: 700;
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .waitingNight {
-  padding: 48px 20px;
-  border: 2px solid #176f68;
-  background: #202523;
-  color: #ffffff;
+  padding: 44px 20px;
+  border: 1px solid #685878;
+  border-radius: 10px;
+  background: radial-gradient(ellipse at top,#352447,#191120);
   text-align: center;
 }
 
-.waitingNight .emptyBandTitle { color: #ffffff; }
-.waitingNight .emptyBandText { color: #cbd2cf; }
-
 .storytellerTools {
   padding: 18px;
-  border: 1px solid #d5b45c;
+  border: 1px solid #95794d;
+  border-radius: 8px;
+  background: #2c2329;
+}
+
+.nightReviewStatus,.nightResultCard {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid #8f754a;
   border-radius: 6px;
+  background: #3b3027;
+}
+
+.nightReviewTitle,.nightReviewDetail,.nightPrivateResult,.nightAwakeLabel {
+  display: block;
+}
+
+.nightReviewTitle {
+  color: #ead7b2;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.nightReviewDetail {
+  margin-top: 7px;
+  color: #cabaac;
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.nightActorPanel {
+  padding: 28px 20px;
+  border: 1px solid var(--gold);
+  border-radius: 10px;
+  background: radial-gradient(ellipse at top,#422c44,#211627);
+}
+
+.nightAwakeLabel {
+  margin-bottom: 12px;
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+}
+
+.nightCurrentWorkspace {
+  border-color: #8a704e;
+  box-shadow: inset 0 3px #b99b6133;
+}
+
+.nightPrivateResult {
+  margin: 16px 0;
+  color: #efd4a1;
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1.75;
+}
+
+.dawnReviewPanel {
+  margin-top: 18px;
+  border-color: #98596a;
+  background: #392331;
 }
 
 .localError {
   display: block;
   margin-top: 12px;
-  color: #8c202a;
-  font-size: 20px;
+  color: var(--bad);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+@media (orientation:landscape) and (min-width:1000px) {
+  .gameGrid {
+    flex-direction: row;
+    align-items: flex-start;
+  }
+  .gameGrid > :first-child {
+    flex: 2 1 0;
+    min-width: 0;
+  }
+  .gameAside {
+    flex: 1 1 320px;
+    position: sticky;
+    top: 18px;
+  }
+}
+
+@media (max-width:520px) {
+  .phaseHeader {
+    padding: 18px;
+  }
+  .targetGrid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+  .gameStatusTitle {
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
 }

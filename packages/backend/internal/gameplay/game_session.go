@@ -19,6 +19,7 @@ type AssignCharactersCmd struct {
 	Assignments               map[string]string // playerID -> characterID
 	ShownCharacters           map[string]string // playerID -> townsfolk characterID shown to the Drunk
 	FortuneTellerRedHerringID string
+	DemonBluffCharacterIDs    []string
 }
 
 type SubmitEventCmd struct {
@@ -35,6 +36,10 @@ type ChangePhaseCmd struct {
 	Phase    game.GamePhase
 }
 
+type FinalizeDayCmd struct {
+	SenderID string
+}
+
 type NominateCmd struct {
 	SenderID  string
 	NomineeID string
@@ -44,6 +49,28 @@ type CastVoteCmd struct {
 	SenderID string
 	Decision bool
 }
+
+type RecordVoteCmd struct {
+	SenderID string
+	VoterID  string
+	Decision bool
+}
+
+type AdvanceNominationStageCmd struct {
+	SenderID string
+}
+
+type ControlNominationTimerCmd struct {
+	SenderID string
+	Action   string
+}
+type ExpireNominationTimerCmd struct {
+	SenderID       string
+	DeadlineUnixMs int64
+}
+
+func (ControlNominationTimerCmd) commandTag() {}
+func (ExpireNominationTimerCmd) commandTag()  {}
 
 type ResolveNominationCmd struct {
 	SenderID string
@@ -66,6 +93,29 @@ type SubmitNightActionCmd struct {
 	Result     string
 }
 
+type ConfirmNightActionCmd struct {
+	SenderID  string
+	TargetIDs []string
+	Result    string
+}
+
+type AcknowledgeNightActionCmd struct {
+	SenderID string
+}
+
+type SkipNightActionCmd struct {
+	SenderID string
+}
+
+type PrepareDawnCmd struct {
+	SenderID string
+}
+
+type ConfirmDawnCmd struct {
+	SenderID       string
+	DeathPlayerIDs []string
+}
+
 type ResolveNightCmd struct {
 	SenderID string
 }
@@ -81,11 +131,29 @@ type UpdateRoomSettingsCmd struct {
 	ScriptID   string
 }
 
+type SetSeatOrderCmd struct {
+	SenderID  string
+	SeatOrder []string
+}
+
+type SetReadyCmd struct {
+	SenderID string
+	Ready    bool
+}
+
+type ConfirmCharacterCmd struct {
+	SenderID string
+}
+
 type EndGameCmd struct {
 	SenderID    string
 	Winner      game.Team
 	Reason      game.WinReason
 	Description string
+}
+
+type PublishGrimoireCmd struct {
+	SenderID string
 }
 
 type KillPlayerCmd struct {
@@ -99,21 +167,35 @@ type Command interface {
 	commandTag()
 }
 
-func (SetStorytellerCmd) commandTag()     {}
-func (AssignCharactersCmd) commandTag()   {}
-func (SubmitEventCmd) commandTag()        {}
-func (StartGameCmd) commandTag()          {}
-func (ChangePhaseCmd) commandTag()        {}
-func (NominateCmd) commandTag()           {}
-func (CastVoteCmd) commandTag()           {}
+func (SetStorytellerCmd) commandTag()   {}
+func (AssignCharactersCmd) commandTag() {}
+func (SubmitEventCmd) commandTag()      {}
+func (StartGameCmd) commandTag()        {}
+func (ChangePhaseCmd) commandTag()      {}
+func (FinalizeDayCmd) commandTag()      {}
+func (NominateCmd) commandTag()         {}
+func (CastVoteCmd) commandTag()         {}
+func (RecordVoteCmd) commandTag()       {}
+func (AdvanceNominationStageCmd) commandTag() {
+}
 func (ResolveNominationCmd) commandTag()  {}
 func (ExecutePlayerCmd) commandTag()      {}
 func (UseSlayerAbilityCmd) commandTag()   {}
 func (SubmitNightActionCmd) commandTag()  {}
+func (ConfirmNightActionCmd) commandTag() {}
+func (AcknowledgeNightActionCmd) commandTag() {
+}
+func (SkipNightActionCmd) commandTag()    {}
+func (PrepareDawnCmd) commandTag()        {}
+func (ConfirmDawnCmd) commandTag()        {}
 func (ResolveNightCmd) commandTag()       {}
 func (KickPlayerCmd) commandTag()         {}
 func (UpdateRoomSettingsCmd) commandTag() {}
+func (SetSeatOrderCmd) commandTag()       {}
+func (SetReadyCmd) commandTag()           {}
+func (ConfirmCharacterCmd) commandTag()   {}
 func (EndGameCmd) commandTag()            {}
+func (PublishGrimoireCmd) commandTag()    {}
 func (KillPlayerCmd) commandTag()         {}
 
 // Result of applying a command.
@@ -138,7 +220,13 @@ type GameSession struct {
 	nightNumber               int32
 	nightWakeIndex            int
 	nomination                *game.Nomination
+	nominationResults         []game.NominationResult
 	nightActions              []game.NightAction
+	pendingNightAction        *game.NightAction
+	confirmedNightAction      *game.NightAction
+	nightAcknowledged         map[string]bool
+	dawnReviewPending         bool
+	pendingDawnDeathIDs       []string
 	deaths                    []game.DeathRecord
 	ghostVotesUsed            map[string]bool   // playerID -> whether ghost vote was used
 	slayerUsed                map[string]bool   // playerID -> whether Slayer ability was used
@@ -147,6 +235,8 @@ type GameSession struct {
 	virginAbilityUsed         map[string]bool   // playerID -> whether Virgin ability was checked
 	butlerMasters             map[string]string // butler playerID -> selected master playerID
 	fortuneTellerRedHerringID string
+	demonBluffCharacterIDs    []string
+	grimoireRevealed          bool
 	winner                    *game.GameEndedEvent // set when game ends
 }
 
@@ -189,6 +279,7 @@ func (gs *GameSession) AddPlayer(player game.Player) {
 		}
 	}
 	gs.players = append(gs.players, player)
+	gs.clearReadyLocked()
 }
 
 func (gs *GameSession) AddOrReconnectPlayer(player game.Player, maxPlayers int) (bool, error) {
@@ -233,6 +324,7 @@ func (gs *GameSession) RemovePlayer(playerID string) {
 	for i, p := range gs.players {
 		if p.ID == playerID {
 			gs.players = append(gs.players[:i], gs.players[i+1:]...)
+			gs.clearReadyLocked()
 			break
 		}
 	}
@@ -330,10 +422,20 @@ func (gs *GameSession) Apply(cmd Command) (ApplyResult, error) {
 		return gs.applyStartGame(c)
 	case ChangePhaseCmd:
 		return gs.applyChangePhase(c)
+	case FinalizeDayCmd:
+		return gs.applyFinalizeDay(c)
 	case NominateCmd:
 		return gs.applyNominate(c)
 	case CastVoteCmd:
 		return gs.applyCastVote(c)
+	case RecordVoteCmd:
+		return gs.applyRecordVote(c)
+	case AdvanceNominationStageCmd:
+		return gs.applyAdvanceNominationStage(c)
+	case ControlNominationTimerCmd:
+		return gs.applyControlNominationTimer(c)
+	case ExpireNominationTimerCmd:
+		return gs.applyExpireNominationTimer(c)
 	case ResolveNominationCmd:
 		return gs.applyResolveNomination(c)
 	case ExecutePlayerCmd:
@@ -342,14 +444,32 @@ func (gs *GameSession) Apply(cmd Command) (ApplyResult, error) {
 		return gs.applyUseSlayerAbility(c)
 	case SubmitNightActionCmd:
 		return gs.applySubmitNightAction(c)
+	case ConfirmNightActionCmd:
+		return gs.applyConfirmNightAction(c)
+	case AcknowledgeNightActionCmd:
+		return gs.applyAcknowledgeNightAction(c)
+	case SkipNightActionCmd:
+		return gs.applySkipNightAction(c)
+	case PrepareDawnCmd:
+		return gs.applyPrepareDawn(c)
+	case ConfirmDawnCmd:
+		return gs.applyConfirmDawn(c)
 	case ResolveNightCmd:
 		return gs.applyResolveNight(c)
 	case KickPlayerCmd:
 		return gs.applyKickPlayer(c)
 	case UpdateRoomSettingsCmd:
 		return gs.applyUpdateRoomSettings(c)
+	case SetSeatOrderCmd:
+		return gs.applySetSeatOrder(c)
+	case SetReadyCmd:
+		return gs.applySetReady(c)
+	case ConfirmCharacterCmd:
+		return gs.applyConfirmCharacter(c)
 	case EndGameCmd:
 		return gs.applyEndGame(c)
+	case PublishGrimoireCmd:
+		return gs.applyPublishGrimoire(c)
 	case KillPlayerCmd:
 		return gs.applyKillPlayer(c)
 	default:
@@ -358,8 +478,8 @@ func (gs *GameSession) Apply(cmd Command) (ApplyResult, error) {
 }
 
 func (gs *GameSession) applySetStoryteller(cmd SetStorytellerCmd) (ApplyResult, error) {
-	if gs.storytellerID != "" {
-		return ApplyResult{}, fmt.Errorf("storyteller already set")
+	if gs.phase != game.GamePhaseSetup || gs.hasAssignedCharactersLocked() {
+		return ApplyResult{}, fmt.Errorf("storyteller can only change before roles are assigned")
 	}
 
 	found := false
@@ -374,6 +494,18 @@ func (gs *GameSession) applySetStoryteller(cmd SetStorytellerCmd) (ApplyResult, 
 	if !found {
 		return ApplyResult{}, fmt.Errorf("target player not found")
 	}
+	if gs.storytellerID != "" {
+		for index := range gs.players {
+			if gs.players[index].ID == cmd.TargetPlayerID {
+				gs.players[index] = game.Player{ID: gs.storytellerID, Name: gs.storytellerName, IsAlive: true}
+				break
+			}
+		}
+		gs.storytellerID = cmd.TargetPlayerID
+		gs.storytellerName = storytellerName
+		gs.clearReadyLocked()
+		return ApplyResult{Updated: true}, nil
+	}
 
 	gs.storytellerID = cmd.TargetPlayerID
 	gs.storytellerName = storytellerName
@@ -387,6 +519,7 @@ func (gs *GameSession) applySetStoryteller(cmd SetStorytellerCmd) (ApplyResult, 
 		}
 	}
 	gs.players = newPlayers
+	gs.clearReadyLocked()
 
 	return ApplyResult{Updated: true}, nil
 }
@@ -397,6 +530,11 @@ func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResu
 	}
 	if gs.hasAssignedCharactersLocked() {
 		return ApplyResult{}, fmt.Errorf("characters have already been assigned")
+	}
+	for _, player := range gs.players {
+		if !player.IsReady {
+			return ApplyResult{}, fmt.Errorf("all seated players must be ready before characters are assigned")
+		}
 	}
 
 	// Verify all playerIDs in assignments match actual players
@@ -421,7 +559,12 @@ func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResu
 	if err := validateFortuneTellerRedHerring(gs.scriptID, cmd.Assignments, redHerringID); err != nil {
 		return ApplyResult{}, err
 	}
+	bluffIDs, err := resolveDemonBluffCharacterIDs(gs.scriptID, cmd.Assignments, cmd.ShownCharacters, cmd.DemonBluffCharacterIDs)
+	if err != nil {
+		return ApplyResult{}, err
+	}
 	gs.fortuneTellerRedHerringID = redHerringID
+	gs.demonBluffCharacterIDs = bluffIDs
 
 	// Assign characters
 	for playerID, charID := range cmd.Assignments {
@@ -438,6 +581,7 @@ func (gs *GameSession) applyAssignCharacters(cmd AssignCharactersCmd) (ApplyResu
 					Ability: charDef.Ability,
 				}
 				gs.players[i].ShownCharacter = nil
+				gs.players[i].HasConfirmedCharacter = false
 				if shownCharID := cmd.ShownCharacters[playerID]; shownCharID != "" {
 					shownDef := game.GetScriptCharacterByID(gs.scriptID, shownCharID)
 					gs.players[i].ShownCharacter = &game.Character{
@@ -552,6 +696,50 @@ func validateFortuneTellerRedHerring(scriptID string, assignments map[string]str
 	return nil
 }
 
+func resolveDemonBluffCharacterIDs(
+	scriptID string,
+	assignments map[string]string,
+	shownCharacters map[string]string,
+	requested []string,
+) ([]string, error) {
+	unavailable := make(map[string]bool, len(assignments)+len(shownCharacters))
+	for _, characterID := range assignments {
+		unavailable[characterID] = true
+	}
+	for _, characterID := range shownCharacters {
+		unavailable[characterID] = true
+	}
+
+	bluffIDs := append([]string(nil), requested...)
+	if len(bluffIDs) == 0 {
+		script := game.GetScriptByID(scriptID)
+		if script == nil {
+			return nil, fmt.Errorf("script %s not found", scriptID)
+		}
+		for _, character := range script.Characters {
+			if character.Team == game.TeamGood && !unavailable[character.ID] {
+				bluffIDs = append(bluffIDs, character.ID)
+				if len(bluffIDs) == 3 {
+					break
+				}
+			}
+		}
+	}
+	if len(bluffIDs) != 3 {
+		return nil, fmt.Errorf("Demon requires exactly three bluff characters")
+	}
+	seen := make(map[string]bool, len(bluffIDs))
+	for index := range bluffIDs {
+		bluffIDs[index] = strings.TrimSpace(bluffIDs[index])
+		character := game.GetScriptCharacterByID(scriptID, bluffIDs[index])
+		if character == nil || character.Team != game.TeamGood || unavailable[bluffIDs[index]] || seen[bluffIDs[index]] {
+			return nil, fmt.Errorf("Demon bluff %s must be a unique out-of-play good character", bluffIDs[index])
+		}
+		seen[bluffIDs[index]] = true
+	}
+	return bluffIDs, nil
+}
+
 func (gs *GameSession) applySubmitEvent(cmd SubmitEventCmd) (ApplyResult, error) {
 	return ApplyResult{}, fmt.Errorf("raw event submission is disabled; use explicit game commands")
 }
@@ -623,4 +811,79 @@ func (gs *GameSession) applyUpdateRoomSettings(cmd UpdateRoomSettingsCmd) (Apply
 	}
 
 	return ApplyResult{Updated: true}, nil
+}
+
+func (gs *GameSession) applySetSeatOrder(cmd SetSeatOrderCmd) (ApplyResult, error) {
+	if gs.phase != game.GamePhaseSetup {
+		return ApplyResult{}, fmt.Errorf("seat order can only be changed during setup phase")
+	}
+	if gs.storytellerID == "" {
+		return ApplyResult{}, fmt.Errorf("storyteller must be set before seat order")
+	}
+	if len(cmd.SeatOrder) != len(gs.players) {
+		return ApplyResult{}, fmt.Errorf("seat order must contain every player exactly once")
+	}
+
+	playersByID := make(map[string]game.Player, len(gs.players))
+	for _, player := range gs.players {
+		playersByID[player.ID] = player
+	}
+	ordered := make([]game.Player, 0, len(gs.players))
+	changed := false
+	for index, playerID := range cmd.SeatOrder {
+		player, ok := playersByID[playerID]
+		if !ok {
+			return ApplyResult{}, fmt.Errorf("seat order contains unknown or duplicate player %s", playerID)
+		}
+		if gs.players[index].ID != playerID {
+			changed = true
+		}
+		ordered = append(ordered, player)
+		delete(playersByID, playerID)
+	}
+	if len(playersByID) != 0 {
+		return ApplyResult{}, fmt.Errorf("seat order must contain every player exactly once")
+	}
+
+	gs.players = ordered
+	if changed {
+		gs.clearReadyLocked()
+	}
+	return ApplyResult{Updated: true}, nil
+}
+
+func (gs *GameSession) clearReadyLocked() {
+	for index := range gs.players {
+		gs.players[index].IsReady = false
+	}
+}
+
+func (gs *GameSession) applySetReady(cmd SetReadyCmd) (ApplyResult, error) {
+	if gs.phase != game.GamePhaseSetup || gs.hasAssignedCharactersLocked() {
+		return ApplyResult{}, fmt.Errorf("ready state can only be changed before characters are assigned")
+	}
+	for index := range gs.players {
+		if gs.players[index].ID == cmd.SenderID {
+			gs.players[index].IsReady = cmd.Ready
+			return ApplyResult{Updated: true}, nil
+		}
+	}
+	return ApplyResult{}, fmt.Errorf("only seated players can change ready state")
+}
+
+func (gs *GameSession) applyConfirmCharacter(cmd ConfirmCharacterCmd) (ApplyResult, error) {
+	if gs.phase != game.GamePhaseSetup {
+		return ApplyResult{}, fmt.Errorf("characters can only be confirmed during setup")
+	}
+	for index := range gs.players {
+		if gs.players[index].ID != cmd.SenderID {
+			continue
+		}
+		if gs.players[index].Character == nil {
+			return ApplyResult{}, fmt.Errorf("character has not been assigned")
+		}
+		gs.players[index].HasConfirmedCharacter = true
+		return ApplyResult{Updated: true}, nil
+	}
+	return ApplyResult{}, fmt.Errorf("only seated players can confirm a character")
 }

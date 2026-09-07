@@ -85,6 +85,7 @@ func TestFortuneTellerWithoutRedHerringDoesNotAutoComputeNo(t *testing.T) {
 func TestAssignCharactersRejectsRedHerringWithoutFortuneTeller(t *testing.T) {
 	gs := newFortuneTellerAssignmentSession(t)
 
+	markAllPlayersReady(gs)
 	_, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -107,6 +108,7 @@ func TestAssignCharactersRejectsRedHerringWithoutFortuneTeller(t *testing.T) {
 func TestAssignCharactersRejectsEvilRedHerring(t *testing.T) {
 	gs := newFortuneTellerAssignmentSession(t)
 
+	markAllPlayersReady(gs)
 	_, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -191,6 +193,7 @@ func newStartedFortuneTellerGameWithRedHerring(t *testing.T, redHerringID string
 	t.Helper()
 
 	gs := newFortuneTellerAssignmentSession(t)
+	markAllPlayersReady(gs)
 	if _, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -204,6 +207,7 @@ func newStartedFortuneTellerGameWithRedHerring(t *testing.T, redHerringID string
 	}); err != nil {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}

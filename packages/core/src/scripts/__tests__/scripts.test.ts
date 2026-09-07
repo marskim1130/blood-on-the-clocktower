@@ -24,6 +24,12 @@ function seededRandom(seed: number): () => number {
 }
 
 describe('script catalog', () => {
+  it('wakes the Spy to view the grimoire after other actions every night', () => {
+    for (const night of [1, 2]) {
+      const steps = getScriptWakeOrder('trouble_brewing', night);
+      expect(steps.at(-1)).toMatchObject({ characterId: 'spy', actionType: 'show_grimoire', minTargets: 0, maxTargets: 0 });
+    }
+  });
   it('contains the complete Trouble Brewing role set', () => {
     const counts = countCharacterTypes(
       TROUBLE_BREWING_SCRIPT.characters.map((character) => character.id),
@@ -123,6 +129,19 @@ describe('script catalog', () => {
     expect(validateScriptSetup(setup, players(playerCount))).toMatchObject({ ok: true });
   });
 
+  it('generates three unique out-of-play good characters as Demon bluffs', () => {
+    const setup = randomizeScriptAssignments(players(5), 'trouble_brewing', seededRandom(23));
+    const assigned = new Set(Object.values(setup.assignments));
+
+    expect(setup.demonBluffCharacterIds).toHaveLength(3);
+    expect(new Set(setup.demonBluffCharacterIds)).toHaveLength(3);
+    for (const characterId of setup.demonBluffCharacterIds) {
+      const character = TROUBLE_BREWING_SCRIPT.characters.find((candidate) => candidate.id === characterId);
+      expect(assigned.has(characterId)).toBe(false);
+      expect(character?.team).toBe('good');
+    }
+  });
+
   it('selects outsiders using the Baron-adjusted role count', () => {
     const values = [0.99, 0, 0.99];
     const setup = randomizeScriptAssignments(players(5), 'trouble_brewing', () => {
@@ -151,6 +170,7 @@ describe('script catalog', () => {
       },
       shownCharacters: { p3: 'chef' },
       fortuneTellerRedHerringId: null,
+      demonBluffCharacterIds: ['librarian', 'investigator', 'empath'],
     };
     const fortuneTellerSetup = {
       assignments: {
@@ -162,6 +182,7 @@ describe('script catalog', () => {
       },
       shownCharacters: {},
       fortuneTellerRedHerringId: 'p2',
+      demonBluffCharacterIds: ['washerwoman', 'librarian', 'investigator'],
     };
 
     expect(validateScriptSetup(drunkSetup, players(5))).toMatchObject({ ok: true });

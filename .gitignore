@@ -36,6 +36,7 @@ pnpm-debug.log*
 coverage/
 
 # Temporary
+backups/
 .scratch/
 tmp/
 temp/

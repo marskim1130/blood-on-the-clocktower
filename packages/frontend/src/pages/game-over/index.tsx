@@ -1,6 +1,6 @@
 import { Button, Text, View } from '@tarojs/components';
 import Taro from '@tarojs/taro';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { LoadingState, SessionShell } from '../../components/session-shell';
 import { characterDisplayAbility, characterDisplayName } from '../../lib/character-display';
 import { normalizeWinner, selectGameOver } from '../../lib/room-experience';
@@ -16,12 +16,6 @@ const REASON_LABELS: Readonly<Record<string, string>> = {
   saint_executed: '圣徒被处决',
   imp_starpass: '小恶魔自杀后无人继承',
   storyteller_decision: '说书人裁定',
-};
-
-const DEATH_CAUSE_LABELS: Readonly<Record<string, string>> = {
-  execution: '处决',
-  night_kill: '夜间死亡',
-  ability: '能力致死',
 };
 
 const DESCRIPTION_LABELS: Readonly<Record<string, string>> = {
@@ -46,7 +40,10 @@ export default function GameOverPage() {
   const pendingCommand = useRoomSession((state) => state.pendingCommand);
   const leaveRoom = useRoomSession((state) => state.leaveRoom);
   const closeRoom = useRoomSession((state) => state.closeRoom);
+  const restartGame = useRoomSession((state) => state.restartGame);
+  const publishGrimoire = useRoomSession((state) => state.publishGrimoire);
   const gameOver = selectGameOver(experience);
+  const [showTimeline, setShowTimeline] = useState(false);
 
   useSessionRoute(SESSION_ROUTES.over);
 
@@ -64,6 +61,8 @@ export default function GameOverPage() {
   }
 
   const isCreator = room.creatorId === playerId;
+  const isStoryteller = room.storytellerId === playerId;
+  const canSeeGrimoire = room.grimoireRevealed || isStoryteller;
   const busy = pendingCommand !== null;
   const winner = gameOver ? normalizeWinner(gameOver.winner) : null;
   const winnerLabel = winner === 'good' ? '善良阵营获胜' : winner === 'evil' ? '邪恶阵营获胜' : '结果不可用';
@@ -86,29 +85,61 @@ export default function GameOverPage() {
     });
   }
 
+  function confirmPublishGrimoire(): void {
+    void Taro.showModal({
+      title: '向全员公开魔典？',
+      content: '公开后所有玩家都会看到完整身份，且本局不能再次隐藏。',
+      confirmText: '确认公开',
+      confirmColor: '#7b2028',
+    }).then((result) => {
+      if (result.confirm) publishGrimoire();
+    });
+  }
+
+  function confirmRestart(): void {
+    void Taro.showModal({
+      title: '同房再来一局？',
+      content: '保留房间、当前成员和座位，清空本局身份、投票与夜间记录，返回准备页面重新配置。请先完成复盘。',
+      confirmText: '开始新局',
+    }).then((result) => { if (result.confirm) restartGame(); });
+  }
+
   return (
     <SessionShell
       eyebrow='游戏结果'
-      title='真相揭晓'
+      title={room.grimoireRevealed ? '真相揭晓' : '胜负已定'}
       actions={
-        <Button className={isCreator ? 'dangerButton' : 'commandButton'} disabled={busy} onClick={confirmExit}>
-          {isCreator ? '关闭房间' : '离开房间'}
-        </Button>
+        <View className='commandRow'>
+          {isCreator && (
+            <Button className='commandButton' disabled={busy} onClick={confirmRestart}>同房再来一局</Button>
+          )}
+          {isStoryteller && !room.grimoireRevealed && (
+            <Button className='commandButton' disabled={busy} onClick={confirmPublishGrimoire}>公开魔典</Button>
+          )}
+          <Button className={isCreator ? 'dangerButton' : 'secondaryButton'} disabled={busy} onClick={confirmExit}>
+            {isCreator ? '关闭房间' : '离开房间'}
+          </Button>
+        </View>
       }
     >
-      <View className={`resultBanner ${gameOver ? '' : 'resultMissing'}`}>
+      <View className={`resultBanner resultHero ${winner === 'evil' ? 'resultHeroEvil' : 'resultHeroGood'} ${gameOver ? '' : 'resultMissing'}`}>
+        <Text className='resultEmblem'>{winner === 'evil' ? '☾' : '✦'}</Text>
         <Text className='resultTeam'>{winnerLabel}</Text>
         <Text className='resultReason'>{reasonLabel}</Text>
         {resultDescription && <Text className='resultDescription'>{resultDescription}</Text>}
+        <View className='resultStats'><Text>{room.players.length} 位玩家</Text><Text>{room.deaths?.length ?? 0} 人死亡</Text><Text>{room.nominationResults?.length ?? 0} 轮提名</Text></View>
       </View>
 
-      <View className='sectionBand'>
-        <Text className='sectionHeading'>身份揭示</Text>
-        <View className='revealList'>
+      <View className='surfaceGrid'>
+      <View className='workspaceMain'>
+      {canSeeGrimoire ? (
+        <View className='sectionBand'>
+        <Text className='sectionHeading'>{room.grimoireRevealed ? '身份揭示' : '说书人私密魔典（尚未公开）'}</Text>
+        <View className='revealList revealGrid'>
           {room.players.map((player, index) => {
             const death = deaths.get(player.id);
             return (
-              <View className='revealItem' key={player.id}>
+              <View className={`revealItem revealCard ${player.character?.team === 2 ? 'revealCardEvil' : 'revealCardGood'}`} key={player.id}>
                 <View className='revealHeader'>
                   <Text className='playerName'>{String(index + 1).padStart(2, '0')} · {player.name || `座位 ${index + 1}`}</Text>
                   <Text className={`tag ${player.character?.team === 2 ? 'tagEvil' : 'tagGood'}`}>{teamLabel(player.character?.team ?? 0)}</Text>
@@ -117,14 +148,30 @@ export default function GameOverPage() {
                 {player.shownCharacter && <Text className='playerMeta'>曾展示为：{characterDisplayName(player.shownCharacter)}</Text>}
                 {player.character?.ability && <Text className='revealAbility'>{characterDisplayAbility(player.character)}</Text>}
                 <Text className='deathCause'>
-                  {death ? `第 ${death.dayNumber} 天 · ${DEATH_CAUSE_LABELS[death.cause] ?? death.cause}` : '存活至游戏结束'}
+                  {death ? `第 ${death.dayNumber} 天死亡` : '存活至游戏结束'}
                 </Text>
               </View>
             );
           })}
         </View>
+        </View>
+      ) : (
+        <View className='emptyBand'>
+          <Text className='emptyBandTitle'>等待说书人公开魔典</Text>
+          <Text className='emptyBandText'>胜负已经确定；完整身份会在说书人确认后统一揭示。</Text>
+        </View>
+      )}
+      </View>
+      <View className='workspaceAside'>
+        <View className='sectionBand'>
+          <Text className='sectionHeading'>围桌复盘</Text>
+          <Text className='sectionDescription'>{room.grimoireRevealed ? '身份已揭幕，一起聊聊本局的关键选择。' : '身份仍保密，由说书人决定何时揭幕。'}</Text>
+          <Button className='secondaryButton fullWidthButton' onClick={() => setShowTimeline(!showTimeline)}>{showTimeline ? '收起对局时间线' : '展开对局时间线'}</Button>
+        </View>
+      </View>
       </View>
 
+      {showTimeline && <View className='resultTimelines'>
       <View className='sectionBand'>
         <Text className='sectionHeading'>死亡时间线</Text>
         {room.deaths && room.deaths.length > 0 ? room.deaths.map((death) => {
@@ -134,7 +181,7 @@ export default function GameOverPage() {
               <Text className='seatNumber'>{death.dayNumber}</Text>
               <View className='playerBody'>
                 <Text className='playerName'>{player?.name ?? '未知玩家'}</Text>
-                <Text className='playerMeta'>{DEATH_CAUSE_LABELS[death.cause] ?? death.cause}</Text>
+                <Text className='playerMeta'>第 {death.dayNumber} 天死亡</Text>
               </View>
             </View>
           );
@@ -142,6 +189,26 @@ export default function GameOverPage() {
           <Text className='sectionDescription'>本局没有死亡记录。</Text>
         )}
       </View>
+
+      <View className='sectionBand'>
+        <Text className='sectionHeading'>提名与投票时间线</Text>
+        {(room.nominationResults?.length ?? 0) > 0 ? room.nominationResults?.map((result, index) => {
+          const nominator = room.players.find((player) => player.id === result.nominatorId);
+          const nominee = room.players.find((player) => player.id === result.nomineeId);
+          return (
+            <View className='playerRow' key={`${result.dayNumber}-${result.nomineeId}-${index}`}>
+              <Text className='seatNumber'>{result.dayNumber}</Text>
+              <View className='playerBody'>
+                <Text className='playerName'>{nominator?.name ?? '未知玩家'} 提名 {nominee?.name ?? '未知玩家'}</Text>
+                <Text className='playerMeta'>赞成 {result.yesVotes} · 反对 {result.noVotes} · 上台门槛 {result.requiredVotes}</Text>
+              </View>
+            </View>
+          );
+        }) : (
+          <Text className='sectionDescription'>本局没有完成的提名投票。</Text>
+        )}
+      </View>
+      </View>}
     </SessionShell>
   );
 }

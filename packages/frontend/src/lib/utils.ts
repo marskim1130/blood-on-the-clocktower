@@ -14,6 +14,7 @@ export interface StoredRoomIdentity {
   readonly roomId: string;
   readonly playerId: string;
   readonly resumeCredential: string;
+  readonly recoveryCredential?: string;
 }
 
 export function eventValue(event: InputEvent): string {
@@ -52,6 +53,7 @@ export function getStoredRoomIdentity(key: string): StoredRoomIdentity | null {
     roomId: identity.roomId,
     playerId: identity.playerId,
     resumeCredential: identity.resumeCredential,
+    ...(typeof identity.recoveryCredential === 'string' && identity.recoveryCredential.trim() ? { recoveryCredential: identity.recoveryCredential } : {}),
   };
 }
 

@@ -1,83 +1,160 @@
-.resultBanner {
-  padding: 30px 24px;
-  border: 2px solid #d5b45c;
-  background: #202523;
-  color: #ffffff;
+.resultBanner,.resultHero {
+  position: relative;
+  overflow: hidden;
+  padding: 40px 28px;
+  margin-bottom: 24px;
+  border: 1px solid #a58a54;
+  border-radius: 10px;
+  background: radial-gradient(ellipse at top,#4b3733,#241827 75%);
+  color: var(--paper);
   text-align: center;
 }
 
-.resultTeam,
-.resultReason,
-.resultDescription,
-.revealRole,
-.revealAbility,
-.deathCause {
+.resultHeroGood {
+  background: radial-gradient(ellipse at top,#354538,#201a28 75%);
+}
+
+.resultHeroEvil {
+  background: radial-gradient(ellipse at top,#5b283a,#211526 75%);
+}
+
+.resultEmblem {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 62px;
+  margin: 0 auto 20px;
+  border: 1px solid var(--gold);
+  border-radius: 50%;
+  color: var(--gold);
+  font-family: Georgia,serif;
+  font-size: 32px;
+}
+
+.resultTeam,.resultReason,.resultDescription,.revealRole,.revealAbility,.deathCause {
   display: block;
 }
 
 .resultTeam {
-  font-size: 40px;
+  color: var(--paper);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 36px;
   font-weight: 700;
+  letter-spacing: 3px;
 }
 
 .resultReason {
-  margin-top: 10px;
-  color: #9dc9bf;
-  font-size: 24px;
-  font-weight: 700;
+  margin-top: 12px;
+  color: var(--gold);
+  font-size: 17px;
 }
 
 .resultDescription {
-  max-width: 680px;
+  max-width: 660px;
   margin: 12px auto 0;
-  color: #d7dcda;
-  font-size: 20px;
-  line-height: 30px;
+  color: #c9b7cc;
+  font-size: 13px;
+  line-height: 1.8;
 }
 
-.revealList {
+.resultStats {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 26px;
+}
+
+.resultStats > * {
+  min-width: 100px;
+  padding: 12px 20px;
+  border: 1px solid #ffffff20;
+  border-radius: 6px;
+  background: #00000020;
+  color: var(--paper);
+}
+
+.revealList,.revealGrid {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 14px;
   margin-top: 18px;
 }
 
-.revealItem {
-  flex: 1 1 360px;
+.revealItem,.revealCard {
   min-width: 0;
-  padding: 16px;
-  border: 1px solid #cfd4d2;
-  border-radius: 6px;
-  background: #ffffff;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.revealCardGood {
+  border-top: 3px solid #719377;
+}
+
+.revealCardEvil {
+  border-top: 3px solid #a85a71;
 }
 
 .revealHeader {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
 .revealRole {
-  margin-top: 9px;
-  color: #7b2028;
-  font-size: 24px;
+  margin-top: 12px;
+  color: var(--gold);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 21px;
   font-weight: 700;
 }
 
 .revealAbility {
-  margin-top: 7px;
-  color: #66706d;
-  font-size: 18px;
-  line-height: 25px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
 }
 
 .deathCause {
-  color: #66706d;
-  font-size: 19px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
 }
 
 .resultMissing {
-  border-color: #d8a0a5;
-  background: #fff4f5;
+  border-color: #815063;
+  background: #352330;
+}
+
+.resultTimelines {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 20px;
+}
+
+@media (max-width:800px) {
+  .revealList,.revealGrid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+  .resultTimelines {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width:520px) {
+  .resultHero,.resultBanner {
+    padding: 32px 20px;
+  }
+  .resultTeam {
+    font-size: 30px;
+  }
+  .revealList,.revealGrid {
+    grid-template-columns: 1fr;
+  }
 }

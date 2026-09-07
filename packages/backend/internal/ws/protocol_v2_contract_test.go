@@ -184,6 +184,23 @@ func TestProtocolV2AssignmentFreezesOnlyAfterSuccessAndKeepsRedHerringPrivate(t 
 	}
 
 	clients["p5"] = joinContractPlayer(t, hub, created.RoomID, "p5")
+	ready := true
+	for playerID, client := range clients {
+		hub.handleMessageV2(client.connection, ClientMessage{
+			ProtocolVersion:  2,
+			Type:             MsgSetReady,
+			RoomID:           created.RoomID,
+			PlayerID:         playerID,
+			ResumeCredential: client.credential,
+			ClientSequence:   1,
+			Ready:            &ready,
+		})
+		if message := waitForContractMessage(t, client.connection, func(message ServerMessage) bool {
+			return message.Type == ServerMsgCommandResult && message.AcceptedSequence == 1
+		}); message.Type != ServerMsgCommandResult {
+			t.Fatalf("set ready for %s failed: %+v", playerID, message)
+		}
+	}
 	for _, client := range clients {
 		client.connection.ClearMessages()
 	}
@@ -220,8 +237,23 @@ func TestProtocolV2AssignmentFreezesOnlyAfterSuccessAndKeepsRedHerringPrivate(t 
 	if playerProjection.State == nil || playerProjection.State.FortuneTellerRedHerringID != "" {
 		t.Fatalf("red herring leaked to player: %+v", playerProjection)
 	}
-	if playerProjection.IdentityStatus == nil || playerProjection.IdentityStatus.Status != "member" || !playerProjection.IdentityStatus.ParticipantSetFrozen || playerProjection.IdentityStatus.NextClientSequence != 1 {
+	if playerProjection.IdentityStatus == nil || playerProjection.IdentityStatus.Status != "member" || !playerProjection.IdentityStatus.ParticipantSetFrozen || playerProjection.IdentityStatus.NextClientSequence != 2 {
 		t.Fatalf("player did not receive authoritative frozen identity status: %+v", playerProjection.IdentityStatus)
+	}
+	for playerID, client := range clients {
+		hub.handleMessageV2(client.connection, ClientMessage{
+			ProtocolVersion:  2,
+			Type:             MsgConfirmCharacter,
+			RoomID:           created.RoomID,
+			PlayerID:         playerID,
+			ResumeCredential: client.credential,
+			ClientSequence:   2,
+		})
+		if message := waitForContractMessage(t, client.connection, func(message ServerMessage) bool {
+			return message.Type == ServerMsgCommandResult && message.AcceptedSequence == 2
+		}); message.Type != ServerMsgCommandResult {
+			t.Fatalf("confirm character for %s failed: %+v", playerID, message)
+		}
 	}
 
 	resumedPlayer := newFakeConnection()

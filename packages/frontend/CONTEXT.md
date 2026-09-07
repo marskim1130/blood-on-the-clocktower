@@ -1,5 +1,9 @@
 # @clocktower/frontend — Frontend Package Context
 
+## 2026-09-07 手机面杀版本补充
+
+本轮实际交付与构建目标为 H5 和微信小程序，React Native 未验收。详见 [手机面杀验收清单](../../docs/playtest-checklist.md)：新增恢复审批、长按私密信息、说书人操作日志/撤销、成员管理与同房再开；无震动无音效。下面旧约束若仍写不支持转房主、重赛、历史或恢复码，以当前清单和用户新需求为准。界面必须等待服务器权威投影，不得乐观暴露私密身份。
+
 ## Purpose
 
 This package contains the Taro 4.x frontend application that runs on both WeChat Mini Program and React Native platforms.

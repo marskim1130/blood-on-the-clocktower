@@ -41,7 +41,7 @@ func TestGameSessionSetStoryteller(t *testing.T) {
 	}
 }
 
-func TestGameSessionSetStorytellerAlreadySet(t *testing.T) {
+func TestGameSessionCanSwapStorytellerBeforeRolesAreAssigned(t *testing.T) {
 	gs := NewGameSession()
 	gs.AddPlayer(game.Player{ID: "p1", Name: "Alice", IsAlive: true})
 	gs.AddPlayer(game.Player{ID: "p2", Name: "Bob", IsAlive: true})
@@ -49,8 +49,11 @@ func TestGameSessionSetStorytellerAlreadySet(t *testing.T) {
 	gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p2"})
 
 	_, err := gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p1"})
-	if err == nil {
-		t.Error("expected error when storyteller already set")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gs.StorytellerID() != "p1" || len(gs.Players()) != 1 || gs.Players()[0].ID != "p2" || gs.Players()[0].Name != "Bob" || gs.Players()[0].IsReady {
+		t.Fatalf("storyteller swap did not preserve former storyteller seat: %+v", gs.Players())
 	}
 }
 
@@ -76,6 +79,7 @@ func TestGameSessionAssignCharacters(t *testing.T) {
 	// Set storyteller (p1), remaining players: p2-p6 (5 players)
 	gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p1"})
 
+	markAllPlayersReady(gs)
 	result, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "p1",
 		Assignments: map[string]string{
@@ -102,6 +106,7 @@ func TestGameSessionAssignCharactersInvalid(t *testing.T) {
 	gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p1"})
 
 	// 1 player but assigning 2 characters
+	markAllPlayersReady(gs)
 	_, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "p1",
 		Assignments: map[string]string{
@@ -123,6 +128,7 @@ func TestGameSessionAssignCharactersNonStoryteller(t *testing.T) {
 	gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p1"})
 
 	// p3 (not storyteller) tries to assign
+	markAllPlayersReady(gs)
 	_, err := gs.Apply(AssignCharactersCmd{
 		SenderID:    "p3",
 		Assignments: map[string]string{"p2": "imp"},
@@ -143,6 +149,7 @@ func TestGameSessionAssignCharactersBogusPlayerIDs(t *testing.T) {
 	gs.Apply(SetStorytellerCmd{SenderID: "p1", TargetPlayerID: "p1"})
 
 	// Use non-existent playerIDs — should be rejected
+	markAllPlayersReady(gs)
 	_, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "p1",
 		Assignments: map[string]string{
@@ -165,6 +172,7 @@ func TestStartGameRejectsNoActualPlayers(t *testing.T) {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
 
+	markAllPlayersConfirmed(gs)
 	result, err := gs.Apply(StartGameCmd{SenderID: "storyteller"})
 	if err == nil {
 		t.Fatal("expected start game with no actual players to be rejected")
@@ -182,8 +190,8 @@ func TestStartGameRejectsNoActualPlayers(t *testing.T) {
 
 func TestStartGameRevalidatesAssignedRoleDistribution(t *testing.T) {
 	gs := NewGameSession()
+	gs.storytellerID, gs.storytellerName = "storyteller", "Storyteller"
 	gs.SetPlayers([]game.Player{
-		{ID: "storyteller", Name: "Storyteller", IsAlive: true},
 		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "washerwoman")},
 		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "librarian")},
 		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "investigator")},
@@ -191,10 +199,7 @@ func TestStartGameRevalidatesAssignedRoleDistribution(t *testing.T) {
 		{ID: "p5", Name: "P5", IsAlive: true, Character: testCharacter(t, "imp")},
 	})
 
-	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
-		t.Fatalf("SetStoryteller failed: %v", err)
-	}
-
+	markAllPlayersConfirmed(gs)
 	_, err := gs.Apply(StartGameCmd{SenderID: "storyteller"})
 	if err == nil {
 		t.Fatal("expected invalid manual role distribution to be rejected")
@@ -781,7 +786,7 @@ func TestGameSessionNominationLimitsResetOnNewDay(t *testing.T) {
 		t.Fatalf("unexpected first nomination error: %v", err)
 	}
 	resolveWithoutExecution(t, gs)
-	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+	if _, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("unexpected change to night error: %v", err)
 	}
 	gs.nightWakeIndex = len(gs.activeNightWakeStepsLocked())
@@ -852,7 +857,7 @@ func TestGameSessionVirginFirstNominationByNonTownsfolkConsumesAbilityWithoutExe
 	}
 
 	resolveNominationWithoutExecutionBy(t, gs, "virgin")
-	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+	if _, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("unexpected change to night error: %v", err)
 	}
 	gs.nightWakeIndex = len(gs.activeNightWakeStepsLocked())
@@ -889,7 +894,7 @@ func TestGameSessionPoisonedVirginFirstNominationConsumesAbilityWithoutExecution
 	}
 
 	resolveNominationWithoutExecutionBy(t, gs, "virgin")
-	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+	if _, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("unexpected change to night error: %v", err)
 	}
 	gs.nightWakeIndex = len(gs.activeNightWakeStepsLocked())
@@ -956,7 +961,7 @@ func TestGameSessionProjection(t *testing.T) {
 	}
 }
 
-func TestGameSessionFinishedStateRevealsCharactersToPlayers(t *testing.T) {
+func TestGameSessionRevealsCharactersOnlyAfterStorytellerPublishesGrimoire(t *testing.T) {
 	gs := NewGameSession()
 	gs.storytellerID = "storyteller"
 	gs.players = []game.Player{
@@ -977,14 +982,22 @@ func TestGameSessionFinishedStateRevealsCharactersToPlayers(t *testing.T) {
 		Description: "The Demon is dead — good wins!",
 	}
 
+	finishedState := gs.ProjectionFor("p1")
+	if character := findPlayerInState(t, finishedState, "p2").Character; character != nil {
+		t.Fatalf("finished state revealed p2 before storyteller publication: %#v", character)
+	}
+	if _, err := gs.Apply(PublishGrimoireCmd{SenderID: "storyteller"}); err != nil {
+		t.Fatalf("publish grimoire failed: %v", err)
+	}
+
 	revealedState := gs.ProjectionFor("p1")
 	revealed := findPlayerInState(t, revealedState, "p2")
 	if revealed.Character == nil || revealed.Character.ID != "imp" {
-		t.Fatalf("expected finished state to reveal p2 character, got %#v", revealed.Character)
+		t.Fatalf("published grimoire did not reveal p2 character: %#v", revealed.Character)
 	}
 }
 
-func TestGameSessionSpySeesAllCharactersAtNight(t *testing.T) {
+func TestGameSessionSpyDoesNotReceiveAllCharactersOutsideGrimoireResult(t *testing.T) {
 	gs := spyVisibilitySession(t)
 	gs.nightActions = []game.NightAction{
 		{ActorID: "storyteller", ActionType: game.NightActionKill, TargetIDs: []string{"imp"}},
@@ -993,12 +1006,12 @@ func TestGameSessionSpySeesAllCharactersAtNight(t *testing.T) {
 	state := gs.ProjectionFor("spy")
 
 	for _, player := range state.Players {
-		if player.Character == nil {
-			t.Fatalf("expected Spy to see %s character at night", player.ID)
+		if player.ID != "spy" && player.Character != nil {
+			t.Fatalf("Spy received %s character outside confirmed grimoire result", player.ID)
 		}
 	}
-	if state.CurrentNightWakeStep != nil || len(state.NightWakeSteps) != 0 {
-		t.Fatal("Spy must not see storyteller night management")
+	if state.CurrentNightWakeStep == nil || state.CurrentNightWakeStep.ActionType != game.NightActionLearnDemon || len(state.NightWakeSteps) != 0 {
+		t.Fatal("Spy must see only their current Minion information step, not the storyteller wake list")
 	}
 	if len(state.NightActions) != 0 {
 		t.Fatal("Spy must not see storyteller Night Action history")
@@ -1219,9 +1232,17 @@ func resolveWithoutExecution(t *testing.T, gs *GameSession) {
 
 func resolveNominationWithoutExecutionBy(t *testing.T, gs *GameSession, voterID string) {
 	t.Helper()
-	no := false
-	if _, err := gs.Apply(CastVoteCmd{SenderID: voterID, Decision: no}); err != nil {
-		t.Fatalf("unexpected vote error: %v", err)
+	_ = voterID
+	openNominationVoting(t, gs)
+	for {
+		nomination := gs.Nomination()
+		if nomination == nil || nomination.CurrentVoterIndex >= len(nomination.VoterOrder) {
+			break
+		}
+		currentVoterID := nomination.VoterOrder[nomination.CurrentVoterIndex]
+		if _, err := gs.Apply(CastVoteCmd{SenderID: currentVoterID, Decision: false}); err != nil {
+			t.Fatalf("unexpected vote error for %s: %v", currentVoterID, err)
+		}
 	}
 	if _, err := gs.Apply(ResolveNominationCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("unexpected resolve nomination error: %v", err)

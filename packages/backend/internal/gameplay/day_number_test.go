@@ -12,7 +12,7 @@ func TestNightDeathIsAttributedToUpcomingDay(t *testing.T) {
 	if state := gs.Projection(); state.DayNumber != 1 || state.NightNumber != 1 {
 		t.Fatalf("expected first day after first night, got day=%d night=%d", state.DayNumber, state.NightNumber)
 	}
-	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+	if _, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("enter second night: %v", err)
 	}
 

@@ -160,6 +160,7 @@ var TroubleBrewingFirstNightOrder = []NightWakeStep{
 	{CharacterID: "empath", Order: 8, ActionType: NightActionLearnEvilNeighbors, Prompt: "Empath learns how many alive neighbours are evil.", MinTargets: 0, MaxTargets: 0},
 	{CharacterID: "fortuneteller", Order: 9, ActionType: NightActionCheckDemon, Prompt: "Fortune Teller chooses two players and learns if either registers as the Demon.", MinTargets: 2, MaxTargets: 2},
 	{CharacterID: "butler", Order: 10, ActionType: NightActionLearnMaster, Prompt: "Butler chooses their master for tomorrow.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "spy", Order: 11, ActionType: NightActionShowGrimoire, Prompt: "Spy views the Grimoire, including characters and status.", MinTargets: 0, MaxTargets: 0},
 }
 
 // TroubleBrewingSubsequentNightOrder defines the storyteller wake order after night one.
@@ -172,6 +173,7 @@ var TroubleBrewingSubsequentNightOrder = []NightWakeStep{
 	{CharacterID: "undertaker", Order: 6, ActionType: NightActionLearnExecuted, Prompt: "Undertaker learns which character died by execution today.", MinTargets: 0, MaxTargets: 0},
 	{CharacterID: "butler", Order: 7, ActionType: NightActionLearnMaster, Prompt: "Butler chooses their master for tomorrow.", MinTargets: 1, MaxTargets: 1},
 	{CharacterID: "ravenkeeper", Order: 8, ActionType: NightActionLearnDied, Prompt: "If Ravenkeeper died tonight, they choose one player and learn their character.", MinTargets: 1, MaxTargets: 1},
+	{CharacterID: "spy", Order: 9, ActionType: NightActionShowGrimoire, Prompt: "Spy views the Grimoire, including characters and status.", MinTargets: 0, MaxTargets: 0},
 }
 
 // GetScriptWakeOrder returns the full wake order for a script and night number.

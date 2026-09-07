@@ -2,11 +2,13 @@ package ws
 
 import (
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
 	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
+	"github.com/marskim1130/blood-on-the-clocktower/internal/gameplay"
 )
 
 type protocolV2GameClient struct {
@@ -216,6 +218,10 @@ func TestProtocolV2CompleteGameOverWebSocket(t *testing.T) {
 	if setStoryteller.direct.State.StorytellerID != storyteller.id || len(setStoryteller.direct.State.Players) != 5 {
 		t.Fatalf("creator must become storyteller without occupying a player seat: %+v", setStoryteller.direct.State)
 	}
+	ready := true
+	for _, player := range []*protocolV2GameClient{p1, p2, p3, p4, p5} {
+		harness.command(player, ClientMessage{Type: MsgSetReady, Ready: &ready})
+	}
 
 	assignments := map[string]string{
 		"p1": "slayer",
@@ -224,10 +230,20 @@ func TestProtocolV2CompleteGameOverWebSocket(t *testing.T) {
 		"p4": "poisoner",
 		"p5": "imp",
 	}
-	assigned := harness.command(storyteller, ClientMessage{Type: MsgAssignCharacters, Assignments: assignments})
+	assigned := harness.command(storyteller, ClientMessage{
+		Type:                   MsgAssignCharacters,
+		Assignments:            assignments,
+		DemonBluffCharacterIDs: []string{"chef", "empath", "fortuneteller"},
+	})
+	if !slices.Equal(assigned.direct.State.DemonBluffCharacterIDs, []string{"chef", "empath", "fortuneteller"}) {
+		t.Fatalf("storyteller projection lost Demon bluffs: %+v", assigned.direct.State.DemonBluffCharacterIDs)
+	}
 	assertCharacterVisibility(t, assigned.direct.State, "", assignments, true)
 	for _, player := range []*protocolV2GameClient{p1, p2, p3, p4, p5} {
 		assertCharacterVisibility(t, assigned.broadcasts[player.id].State, player.id, assignments, false)
+	}
+	for _, player := range []*protocolV2GameClient{p1, p2, p3, p4, p5} {
+		harness.command(player, ClientMessage{Type: MsgConfirmCharacter})
 	}
 
 	started := harness.command(storyteller, ClientMessage{Type: MsgStartGame})
@@ -236,24 +252,12 @@ func TestProtocolV2CompleteGameOverWebSocket(t *testing.T) {
 		assertPlayerNightPrivacy(t, broadcast.State, id, assignments)
 	}
 
-	learnDemon := harness.command(storyteller, ClientMessage{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnDemon)})
-	assertStorytellerNightProjection(t, learnDemon.direct.State, 1)
-	for id, broadcast := range learnDemon.broadcasts {
-		assertPlayerNightPrivacy(t, broadcast.State, id, assignments)
-	}
-
-	learnMinion := harness.command(storyteller, ClientMessage{Type: MsgSubmitNightAction, ActionType: string(game.NightActionLearnMinion)})
-	assertStorytellerNightProjection(t, learnMinion.direct.State, 2)
-	for id, broadcast := range learnMinion.broadcasts {
-		assertPlayerNightPrivacy(t, broadcast.State, id, assignments)
-	}
-
 	poisoned := harness.command(storyteller, ClientMessage{
 		Type:       MsgSubmitNightAction,
 		ActionType: string(game.NightActionPoison),
 		TargetIDs:  []string{p2.id},
 	})
-	assertStorytellerNightProjection(t, poisoned.direct.State, 3)
+	assertStorytellerNightProjection(t, poisoned.direct.State, 1)
 	if playerByID(t, poisoned.direct.State, p2.id).PoisonedUntil == nil {
 		t.Fatal("storyteller must see that p2 is poisoned")
 	}
@@ -261,7 +265,16 @@ func TestProtocolV2CompleteGameOverWebSocket(t *testing.T) {
 		assertPlayerNightPrivacy(t, broadcast.State, id, assignments)
 	}
 
-	day := harness.command(storyteller, ClientMessage{Type: MsgResolveNight})
+	preparedDawn := harness.command(storyteller, ClientMessage{Type: MsgPrepareDawn})
+	if !preparedDawn.direct.State.DawnReviewPending || len(preparedDawn.direct.State.PendingDawnDeathIDs) != 0 || preparedDawn.direct.State.Phase != game.GamePhaseNight {
+		t.Fatalf("first-night dawn proposal must be an empty private review: %+v", preparedDawn.direct.State)
+	}
+	for id, broadcast := range preparedDawn.broadcasts {
+		if broadcast.State.DawnReviewPending || len(broadcast.State.PendingDawnDeathIDs) != 0 {
+			t.Fatalf("dawn review leaked to %s: %+v", id, broadcast.State)
+		}
+	}
+	day := harness.command(storyteller, ClientMessage{Type: MsgConfirmDawn})
 	assertFirstDay(t, day.direct.State)
 	for _, broadcast := range day.broadcasts {
 		assertFirstDay(t, broadcast.State)
@@ -275,6 +288,9 @@ func TestProtocolV2CompleteGameOverWebSocket(t *testing.T) {
 	}
 
 	yes := true
+	no := false
+	harness.command(storyteller, ClientMessage{Type: MsgAdvanceNominationStage})
+	harness.command(storyteller, ClientMessage{Type: MsgAdvanceNominationStage})
 	p1Vote := harness.command(p1, ClientMessage{Type: MsgCastVote, Decision: &yes})
 	assertNomination(t, p1Vote.direct.State, map[string]bool{"p1": true})
 	for _, broadcast := range p1Vote.broadcasts {
@@ -283,8 +299,8 @@ func TestProtocolV2CompleteGameOverWebSocket(t *testing.T) {
 
 	resumedP2 := harness.resume(p2)
 	assertNomination(t, resumedP2.State, map[string]bool{"p1": true})
-	if resumedP2.RoomRevision != 15 || resumedP2.NextClientSequence != 1 {
-		t.Fatalf("p2 resume must continue at revision 15 and sequence 1: %+v", resumedP2)
+	if resumedP2.RoomRevision != 26 || resumedP2.NextClientSequence != 3 {
+		t.Fatalf("p2 resume must continue at revision 26 and sequence 3: %+v", resumedP2)
 	}
 
 	p2Vote := harness.command(p2, ClientMessage{Type: MsgCastVote, Decision: &yes})
@@ -292,14 +308,49 @@ func TestProtocolV2CompleteGameOverWebSocket(t *testing.T) {
 
 	p3Vote := harness.command(p3, ClientMessage{Type: MsgCastVote, Decision: &yes})
 	assertNomination(t, p3Vote.direct.State, map[string]bool{"p1": true, "p2": true, "p3": true})
+	harness.command(storyteller, ClientMessage{Type: MsgRecordVote, TargetPlayerID: p4.id, Decision: &no})
+	p5Vote := harness.command(storyteller, ClientMessage{Type: MsgRecordVote, TargetPlayerID: p5.id, Decision: &no})
+	assertNomination(t, p5Vote.direct.State, map[string]bool{"p1": true, "p2": true, "p3": true, "p4": false, "p5": false})
 
-	finished := harness.command(storyteller, ClientMessage{Type: MsgResolveNomination})
-	if harness.revision != 18 {
-		t.Fatalf("complete game revision = %d, want 18", harness.revision)
+	resolved := harness.command(storyteller, ClientMessage{Type: MsgResolveNomination})
+	if resolved.direct.State.ExecutionCandidateID != p5.id {
+		t.Fatalf("demon must be on the block before day finalization: %+v", resolved.direct.State)
+	}
+	finished := harness.command(storyteller, ClientMessage{Type: MsgFinalizeDay})
+	if harness.revision != 32 {
+		t.Fatalf("complete game revision = %d, want 32", harness.revision)
 	}
 	assertGoodGameOver(t, finished.direct.State, assignments)
-	for _, broadcast := range finished.broadcasts {
+	assertCharacterVisibility(t, finished.direct.State, "", assignments, true)
+	for recipientID, broadcast := range finished.broadcasts {
 		assertGoodGameOver(t, broadcast.State, assignments)
+		assertCharacterVisibility(t, broadcast.State, recipientID, assignments, false)
+		if broadcast.State.GrimoireRevealed {
+			t.Fatalf("game end published the grimoire before storyteller confirmation: %+v", broadcast.State)
+		}
+	}
+
+	published := harness.command(storyteller, ClientMessage{Type: MsgPublishGrimoire})
+	if !published.direct.State.GrimoireRevealed || harness.revision != finished.direct.RoomRevision+1 {
+		t.Fatalf("grimoire publication was not committed: %+v revision=%d", published.direct.State, harness.revision)
+	}
+	for _, broadcast := range published.broadcasts {
+		assertGoodGameOver(t, broadcast.State, assignments)
+		assertCharacterVisibility(t, broadcast.State, "", assignments, true)
+	}
+	restarted := harness.command(storyteller, ClientMessage{Type: MsgRestartGame})
+	state := restarted.direct.State
+	if state.Phase != game.GamePhaseSetup || len(state.Players) != 5 || state.Winner != nil || state.GrimoireRevealed || len(state.NightActions) != 0 || len(state.DemonBluffCharacterIDs) != 0 || len(state.Deaths) != 0 || len(state.NominationResults) != 0 {
+		t.Fatalf("restart did not clear finished game: %+v", state)
+	}
+	for _, player := range state.Players {
+		if player.Character != nil || player.ShownCharacter != nil || player.IsReady || player.HasConfirmedCharacter || !player.IsAlive {
+			t.Fatalf("restart retained private state: %+v", player)
+		}
+	}
+	swapped := harness.command(storyteller, ClientMessage{Type: MsgSetStoryteller, TargetPlayerID: p1.id})
+	if swapped.direct.State.StorytellerID != p1.id || len(swapped.direct.State.Players) != 5 || playerByID(t, swapped.direct.State, storyteller.id).Name != "Storyteller" {
+		t.Fatalf("restart storyteller swap failed: %+v", swapped.direct.State)
 	}
 }
 
@@ -329,8 +380,6 @@ func assertStorytellerNightProjection(t *testing.T, state *RoomState, completed 
 		t.Fatalf("first night counters = day %d/night %d, want day 0/night 1", state.DayNumber, state.NightNumber)
 	}
 	expected := []game.NightActionType{
-		game.NightActionLearnDemon,
-		game.NightActionLearnMinion,
 		game.NightActionPoison,
 	}
 	if len(state.NightWakeSteps) != len(expected) {
@@ -359,15 +408,9 @@ func assertStorytellerNightProjection(t *testing.T, state *RoomState, completed 
 			t.Fatalf("night action %d = %+v", index, state.NightActions[index])
 		}
 	}
-	if completed >= 1 && state.NightActions[0].Result != "Demon: P5 (Imp)" {
-		t.Fatalf("minion information = %q", state.NightActions[0].Result)
-	}
-	if completed >= 2 && state.NightActions[1].Result != "Minions: P4 (Poisoner)" {
-		t.Fatalf("demon information = %q", state.NightActions[1].Result)
-	}
-	if completed >= 3 {
-		if len(state.NightActions[2].TargetIDs) != 1 || state.NightActions[2].TargetIDs[0] != "p2" {
-			t.Fatalf("poison action targets = %v, want [p2]", state.NightActions[2].TargetIDs)
+	if completed >= 1 {
+		if len(state.NightActions[0].TargetIDs) != 1 || state.NightActions[0].TargetIDs[0] != "p2" {
+			t.Fatalf("poison action targets = %v, want [p2]", state.NightActions[0].TargetIDs)
 		}
 	}
 }
@@ -378,8 +421,19 @@ func assertPlayerNightPrivacy(t *testing.T, state *RoomState, recipientID string
 		t.Fatalf("expected player night projection for %s: %+v", recipientID, state)
 	}
 	assertCharacterVisibility(t, state, recipientID, assignments, false)
-	if len(state.NightWakeSteps) != 0 || state.CurrentNightWakeStep != nil || len(state.NightActions) != 0 {
+	if len(state.NightWakeSteps) != 0 || len(state.NightActions) != 0 || state.PendingNightAction != nil || state.ConfirmedNightAction != nil {
 		t.Fatalf("%s must not see storyteller night management: %+v", recipientID, state)
+	}
+	if step := state.CurrentNightWakeStep; step != nil {
+		character := game.GetScriptCharacterByID(game.TroubleBrewingScriptID, assignments[recipientID])
+		matchesCharacter := step.CharacterID != "" && step.CharacterID == assignments[recipientID]
+		matchesType := character != nil && ((step.CharacterType == game.NightWakeCharacterTypeMinion && character.Type == game.CharacterTypeMinion) ||
+			(step.CharacterType == game.NightWakeCharacterTypeDemon && character.Type == game.CharacterTypeDemon))
+		if (!matchesCharacter && !matchesType) || state.NightTurnStatus != gameplay.NightTurnAwaitingPlayer {
+			t.Fatalf("%s received another role's private night turn: %+v", recipientID, state)
+		}
+	} else if state.NightTurnStatus != "" {
+		t.Fatalf("%s received a night status without a private step: %+v", recipientID, state)
 	}
 	assertNoPoisoningDisclosure(t, state)
 }
@@ -432,12 +486,11 @@ func assertGoodGameOver(t *testing.T, state *RoomState, assignments map[string]s
 	if state.Winner == nil || state.Winner.Winner != game.TeamGood || state.Winner.Reason != game.WinReasonImpExecuted {
 		t.Fatalf("expected good imp_executed result: %+v", state.Winner)
 	}
-	assertCharacterVisibility(t, state, "", assignments, true)
 	if len(state.Deaths) != 1 {
 		t.Fatalf("deaths = %+v, want one execution", state.Deaths)
 	}
 	death := state.Deaths[0]
-	if death.PlayerID != "p5" || death.Cause != game.DeathCauseExecution || death.DayNumber != 1 {
+	if death.PlayerID != "p5" || death.DayNumber != 1 {
 		t.Fatalf("unexpected Imp death: %+v", death)
 	}
 	if playerByID(t, state, "p5").IsAlive {

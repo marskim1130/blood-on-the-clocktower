@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/marskim1130/blood-on-the-clocktower/internal/session"
@@ -20,9 +21,11 @@ var upgrader = websocket.Upgrader{
 // Hub adapts protocol v2 WebSocket messages to authoritative game sessions.
 // Room membership, game state, persistence, and projections live behind Registry.
 type Hub struct {
-	registry *session.Registry
-	active   *ActiveConnectionRegistry
-	outbound *outboundDispatcher
+	registry         *session.Registry
+	active           *ActiveConnectionRegistry
+	outbound         *outboundDispatcher
+	recoveryMu       sync.Mutex
+	recoveryRequests map[string]*pendingRecovery
 }
 
 // NewHub creates an in-memory protocol v2 hub for local development and tests.

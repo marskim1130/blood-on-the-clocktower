@@ -1,0 +1,133 @@
+.privateCharacterCard {
+  margin-top: 18px;
+}
+
+.privateCharacterNotice,.privateCharacterRole,.privateCharacterAbility,.privateCharacterMaskTitle,.privateCharacterMaskHint,.privateCharacterConfirmHint,.privateCharacterWatermark {
+  display: block;
+}
+
+.privateCharacterNotice,.privateCharacterConfirmHint {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.privateCharacterNotice {
+  margin-bottom: 12px;
+}
+
+.privateCharacterReveal {
+  position: relative;
+  overflow: hidden;
+  min-height: 260px;
+  border: 1px solid #967b4c;
+  border-radius: 10px;
+  background: #180e21;
+  color: var(--paper);
+  user-select: none;
+  -webkit-touch-callout: none;
+  box-shadow: 0 8px 24px #00000030;
+}
+
+.privateCharacterRevealPressed,.privateCharacterRevealOpen {
+  border-color: #e7c98b;
+  box-shadow: 0 0 0 2px #b99b612b;
+}
+
+.privateCharacterMask,.privateCharacterSecret {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  min-height: 260px;
+  padding: 36px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.privateCharacterMask {
+  background: repeating-linear-gradient(135deg,#25172e 0,#25172e 18px,#38253d 18px,#38253d 19px);
+}
+
+.privateCharacterMask::before {
+  content: '✦';
+  display: block;
+  margin-bottom: 16px;
+  color: var(--gold);
+  font-size: 28px;
+}
+
+.privateCharacterMaskTitle {
+  color: #e5c991;
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 3px;
+}
+
+.privateCharacterMaskHint {
+  max-width: 280px;
+  margin-top: 12px;
+  color: #beaec8;
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.privateCharacterSecret {
+  background: radial-gradient(ellipse at top,#573241,#201426 80%);
+}
+
+.privateCharacterRole {
+  color: #eed29e;
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.privateCharacterAbility {
+  max-width: 560px;
+  margin-top: 20px;
+  color: #eee1d4;
+  font-size: 14px;
+  line-height: 1.85;
+}
+
+.privateCharacterWatermarks {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  opacity: .14;
+  transform: rotate(-18deg) scale(1.12);
+  pointer-events: none;
+}
+
+.privateCharacterWatermark {
+  color: #fff;
+  font-size: 12px;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+.privateCharacterConfirm {
+  margin-top: 14px;
+}
+
+.privateCharacterConfirmHint {
+  margin-top: 8px;
+  text-align: center;
+}
+
+@media (max-width:520px) {
+  .privateCharacterReveal,.privateCharacterMask,.privateCharacterSecret {
+    min-height: 240px;
+  }
+  .privateCharacterRole {
+    font-size: 30px;
+  }
+}

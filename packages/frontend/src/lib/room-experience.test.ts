@@ -14,7 +14,7 @@ import {
 function roomState(overrides: Partial<RoomState> = {}): RoomState {
   return {
     roomId: 'room-1',
-    players: [{ id: 'p1', name: 'Alice', isAlive: true, votes: 0 }],
+    players: [{ id: 'p1', name: 'Alice', isAlive: true, votes: 0, isReady: false, hasConfirmedCharacter: false }],
     maxPlayers: 5,
     scriptId: 'trouble_brewing',
     scriptName: 'Trouble Brewing',
@@ -37,7 +37,7 @@ describe('room experience projection', () => {
       state: roomState({
         phase: 5,
         dayNumber: 3,
-        players: [{ id: 'p1', name: 'Alice', isAlive: false, votes: 0 }],
+        players: [{ id: 'p1', name: 'Alice', isAlive: false, votes: 0, isReady: false, hasConfirmedCharacter: false }],
         deaths: [{ playerId: 'p1', cause: 'execution', dayNumber: 3 }],
         ghostVotesRemaining: ['p1'],
         winner: { winner: 1, reason: 'imp_executed', description: 'Good wins' },
@@ -58,7 +58,14 @@ describe('room experience projection', () => {
       type: 'ROOM_STATE',
       roomRevision: 2,
       state: roomState({
-        nomination: { nominatorId: 'p1', nomineeId: 'p2', votes: {}, resolved: false },
+        nomination: {
+          nominatorId: 'p1',
+          nomineeId: 'p2',
+          votes: {},
+          resolved: false,
+          voterOrder: ['p2', 'p1'],
+          currentVoterIndex: 0,
+        },
         deaths: [{ playerId: 'p1', cause: 'ability', dayNumber: 1 }],
         winner: { winner: 2, reason: 'evil_majority', description: 'Evil wins' },
       }),

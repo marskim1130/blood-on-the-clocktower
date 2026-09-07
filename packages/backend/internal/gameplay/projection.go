@@ -2,6 +2,12 @@ package gameplay
 
 import "github.com/marskim1130/blood-on-the-clocktower/internal/game"
 
+const (
+	NightTurnAwaitingPlayer         = "awaiting_player"
+	NightTurnAwaitingStoryteller    = "awaiting_storyteller"
+	NightTurnAwaitingAcknowledgment = "awaiting_acknowledgement"
+)
+
 // Projection is the privacy-safe game view for one recipient.
 // Room lifecycle metadata is added by the WebSocket adapter.
 type Projection struct {
@@ -14,6 +20,10 @@ type Projection struct {
 	DayNumber                 int32
 	NightNumber               int32
 	Nomination                *game.Nomination
+	NominationResults         []game.NominationResult
+	ExecutionCandidateID      string
+	ExecutionCandidateVotes   int
+	ExecutionTied             bool
 	Deaths                    []game.DeathRecord
 	GhostVotesRemaining       []string
 	NightWakeSteps            []game.NightWakeStep
@@ -21,6 +31,13 @@ type Projection struct {
 	CurrentNightWakeStep      *game.NightWakeStep
 	Winner                    *game.GameEndedEvent
 	NightActions              []game.NightAction
+	NightTurnStatus           string
+	PendingNightAction        *game.NightAction
+	ConfirmedNightAction      *game.NightAction
+	DemonBluffCharacterIDs    []string
+	GrimoireRevealed          bool
+	DawnReviewPending         bool
+	PendingDawnDeathIDs       []string
 	FortuneTellerRedHerringID string
 }
 
@@ -77,6 +94,13 @@ func (gs *GameSession) project(forceSeeAll bool, recipientID string) *Projection
 			ghostVotesRemaining = append(ghostVotesRemaining, player.ID)
 		}
 	}
+	deaths := cloneDeaths(gs.deaths)
+	if !capabilities.seeDeathCauses {
+		for index := range deaths {
+			deaths[index].Cause = ""
+			deaths[index].KilledBy = ""
+		}
+	}
 
 	scriptName := ""
 	if script := game.GetScriptByID(gs.scriptID); script != nil {
@@ -86,16 +110,44 @@ func (gs *GameSession) project(forceSeeAll bool, recipientID string) *Projection
 	currentNightWakeIndex := 0
 	var currentNightWakeStep *game.NightWakeStep
 	var nightActions []game.NightAction
+	nightTurnStatus := ""
+	var pendingNightAction *game.NightAction
+	var confirmedNightAction *game.NightAction
+	dawnReviewPending := false
+	var pendingDawnDeathIDs []string
 	fortuneTellerRedHerringID := ""
+	var demonBluffCharacterIDs []string
 	if forceSeeAll || (gs.storytellerID != "" && recipientID == gs.storytellerID) {
 		fortuneTellerRedHerringID = gs.fortuneTellerRedHerringID
+		demonBluffCharacterIDs = append([]string(nil), gs.demonBluffCharacterIDs...)
 	}
 	if gs.phase == game.GamePhaseNight && capabilities.seeNightManagement {
 		nightWakeSteps = gs.activeNightWakeStepsLocked()
 		currentNightWakeIndex = gs.nightWakeIndex
 		currentNightWakeStep = gs.currentNightWakeStepLocked()
 		nightActions = cloneNightActions(gs.nightActions)
+		nightTurnStatus = gs.nightTurnStatusLocked(currentNightWakeStep)
+		pendingNightAction = cloneNightAction(gs.pendingNightAction)
+		confirmedNightAction = cloneNightAction(gs.confirmedNightAction)
+		dawnReviewPending = gs.dawnReviewPending
+		pendingDawnDeathIDs = append([]string(nil), gs.pendingDawnDeathIDs...)
+	} else if gs.phase == game.GamePhaseNight {
+		step := gs.currentNightWakeStepLocked()
+		playerIndex := gs.findPlayerIndex(recipientID)
+		if step != nil && playerIndex != -1 && gs.players[playerIndex].IsAlive && !gs.nightAcknowledged[recipientID] && gs.playerMatchesNightWakeStepLocked(playerIndex, *step) {
+			currentNightWakeStep = step
+			if storytellerChoosesNightTargets(*step) {
+				currentNightWakeStep.MinTargets = 0
+				currentNightWakeStep.MaxTargets = 0
+			}
+			nightTurnStatus = gs.nightTurnStatusLocked(step)
+			if gs.pendingNightAction != nil && gs.pendingNightAction.ActorID == recipientID {
+				pendingNightAction = cloneNightAction(gs.pendingNightAction)
+			}
+			confirmedNightAction = cloneNightAction(gs.confirmedNightAction)
+		}
 	}
+	executionCandidateID, executionCandidateVotes, executionTied := gs.executionBlockLocked()
 
 	return &Projection{
 		Players:                   players,
@@ -107,36 +159,75 @@ func (gs *GameSession) project(forceSeeAll bool, recipientID string) *Projection
 		DayNumber:                 gs.dayNumber,
 		NightNumber:               gs.nightNumber,
 		Nomination:                cloneNomination(gs.nomination),
-		Deaths:                    cloneDeaths(gs.deaths),
+		NominationResults:         cloneNominationResults(gs.nominationResults),
+		ExecutionCandidateID:      executionCandidateID,
+		ExecutionCandidateVotes:   executionCandidateVotes,
+		ExecutionTied:             executionTied,
+		Deaths:                    deaths,
 		GhostVotesRemaining:       ghostVotesRemaining,
 		NightWakeSteps:            nightWakeSteps,
 		CurrentNightWakeIndex:     currentNightWakeIndex,
 		CurrentNightWakeStep:      currentNightWakeStep,
 		Winner:                    cloneWinner(gs.winner),
 		NightActions:              nightActions,
+		NightTurnStatus:           nightTurnStatus,
+		PendingNightAction:        pendingNightAction,
+		ConfirmedNightAction:      confirmedNightAction,
+		DemonBluffCharacterIDs:    demonBluffCharacterIDs,
+		GrimoireRevealed:          gs.grimoireRevealed,
+		DawnReviewPending:         dawnReviewPending,
+		PendingDawnDeathIDs:       pendingDawnDeathIDs,
 		FortuneTellerRedHerringID: fortuneTellerRedHerringID,
 	}
+}
+
+func (gs *GameSession) nightTurnStatusLocked(step *game.NightWakeStep) string {
+	if step == nil {
+		return ""
+	}
+	if gs.confirmedNightAction != nil {
+		return NightTurnAwaitingAcknowledgment
+	}
+	if gs.pendingNightAction != nil {
+		return NightTurnAwaitingStoryteller
+	}
+	return NightTurnAwaitingPlayer
+}
+
+func (gs *GameSession) executionBlockLocked() (string, int, bool) {
+	candidateID := ""
+	highestVotes := 0
+	tied := false
+	for _, result := range gs.nominationResults {
+		if result.DayNumber != gs.dayNumber || result.YesVotes < result.RequiredVotes {
+			continue
+		}
+		switch {
+		case result.YesVotes > highestVotes:
+			candidateID = result.NomineeID
+			highestVotes = result.YesVotes
+			tied = false
+		case result.YesVotes == highestVotes:
+			candidateID = ""
+			tied = true
+		}
+	}
+	return candidateID, highestVotes, tied
 }
 
 type projectionCapabilities struct {
 	seeAllCharacters   bool
 	seePoisoning       bool
 	seeNightManagement bool
+	seeDeathCauses     bool
 }
 
 func (gs *GameSession) projectionCapabilitiesLocked(forceSeeAll bool, recipientID string) projectionCapabilities {
 	if forceSeeAll || (gs.storytellerID != "" && recipientID == gs.storytellerID) {
-		return projectionCapabilities{seeAllCharacters: true, seePoisoning: true, seeNightManagement: true}
+		return projectionCapabilities{seeAllCharacters: true, seePoisoning: true, seeNightManagement: true, seeDeathCauses: true}
 	}
-	if gs.phase == game.GamePhaseFinished || gs.winner != nil {
+	if (gs.phase == game.GamePhaseFinished || gs.winner != nil) && gs.grimoireRevealed {
 		return projectionCapabilities{seeAllCharacters: true}
 	}
-	if gs.phase != game.GamePhaseNight {
-		return projectionCapabilities{}
-	}
-	playerIdx := gs.findPlayerIndex(recipientID)
-	if playerIdx == -1 || !gs.players[playerIdx].IsAlive || gs.players[playerIdx].Character == nil {
-		return projectionCapabilities{}
-	}
-	return projectionCapabilities{seeAllCharacters: gs.players[playerIdx].Character.ID == "spy" && !gs.playerIsPoisonedLocked(playerIdx)}
+	return projectionCapabilities{}
 }

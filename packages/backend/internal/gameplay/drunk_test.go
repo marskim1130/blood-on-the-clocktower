@@ -43,6 +43,7 @@ func TestAssignCharactersSupportsDrunkShownTownsfolk(t *testing.T) {
 func TestAssignCharactersRejectsDrunkWithoutShownTownsfolk(t *testing.T) {
 	gs := newDrunkAssignmentSession(t)
 
+	markAllPlayersReady(gs)
 	_, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -64,6 +65,7 @@ func TestAssignCharactersRejectsDrunkWithoutShownTownsfolk(t *testing.T) {
 func TestAssignCharactersRejectsDrunkShownAssignedCharacter(t *testing.T) {
 	gs := newDrunkAssignmentSession(t)
 
+	markAllPlayersReady(gs)
 	_, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -142,8 +144,8 @@ func TestDrunkShownInformationRoleWakesButDoesNotAutoResolve(t *testing.T) {
 
 func TestStartGameRejectsDrunkWithoutShownCharacter(t *testing.T) {
 	gs := NewGameSession()
+	gs.storytellerID, gs.storytellerName = "storyteller", "Storyteller"
 	gs.SetPlayers([]game.Player{
-		{ID: "storyteller", Name: "Storyteller", IsAlive: true},
 		{ID: "p1", Name: "P1", IsAlive: true, Character: testCharacter(t, "drunk")},
 		{ID: "p2", Name: "P2", IsAlive: true, Character: testCharacter(t, "saint")},
 		{ID: "p3", Name: "P3", IsAlive: true, Character: testCharacter(t, "chef")},
@@ -151,9 +153,7 @@ func TestStartGameRejectsDrunkWithoutShownCharacter(t *testing.T) {
 		{ID: "p5", Name: "P5", IsAlive: true, Character: testCharacter(t, "imp")},
 	})
 
-	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
-		t.Fatalf("SetStoryteller failed: %v", err)
-	}
+	markAllPlayersConfirmed(gs)
 	_, err := gs.Apply(StartGameCmd{SenderID: "storyteller"})
 	if err == nil {
 		t.Fatal("expected start game with Drunk missing shown character to be rejected")
@@ -170,6 +170,7 @@ func newStartedDrunkWasherwomanGame(t *testing.T) *GameSession {
 	if _, err := assignDrunkWasherwomanGame(t, gs); err != nil {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}
@@ -193,6 +194,7 @@ func newDrunkAssignmentSession(t *testing.T) *GameSession {
 func assignDrunkWasherwomanGame(t *testing.T, gs *GameSession) (ApplyResult, error) {
 	t.Helper()
 
+	markAllPlayersReady(gs)
 	return gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{

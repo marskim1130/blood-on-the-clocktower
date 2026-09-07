@@ -9,7 +9,7 @@ import (
 func TestMayorWinsWhenDayEndsWithThreeAliveAndNoExecution(t *testing.T) {
 	gs := mayorEndgameSession(t)
 
-	result, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight})
+	result, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"})
 	if err != nil {
 		t.Fatalf("ChangePhase failed: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestMayorDoesNotWinWhenExecutionHappenedToday(t *testing.T) {
 		DayNumber: gs.dayNumber,
 	})
 
-	result, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight})
+	result, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"})
 	if err != nil {
 		t.Fatalf("ChangePhase failed: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestPoisonedMayorDoesNotWinWhenDayEndsWithThreeAlive(t *testing.T) {
 	poisonedUntil := gs.dayNumber
 	gs.players[0].PoisonedUntil = &poisonedUntil
 
-	result, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight})
+	result, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"})
 	if err != nil {
 		t.Fatalf("ChangePhase failed: %v", err)
 	}

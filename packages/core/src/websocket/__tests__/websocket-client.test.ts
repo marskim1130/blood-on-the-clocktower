@@ -338,6 +338,179 @@ describe('GameWebSocketClient protocol v2', () => {
     client.disconnect();
   });
 
+  it('sends the complete clockwise seat order as a sequenced room command', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.setSeatOrder(['p3', 'p1', 'p2']);
+    await waitFor(() => receivedMessages.some((message) => message.type === 'SET_SEAT_ORDER'));
+
+    expect(receivedMessages.find((message) => message.type === 'SET_SEAT_ORDER')).toMatchObject({
+      clientSequence: 1,
+      seatOrder: ['p3', 'p1', 'p2'],
+    });
+    client.disconnect();
+  });
+
+  it('sends false ready state as a sequenced room command', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.setReady(false);
+    await waitFor(() => receivedMessages.some((message) => message.type === 'SET_READY'));
+
+    expect(receivedMessages.find((message) => message.type === 'SET_READY')).toMatchObject({
+      clientSequence: 1,
+      ready: false,
+    });
+    client.disconnect();
+  });
+
+  it('confirms the current players character as a sequenced room command', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.confirmCharacter();
+    await waitFor(() => receivedMessages.some((message) => message.type === 'CONFIRM_CHARACTER'));
+
+    expect(receivedMessages.find((message) => message.type === 'CONFIRM_CHARACTER')).toMatchObject({
+      clientSequence: 1,
+      playerId: 'creator',
+    });
+    client.disconnect();
+  });
+
+  it('finalizes the day as a sequenced room command', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.finalizeDay();
+    await waitFor(() => receivedMessages.some((message) => message.type === 'FINALIZE_DAY'));
+
+    expect(receivedMessages.find((message) => message.type === 'FINALIZE_DAY')).toMatchObject({
+      clientSequence: 1,
+      playerId: 'creator',
+    });
+    client.disconnect();
+  });
+
+  it('lets the storyteller record a decision for the current voter', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.recordVote('p4', false);
+    await waitFor(() => receivedMessages.some((message) => message.type === 'RECORD_VOTE'));
+
+    expect(receivedMessages.find((message) => message.type === 'RECORD_VOTE')).toMatchObject({
+      clientSequence: 1,
+      playerId: 'creator',
+      targetPlayerId: 'p4',
+      decision: false,
+    });
+    client.disconnect();
+  });
+
+  it('sends the night review lifecycle through sequenced commands', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.confirmNightAction(['p2'], '确认结果');
+    await waitFor(() => client.nextSequence === 2);
+    client.acknowledgeNightAction();
+    await waitFor(() => client.nextSequence === 3);
+    client.skipNightAction();
+    await waitFor(() => client.nextSequence === 4);
+
+    expect(receivedMessages.filter((message) => typeof message.clientSequence === 'number')).toEqual([
+      expect.objectContaining({ type: 'CONFIRM_NIGHT_ACTION', clientSequence: 1, targetIds: ['p2'], result: '确认结果' }),
+      expect.objectContaining({ type: 'ACKNOWLEDGE_NIGHT_ACTION', clientSequence: 2 }),
+      expect.objectContaining({ type: 'SKIP_NIGHT_ACTION', clientSequence: 3 }),
+    ]);
+    client.disconnect();
+  });
+
+  it('sends the three configured Demon bluffs with character assignment', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.assignCharacters(
+      { p1: 'washerwoman', p2: 'imp' },
+      {},
+      undefined,
+      ['chef', 'empath', 'fortuneteller'],
+    );
+    await waitFor(() => receivedMessages.some((message) => message.type === 'ASSIGN_CHARACTERS'));
+
+    expect(receivedMessages.find((message) => message.type === 'ASSIGN_CHARACTERS')).toMatchObject({
+      demonBluffCharacterIds: ['chef', 'empath', 'fortuneteller'],
+    });
+    client.disconnect();
+  });
+
+  it('publishes the grimoire through a sequenced command', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.publishGrimoire();
+    await waitFor(() => receivedMessages.some((message) => message.type === 'PUBLISH_GRIMOIRE'));
+
+    expect(receivedMessages.find((message) => message.type === 'PUBLISH_GRIMOIRE')).toMatchObject({
+      clientSequence: 1,
+      playerId: 'creator',
+    });
+    client.disconnect();
+  });
+
+  it('sends dawn preparation and the edited death batch in sequence', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+
+    client.prepareDawn();
+    await waitFor(() => client.nextSequence === 2);
+    client.confirmDawn(['p2', 'p4']);
+    await waitFor(() => client.nextSequence === 3);
+
+    expect(receivedMessages.filter((message) => typeof message.clientSequence === 'number')).toEqual([
+      expect.objectContaining({ type: 'PREPARE_DAWN', clientSequence: 1 }),
+      expect.objectContaining({ type: 'CONFIRM_DAWN', clientSequence: 2, targetIds: ['p2', 'p4'] }),
+    ]);
+    client.disconnect();
+  });
+
+  it('sequences ownership transfer and restart without losing room identity', async () => {
+    const client = createClient();
+    await connect(client);
+    await createIdentity(client);
+    receivedMessages = [];
+    client.transferOwnership('next-owner');
+    client.restartGame();
+    await waitFor(() => client.nextSequence === 3);
+    expect(receivedMessages.filter((message) => typeof message.clientSequence === 'number')).toEqual([
+      expect.objectContaining({ type: 'TRANSFER_OWNERSHIP', targetPlayerId: 'next-owner', clientSequence: 1 }),
+      expect.objectContaining({ type: 'RESTART_GAME', clientSequence: 2 }),
+    ]);
+    expect(client.identity?.roomId).toBe('creator-room');
+    client.disconnect();
+  });
+
   it('does not advance the sequence for an error response', async () => {
     const client = createClient();
     await connect(client);

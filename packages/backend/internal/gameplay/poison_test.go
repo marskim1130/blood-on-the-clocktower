@@ -26,6 +26,7 @@ func TestPoisonPlayerSetsPoisonedUntil(t *testing.T) {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
 
+	markAllPlayersReady(gs)
 	_, err = gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -40,6 +41,7 @@ func TestPoisonPlayerSetsPoisonedUntil(t *testing.T) {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
 
+	markAllPlayersConfirmed(gs)
 	_, err = gs.Apply(StartGameCmd{SenderID: "storyteller"})
 	if err != nil {
 		t.Fatalf("StartGame failed: %v", err)
@@ -98,6 +100,7 @@ func TestPoisonedImpNightKillDoesNotKillTarget(t *testing.T) {
 	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
+	markAllPlayersReady(gs)
 	if _, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -110,12 +113,13 @@ func TestPoisonedImpNightKillDoesNotKillTarget(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}
 
 	completeFullFirstNight(t, gs)
-	if _, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight}); err != nil {
+	if _, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("ChangePhase to second night failed: %v", err)
 	}
 
@@ -159,8 +163,6 @@ func completeFullFirstNight(t *testing.T, gs *GameSession) {
 	t.Helper()
 
 	actions := []SubmitNightActionCmd{
-		{SenderID: "storyteller", ActionType: string(game.NightActionLearnDemon)},
-		{SenderID: "storyteller", ActionType: string(game.NightActionLearnMinion)},
 		{SenderID: "storyteller", ActionType: string(game.NightActionPoison), TargetIDs: []string{"p1"}},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnTownsfolk), TargetIDs: []string{"p1", "p2"}},
 		{SenderID: "storyteller", ActionType: string(game.NightActionLearnOutsider)},
@@ -196,10 +198,7 @@ func TestPoisonExpiresAtDusk(t *testing.T) {
 	}
 
 	// Transition to Night 2 (Day→Night = dusk)
-	_, err := gs.Apply(ChangePhaseCmd{
-		SenderID: "storyteller",
-		Phase:    game.GamePhaseNight,
-	})
+	_, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"})
 	if err != nil {
 		t.Fatalf("ChangePhase to Night failed: %v", err)
 	}
@@ -257,7 +256,7 @@ func TestRepoisonUpdatesExpiration(t *testing.T) {
 	completeFirstNight(t, gs)
 
 	// Enter night 2 (p2's poison expires at dusk)
-	_, err := gs.Apply(ChangePhaseCmd{SenderID: "storyteller", Phase: game.GamePhaseNight})
+	_, err := gs.Apply(FinalizeDayCmd{SenderID: "storyteller"})
 	if err != nil {
 		t.Fatalf("ChangePhase to Night 2 failed: %v", err)
 	}
@@ -310,6 +309,7 @@ func setupPoisonedGameSession(t *testing.T) *GameSession {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
 
+	markAllPlayersReady(gs)
 	if _, err := gs.Apply(AssignCharactersCmd{
 		SenderID: "storyteller",
 		Assignments: map[string]string{
@@ -323,6 +323,7 @@ func setupPoisonedGameSession(t *testing.T) *GameSession {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
 
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}

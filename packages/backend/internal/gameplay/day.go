@@ -2,8 +2,15 @@ package gameplay
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
+)
+
+const (
+	defaultAccusationDuration = 30 * time.Second
+	defaultDefenseDuration    = 30 * time.Second
+	defaultVoterDuration      = 3 * time.Second
 )
 
 // ────────────────────────────────────────────────
@@ -26,6 +33,9 @@ func (gs *GameSession) applyStartGame(cmd StartGameCmd) (ApplyResult, error) {
 	for _, p := range gs.players {
 		if p.Character == nil {
 			return ApplyResult{}, fmt.Errorf("player %s has no character assigned", p.ID)
+		}
+		if !p.HasConfirmedCharacter {
+			return ApplyResult{}, fmt.Errorf("all seated players must confirm their character before the game starts")
 		}
 		assignments[p.ID] = p.Character.ID
 	}
@@ -71,27 +81,57 @@ func (gs *GameSession) applyChangePhase(cmd ChangePhaseCmd) (ApplyResult, error)
 	if gs.phase == game.GamePhaseNight && cmd.Phase == game.GamePhaseDay {
 		return ApplyResult{}, fmt.Errorf("night phase must be resolved with RESOLVE_NIGHT")
 	}
-	if !(gs.phase == game.GamePhaseDay && cmd.Phase == game.GamePhaseNight) {
-		return ApplyResult{}, fmt.Errorf("invalid phase transition from %d to %d", gs.phase, cmd.Phase)
+	if gs.phase == game.GamePhaseDay && cmd.Phase == game.GamePhaseNight {
+		return ApplyResult{}, fmt.Errorf("day phase must be finalized with FINALIZE_DAY")
+	}
+	return ApplyResult{}, fmt.Errorf("invalid phase transition from %d to %d", gs.phase, cmd.Phase)
+}
+
+func (gs *GameSession) applyFinalizeDay(cmd FinalizeDayCmd) (ApplyResult, error) {
+	if cmd.SenderID != gs.storytellerID {
+		return ApplyResult{}, fmt.Errorf("only the storyteller can finalize the day")
+	}
+	if gs.phase != game.GamePhaseDay || gs.nomination != nil {
+		return ApplyResult{}, fmt.Errorf("day can only be finalized without an active nomination")
 	}
 
-	if cmd.Phase == game.GamePhaseNight {
-		if won := gs.mayorEndgameWinnerLocked(); won != nil {
+	events := make([]game.GameEvent, 0, 2)
+	candidateID, _, _ := gs.executionBlockLocked()
+	if candidateID != "" {
+		playerIndex := gs.findPlayerIndex(candidateID)
+		if playerIndex == -1 || !gs.players[playerIndex].IsAlive {
+			return ApplyResult{}, fmt.Errorf("execution candidate %s is not alive", candidateID)
+		}
+		aliveBeforeDeath := gs.alivePlayerCountLocked()
+		demonDeathAliveCount := gs.demonDeathAliveCountLocked(playerIndex, aliveBeforeDeath)
+		gs.players[playerIndex].IsAlive = false
+		gs.deaths = append(gs.deaths, game.DeathRecord{
+			PlayerID:  candidateID,
+			Cause:     game.DeathCauseExecution,
+			DayNumber: gs.dayNumber,
+		})
+		events = append(events, game.GameEvent{PlayerDied: &game.PlayerDiedEvent{
+			PlayerID:  candidateID,
+			Cause:     game.DeathCauseExecution,
+			DayNumber: gs.dayNumber,
+		}})
+		if won := gs.checkWinConditions(demonDeathAliveCount); won != nil {
 			gs.winner = won
 			gs.phase = game.GamePhaseFinished
-			return ApplyResult{Events: []game.GameEvent{{GameEnded: won}}, Updated: true}, nil
+			events = append(events, game.GameEvent{GameEnded: won})
+			return ApplyResult{Events: events, Updated: true}, nil
 		}
-		// Clear expired poison at dusk (Day→Night transition)
-		gs.clearExpiredPoisonLocked()
-		gs.startNightLocked()
+	} else if won := gs.mayorEndgameWinnerLocked(); won != nil {
+		gs.winner = won
+		gs.phase = game.GamePhaseFinished
+		events = append(events, game.GameEvent{GameEnded: won})
+		return ApplyResult{Events: events, Updated: true}, nil
 	}
 
-	gs.phase = cmd.Phase
-
-	events := []game.GameEvent{
-		{PhaseChanged: &game.PhaseChanged{Phase: cmd.Phase}},
-	}
-
+	gs.clearExpiredPoisonLocked()
+	gs.startNightLocked()
+	gs.phase = game.GamePhaseNight
+	events = append(events, game.GameEvent{PhaseChanged: &game.PhaseChanged{Phase: game.GamePhaseNight}})
 	return ApplyResult{Events: events, Updated: true}, nil
 }
 
@@ -153,9 +193,13 @@ func (gs *GameSession) applyNominate(cmd NominateCmd) (ApplyResult, error) {
 
 	gs.phase = game.GamePhaseVoting
 	gs.nomination = &game.Nomination{
-		NominatorID: cmd.SenderID,
-		NomineeID:   cmd.NomineeID,
-		Votes:       make(map[string]bool),
+		NominatorID:       cmd.SenderID,
+		NomineeID:         cmd.NomineeID,
+		Votes:             make(map[string]bool),
+		VoterOrder:        gs.clockwiseVoterOrderLocked(nomineeIdx),
+		CurrentVoterIndex: 0,
+		Stage:             game.NominationStageAccusation,
+		DeadlineUnixMs:    time.Now().Add(defaultAccusationDuration).UnixMilli(),
 	}
 
 	events := []game.GameEvent{
@@ -167,6 +211,15 @@ func (gs *GameSession) applyNominate(cmd NominateCmd) (ApplyResult, error) {
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil
+}
+
+func (gs *GameSession) clockwiseVoterOrderLocked(startIndex int) []string {
+	order := make([]string, 0, len(gs.players))
+	for offset := 0; offset < len(gs.players); offset++ {
+		index := (startIndex + offset + 1) % len(gs.players)
+		order = append(order, gs.players[index].ID)
+	}
+	return order
 }
 
 func (gs *GameSession) playerHasCharacterTypeLocked(playerIndex int, characterType game.CharacterType) bool {
@@ -220,6 +273,19 @@ func (gs *GameSession) applyCastVote(cmd CastVoteCmd) (ApplyResult, error) {
 	if gs.phase != game.GamePhaseVoting || gs.nomination == nil {
 		return ApplyResult{}, fmt.Errorf("no active nomination to vote on")
 	}
+	if gs.nomination.Stage != "" && gs.nomination.Stage != game.NominationStageVoting {
+		return ApplyResult{}, fmt.Errorf("voting is not open during the %s stage", gs.nomination.Stage)
+	}
+	if gs.nomination.Paused {
+		return ApplyResult{}, fmt.Errorf("nomination timer is paused")
+	}
+	if gs.nomination.CurrentVoterIndex < 0 || gs.nomination.CurrentVoterIndex >= len(gs.nomination.VoterOrder) {
+		return ApplyResult{}, fmt.Errorf("the clockwise ballot is complete")
+	}
+	currentVoterID := gs.nomination.VoterOrder[gs.nomination.CurrentVoterIndex]
+	if cmd.SenderID != currentVoterID {
+		return ApplyResult{}, fmt.Errorf("waiting for player %s to vote", currentVoterID)
+	}
 
 	voterIdx := gs.findPlayerIndex(cmd.SenderID)
 	if voterIdx == -1 {
@@ -227,23 +293,25 @@ func (gs *GameSession) applyCastVote(cmd CastVoteCmd) (ApplyResult, error) {
 	}
 	voter := gs.players[voterIdx]
 
-	// Dead players may cast one ghost vote
-	if !voter.IsAlive {
+	// Check for duplicate vote
+	if _, already := gs.nomination.Votes[cmd.SenderID]; already {
+		return ApplyResult{}, fmt.Errorf("player %s has already voted", cmd.SenderID)
+	}
+	// A dead player's one-use ghost vote is spent only after a yes vote passes validation.
+	if !voter.IsAlive && cmd.Decision {
 		if gs.ghostVotesUsed[cmd.SenderID] {
 			return ApplyResult{}, fmt.Errorf("ghost vote already used")
 		}
 		gs.ghostVotesUsed[cmd.SenderID] = true
 	}
 
-	// Check for duplicate vote
-	if _, already := gs.nomination.Votes[cmd.SenderID]; already {
-		return ApplyResult{}, fmt.Errorf("player %s has already voted", cmd.SenderID)
-	}
-	if err := gs.validateButlerVoteLocked(voterIdx, cmd.Decision); err != nil {
-		return ApplyResult{}, err
-	}
-
 	gs.nomination.Votes[cmd.SenderID] = cmd.Decision
+	gs.nomination.CurrentVoterIndex++
+	if gs.nomination.CurrentVoterIndex < len(gs.nomination.VoterOrder) {
+		gs.nomination.DeadlineUnixMs = time.Now().Add(defaultVoterDuration).UnixMilli()
+	} else {
+		gs.nomination.DeadlineUnixMs = 0
+	}
 
 	events := []game.GameEvent{
 		{VoteCast: &game.VoteCast{
@@ -255,25 +323,35 @@ func (gs *GameSession) applyCastVote(cmd CastVoteCmd) (ApplyResult, error) {
 	return ApplyResult{Events: events, Updated: true}, nil
 }
 
-func (gs *GameSession) validateButlerVoteLocked(voterIdx int, decision bool) error {
-	if !decision || voterIdx < 0 || voterIdx >= len(gs.players) {
-		return nil
+func (gs *GameSession) applyAdvanceNominationStage(cmd AdvanceNominationStageCmd) (ApplyResult, error) {
+	if cmd.SenderID != gs.storytellerID {
+		return ApplyResult{}, fmt.Errorf("only the storyteller can advance the nomination stage")
 	}
-	voter := gs.players[voterIdx]
-	if !voter.IsAlive || voter.Character == nil || voter.Character.ID != "butler" {
-		return nil
+	if gs.phase != game.GamePhaseVoting || gs.nomination == nil {
+		return ApplyResult{}, fmt.Errorf("no active nomination can be advanced")
 	}
-	if gs.playerAbilityMalfunctioningLocked(voterIdx) {
-		return nil
+	if gs.nomination.Paused {
+		return ApplyResult{}, fmt.Errorf("resume the nomination timer before advancing")
 	}
-	masterID := gs.butlerMasters[voter.ID]
-	if masterID == "" {
-		return fmt.Errorf("butler %s has not chosen a master", voter.ID)
+	switch gs.nomination.Stage {
+	case game.NominationStageAccusation:
+		gs.nomination.Stage = game.NominationStageDefense
+		gs.nomination.DeadlineUnixMs = time.Now().Add(defaultDefenseDuration).UnixMilli()
+	case game.NominationStageDefense:
+		gs.nomination.Stage = game.NominationStageVoting
+		gs.nomination.DeadlineUnixMs = time.Now().Add(defaultVoterDuration).UnixMilli()
+	default:
+		return ApplyResult{}, fmt.Errorf("nomination stage %s cannot be advanced", gs.nomination.Stage)
 	}
-	if !gs.nomination.Votes[masterID] {
-		return fmt.Errorf("butler %s cannot vote until master %s votes yes", voter.ID, masterID)
+	gs.nomination.RemainingMs = 0
+	return ApplyResult{Updated: true}, nil
+}
+
+func (gs *GameSession) applyRecordVote(cmd RecordVoteCmd) (ApplyResult, error) {
+	if cmd.SenderID != gs.storytellerID {
+		return ApplyResult{}, fmt.Errorf("only the storyteller can record a player's vote")
 	}
-	return nil
+	return gs.applyCastVote(CastVoteCmd{SenderID: cmd.VoterID, Decision: cmd.Decision})
 }
 
 // ────────────────────────────────────────────────
@@ -287,6 +365,9 @@ func (gs *GameSession) applyResolveNomination(cmd ResolveNominationCmd) (ApplyRe
 	if gs.phase != game.GamePhaseVoting || gs.nomination == nil {
 		return ApplyResult{}, fmt.Errorf("no active nomination to resolve")
 	}
+	if len(gs.nomination.VoterOrder) == 0 || gs.nomination.CurrentVoterIndex < len(gs.nomination.VoterOrder) {
+		return ApplyResult{}, fmt.Errorf("the clockwise ballot is not complete")
+	}
 
 	yesVotes := 0
 	noVotes := 0
@@ -299,8 +380,16 @@ func (gs *GameSession) applyResolveNomination(cmd ResolveNominationCmd) (ApplyRe
 	}
 
 	requiredVotes := majorityThreshold(gs.alivePlayerCountLocked())
-	executed := yesVotes >= requiredVotes
 	nomineeID := gs.nomination.NomineeID
+	gs.nominationResults = append(gs.nominationResults, game.NominationResult{
+		DayNumber:     gs.dayNumber,
+		NominatorID:   gs.nomination.NominatorID,
+		NomineeID:     nomineeID,
+		Votes:         cloneBoolMap(gs.nomination.Votes),
+		YesVotes:      yesVotes,
+		NoVotes:       noVotes,
+		RequiredVotes: requiredVotes,
+	})
 
 	gs.nomination.Resolved = true
 	gs.nomination = nil
@@ -309,48 +398,12 @@ func (gs *GameSession) applyResolveNomination(cmd ResolveNominationCmd) (ApplyRe
 	events := []game.GameEvent{
 		{NominationResolved: &game.NominationResolvedEvent{
 			NomineeID:     nomineeID,
-			Executed:      executed,
+			Executed:      false,
 			YesVotes:      yesVotes,
 			NoVotes:       noVotes,
 			RequiredVotes: requiredVotes,
 		}},
-	}
-
-	// If executed, kill the player and check win conditions
-	if executed {
-		pIdx := gs.findPlayerIndex(nomineeID)
-		if pIdx != -1 {
-			aliveBeforeDeath := gs.alivePlayerCountLocked()
-			demonDeathAliveCount := gs.demonDeathAliveCountLocked(pIdx, aliveBeforeDeath)
-			gs.players[pIdx].IsAlive = false
-			gs.deaths = append(gs.deaths, game.DeathRecord{
-				PlayerID:  nomineeID,
-				Cause:     game.DeathCauseExecution,
-				DayNumber: gs.dayNumber,
-			})
-			events = append(events, game.GameEvent{
-				PlayerDied: &game.PlayerDiedEvent{
-					PlayerID:  nomineeID,
-					Cause:     game.DeathCauseExecution,
-					DayNumber: gs.dayNumber,
-				},
-			})
-			if won := gs.checkWinConditions(demonDeathAliveCount); won != nil {
-				gs.winner = won
-				events = append(events, game.GameEvent{GameEnded: won})
-				gs.phase = game.GamePhaseFinished
-			}
-		}
-	}
-	if gs.phase != game.GamePhaseFinished {
-		if executed {
-			gs.phase = game.GamePhaseNight
-			gs.startNightLocked()
-			events = append(events, game.GameEvent{PhaseChanged: &game.PhaseChanged{Phase: game.GamePhaseNight}})
-		} else {
-			gs.phase = game.GamePhaseDay
-			events = append(events, game.GameEvent{PhaseChanged: &game.PhaseChanged{Phase: game.GamePhaseDay}})
-		}
+		{PhaseChanged: &game.PhaseChanged{Phase: game.GamePhaseDay}},
 	}
 
 	return ApplyResult{Events: events, Updated: true}, nil

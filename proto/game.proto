@@ -20,6 +20,8 @@ message Player {
   int32 votes = 5 [(json_required) = true];
   optional int32 poisoned_until = 6;
   optional Character shown_character = 7;
+  bool is_ready = 8 [(json_required) = true];
+  bool has_confirmed_character = 9 [(json_required) = true];
 }
 
 // Character represents a character role
@@ -112,6 +114,27 @@ enum ClientMessageType {
   CLIENT_MESSAGE_TYPE_SUBMIT_NIGHT_ACTION = 21;
   CLIENT_MESSAGE_TYPE_RESOLVE_NIGHT = 22;
   CLIENT_MESSAGE_TYPE_END_GAME = 23;
+  CLIENT_MESSAGE_TYPE_SET_SEAT_ORDER = 24;
+  CLIENT_MESSAGE_TYPE_SET_READY = 25;
+  CLIENT_MESSAGE_TYPE_CONFIRM_CHARACTER = 26;
+  CLIENT_MESSAGE_TYPE_FINALIZE_DAY = 27;
+  CLIENT_MESSAGE_TYPE_RECORD_VOTE = 28;
+  CLIENT_MESSAGE_TYPE_CONFIRM_NIGHT_ACTION = 29;
+  CLIENT_MESSAGE_TYPE_ACKNOWLEDGE_NIGHT_ACTION = 30;
+  CLIENT_MESSAGE_TYPE_SKIP_NIGHT_ACTION = 31;
+  CLIENT_MESSAGE_TYPE_PUBLISH_GRIMOIRE = 32;
+  CLIENT_MESSAGE_TYPE_PREPARE_DAWN = 33;
+  CLIENT_MESSAGE_TYPE_CONFIRM_DAWN = 34;
+  CLIENT_MESSAGE_TYPE_ADVANCE_NOMINATION_STAGE = 35;
+  CLIENT_MESSAGE_TYPE_CONTROL_NOMINATION_TIMER = 36;
+  CLIENT_MESSAGE_TYPE_EXPIRE_NOMINATION_TIMER = 37;
+  CLIENT_MESSAGE_TYPE_TRANSFER_OWNERSHIP = 38;
+  CLIENT_MESSAGE_TYPE_RESTART_GAME = 39;
+  CLIENT_MESSAGE_TYPE_UNDO_GAME = 40;
+  CLIENT_MESSAGE_TYPE_REDO_GAME = 41;
+  CLIENT_MESSAGE_TYPE_REQUEST_RECOVERY = 42;
+  CLIENT_MESSAGE_TYPE_REVIEW_RECOVERY = 43;
+  CLIENT_MESSAGE_TYPE_GET_RECOVERY_REQUESTS = 44;
 }
 
 // ServerMessageType is the protocol v2 server message discriminator.
@@ -126,6 +149,9 @@ enum ServerMessageType {
   SERVER_MESSAGE_TYPE_KICKED = 7;
   SERVER_MESSAGE_TYPE_ROOM_CLOSED = 8;
   SERVER_MESSAGE_TYPE_ERROR = 9;
+  SERVER_MESSAGE_TYPE_RECOVERY_STATUS = 10;
+  SERVER_MESSAGE_TYPE_RECOVERY_REQUESTS = 11;
+  SERVER_MESSAGE_TYPE_SESSION_REPLACED = 12;
 }
 
 // ProtocolErrorCode is the stable machine-readable protocol v2 error set.
@@ -196,6 +222,12 @@ message Nomination {
   string nominee_id = 2 [(json_required) = true];
   map<string, bool> votes = 3 [(json_required) = true];  // voter_id -> decision
   bool resolved = 4 [(json_required) = true];
+  repeated string voter_order = 5 [(json_required) = true];
+  int32 current_voter_index = 6 [(json_required) = true];
+  optional string stage = 7;
+  optional int64 deadline_unix_ms = 8;
+  optional bool paused = 9;
+  optional int64 remaining_ms = 10;
 }
 
 message NightAction {
@@ -289,6 +321,41 @@ message ClientMessage {
   optional string action_type = 24;
   repeated string target_ids = 25;
   optional string result = 26;
+  repeated string seat_order = 27;
+  optional bool ready = 28;
+  repeated string demon_bluff_character_ids = 29;
+  optional string timer_action = 30;
+  optional int64 deadline_unix_ms = 31;
+  optional bool confirm_phase_change = 32;
+  optional string recovery_credential = 33;
+  optional string recovery_request_id = 34;
+}
+
+message OperationLogEntry {
+  uint64 id = 1 [(json_required) = true];
+  string action = 2 [(json_required) = true];
+  string actor_id = 3 [(json_required) = true];
+  int64 created_at_unix_ms = 4 [(json_required) = true];
+  GamePhase from_phase = 5 [(json_required) = true];
+  GamePhase to_phase = 6 [(json_required) = true];
+  bool disclosure_warning = 7 [(json_required) = true];
+}
+
+message RecoveryRequest {
+  string request_id = 1 [(json_required) = true];
+  string player_id = 2 [(json_required) = true];
+  string player_name = 3 [(json_required) = true];
+  int64 requested_at_unix_ms = 4 [(json_required) = true];
+}
+
+message NominationResult {
+  int32 day_number = 1 [(json_required) = true];
+  string nominator_id = 2 [(json_required) = true];
+  string nominee_id = 3 [(json_required) = true];
+  map<string, bool> votes = 4 [(json_required) = true];
+  int32 yes_votes = 5 [(json_required) = true];
+  int32 no_votes = 6 [(json_required) = true];
+  int32 required_votes = 7 [(json_required) = true];
 }
 
 message IdentityStatus {
@@ -330,6 +397,22 @@ message RoomState {
   optional string storyteller_name = 18;
   int32 night_number = 19 [(json_required) = true];
   optional string fortune_teller_red_herring_id = 20;
+  repeated NominationResult nomination_results = 21;
+  optional string execution_candidate_id = 22;
+  optional int32 execution_candidate_votes = 23;
+  optional bool execution_tied = 24;
+  optional string night_turn_status = 25;
+  optional NightAction pending_night_action = 26;
+  optional NightAction confirmed_night_action = 27;
+  repeated string demon_bluff_character_ids = 28;
+  optional bool grimoire_revealed = 29;
+  optional bool dawn_review_pending = 30;
+  repeated string pending_dawn_death_ids = 31;
+  repeated OperationLogEntry operation_log = 32;
+  optional bool can_undo = 33;
+  optional bool can_redo = 34;
+  optional bool undo_crosses_phase = 35;
+  optional bool redo_crosses_phase = 36;
 }
 
 message ServerMessage {
@@ -343,4 +426,9 @@ message ServerMessage {
   optional uint64 room_revision = 8;
   optional uint64 accepted_sequence = 9;
   optional uint64 next_client_sequence = 10;
+  optional string player_id = 11;
+  optional string recovery_request_id = 12;
+  optional string recovery_status = 13;
+  optional string recovery_credential = 14;
+  repeated RecoveryRequest recovery_requests = 15;
 }

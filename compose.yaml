@@ -1,0 +1,65 @@
+name: clocktower
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    networks: [storage]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: clocktower-backend:${CLOCKTOWER_RELEASE:-local}
+    build:
+      context: .
+      target: backend
+    restart: unless-stopped
+    environment:
+      CLOCKTOWER_CREDENTIAL_KEY: ${CLOCKTOWER_CREDENTIAL_KEY:?Set a persistent random secret of at least 32 bytes}
+      CLOCKTOWER_REDIS_URL: redis://redis:6379/0
+      CLOCKTOWER_REDIS_KEY: ${CLOCKTOWER_REDIS_KEY:-clocktower}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [web, storage]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+  web:
+    image: clocktower-web:${CLOCKTOWER_RELEASE:-local}
+    build:
+      context: .
+      target: web
+      args:
+        TARO_APP_WS_URL: wss://${CLOCKTOWER_DOMAIN:?Set your domain without scheme or path}/ws
+    restart: unless-stopped
+    environment:
+      CLOCKTOWER_DOMAIN: ${CLOCKTOWER_DOMAIN:?Set your domain without scheme or path}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [web]
+
+networks:
+  web:
+  storage:
+    internal: true
+
+volumes:
+  redis_data:
+  caddy_data:
+  caddy_config:

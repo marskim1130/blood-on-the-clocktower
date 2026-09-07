@@ -162,9 +162,11 @@ func setupAndStartChefGame(t *testing.T, gs *GameSession, assignments map[string
 	if _, err := gs.Apply(SetStorytellerCmd{SenderID: "storyteller", TargetPlayerID: "storyteller"}); err != nil {
 		t.Fatalf("SetStoryteller failed: %v", err)
 	}
+	markAllPlayersReady(gs)
 	if _, err := gs.Apply(AssignCharactersCmd{SenderID: "storyteller", Assignments: assignments}); err != nil {
 		t.Fatalf("AssignCharacters failed: %v", err)
 	}
+	markAllPlayersConfirmed(gs)
 	if _, err := gs.Apply(StartGameCmd{SenderID: "storyteller"}); err != nil {
 		t.Fatalf("StartGame failed: %v", err)
 	}

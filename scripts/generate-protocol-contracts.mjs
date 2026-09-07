@@ -35,12 +35,15 @@ const outputNames = {
   Character: 'GameCharacter',
   Player: 'RoomPlayer',
   Nomination: 'RoomNomination',
+  NominationResult: 'RoomNominationResult',
   DeathRecord: 'RoomDeathRecord',
   NightWakeStep: 'RoomNightWakeStep',
   NightAction: 'RoomNightAction',
   GameEnded: 'GameEndedPayload',
   IdentityStatus: 'IdentityStatus',
   RoomState: 'RoomState',
+  OperationLogEntry: 'OperationLogEntry',
+  RecoveryRequest: 'RecoveryRequest',
   ClientMessage: 'ClientMessage',
   ServerMessage: 'ServerMessage',
 };
@@ -79,6 +82,8 @@ function tsBaseType(field, owner) {
     'GameEndedPayload.winner': 'number | string',
     'GameEndedPayload.reason': 'string',
     'RoomState.phase': 'number',
+    'OperationLogEntry.fromPhase': 'number',
+    'OperationLogEntry.toPhase': 'number',
   };
   if (overrides[key]) return overrides[key];
 
@@ -126,11 +131,14 @@ function generateTypeScript() {
     'Character',
     'Player',
     'Nomination',
+    'NominationResult',
     'DeathRecord',
     'NightWakeStep',
     'NightAction',
     'GameEnded',
     'IdentityStatus',
+    'OperationLogEntry',
+    'RecoveryRequest',
     'RoomState',
     'ClientMessage',
     'ServerMessage',
@@ -160,6 +168,7 @@ function goType(field, owner) {
     'ClientMessage.clientSequence': 'uint64',
     'ClientMessage.event': '*game.GameEvent',
     'ClientMessage.decision': '*bool',
+    'ClientMessage.ready': '*bool',
     'ClientMessage.phase': 'ClientGamePhase',
     'ClientMessage.winner': 'ClientTeam',
     'ClientMessage.cause': 'ClientDeathCause',
@@ -175,11 +184,18 @@ function goType(field, owner) {
     'RoomState.dayNumber': 'int32',
     'RoomState.nightNumber': 'int32',
     'RoomState.nomination': '*game.Nomination',
+    'RoomState.nominationResults': '[]game.NominationResult',
     'RoomState.deaths': '[]game.DeathRecord',
     'RoomState.nightWakeSteps': '[]game.NightWakeStep',
     'RoomState.nightActions': '[]game.NightAction',
+    'RoomState.pendingNightAction': '*game.NightAction',
+    'RoomState.confirmedNightAction': '*game.NightAction',
     'RoomState.currentNightWakeStep': '*game.NightWakeStep',
     'RoomState.winner': '*game.GameEndedEvent',
+    'RoomState.operationLog': '[]OperationLogEntry',
+    'ServerMessage.recoveryRequests': '[]RecoveryRequest',
+    'OperationLogEntry.fromPhase': 'game.GamePhase',
+    'OperationLogEntry.toPhase': 'game.GamePhase',
   };
   if (overrides[key]) return overrides[key];
   if (field.map) return `map[string]${goScalarType(field.type)}`;
@@ -192,6 +208,7 @@ function goScalarType(type) {
   if (type === 'string') return 'string';
   if (type === 'bool') return 'bool';
   if (type === 'int32') return 'int';
+  if (type === 'int64') return 'int64';
   if (type === 'uint64') return 'uint64';
   return 'any';
 }
@@ -221,7 +238,7 @@ function generateGo() {
     generateGoConstants('ServerMessageType', 'ServerMsg'),
     generateGoConstants('ProtocolErrorCode', 'ProtocolError'),
   ].join('\n\n');
-  const structs = ['ClientMessage', 'ServerMessage', 'RoomState'].map(generateGoStruct).join('\n\n');
+  const structs = ['ClientMessage', 'ServerMessage', 'RoomState', 'OperationLogEntry', 'RecoveryRequest'].map(generateGoStruct).join('\n\n');
   const source = `// Code generated from proto/game.proto (${schemaHash}). DO NOT EDIT.\n// Run: pnpm proto:generate\n\npackage ws\n\nimport (\n\t"github.com/marskim1130/blood-on-the-clocktower/internal/game"\n\t"github.com/marskim1130/blood-on-the-clocktower/internal/session"\n)\n\nconst (\n${constants}\n)\n\n${structs}\n`;
   return execFileSync('gofmt', { input: source, encoding: 'utf8' });
 }

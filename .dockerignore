@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/dist
+**/.temp
+**/*.tsbuildinfo
+**/*.log
+.env
+.env.*
+!.env.example
+.scratch
+tmp
+temp
+backups
+work.md

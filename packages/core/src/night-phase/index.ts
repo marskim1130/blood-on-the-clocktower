@@ -16,6 +16,7 @@ export type NightActionType =
   | 'learn_died' // Ravenkeeper
   | 'learn_master' // Butler
   | 'learn_demon' // Minions
+  | 'show_grimoire' // Spy
   | 'poison' // Poisoner
   | 'kill'; // Imp
 

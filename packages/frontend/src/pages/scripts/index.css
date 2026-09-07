@@ -1,133 +1,264 @@
 .scriptPage {
-  min-height: 100%;
+  box-sizing: border-box;
+  min-height: 100vh;
+  max-width: 1160px;
+  margin: 0 auto;
   padding: 24px;
-  background: #f7f1e8;
+  background: var(--ink);
 }
 
 .scriptHero {
-  padding: 30px 28px;
+  padding: 30px;
   margin-bottom: 22px;
-  border-radius: 20px;
-  background: #4b1113;
-  color: #fffaf0;
+  border: 1px solid #735539;
+  border-radius: 10px;
+  background: linear-gradient(120deg,#3e2334,#211729);
+}
+
+.scriptTitle,.scriptSubtitle,.sectionTitle,.scriptHint,.groupTitle,.characterName,.characterAbility,.wakeName {
+  display: block;
 }
 
 .scriptTitle {
-  display: block;
-  margin-bottom: 10px;
-  color: #fffaf0;
-  font-size: 38px;
+  color: var(--paper);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 30px;
   font-weight: 700;
 }
 
 .scriptSubtitle {
-  display: block;
-  color: #f4dcca;
-  font-size: 24px;
-  line-height: 36px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.8;
 }
 
 .scriptSection {
   padding: 24px;
   margin-bottom: 22px;
-  border: 1px solid #e2d3be;
-  border-radius: 16px;
-  background: #fffaf0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
 }
 
 .sectionTitle {
-  display: block;
   margin-bottom: 18px;
-  color: #4b1113;
-  font-size: 30px;
+  color: var(--gold);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 21px;
   font-weight: 700;
 }
 
-.roleCountLine {
-  display: block;
-  margin-bottom: 6px;
-  padding: 8px;
-  border: 1px solid #efe4d4;
-  border-radius: 6px;
-  color: #2f201b;
-  font-size: 24px;
+.catalogToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
 }
 
-.scriptHint {
-  display: block;
-  margin-top: 8px;
-  color: #7b6a5f;
-  font-size: 22px;
-  line-height: 33px;
+.catalogSearch {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.catalogCount {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.catalogGroupHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 26px 0 14px;
 }
 
 .characterGroup {
-  margin-bottom: 18px;
+  margin-bottom: 24px;
 }
 
 .groupTitle {
-  display: block;
-  padding: 10px 0;
-  color: #4b1113;
-  font-size: 26px;
+  color: var(--gold);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 20px;
   font-weight: 700;
 }
 
-.characterRow {
-  margin-bottom: 8px;
-  padding: 16px;
-  border: 1px solid #efe4d4;
-  border-radius: 6px;
+.characterCardGrid {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 14px;
+}
+
+.characterRow,.characterCard {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-raised);
+}
+
+.characterCard-townsfolk {
+  border-top: 3px solid #718fa2;
+}
+
+.characterCard-outsider {
+  border-top: 3px solid #7e899f;
+}
+
+.characterCard-minion {
+  border-top: 3px solid #b6795f;
+}
+
+.characterCard-demon {
+  border-top: 3px solid #9e4765;
+}
+
+.characterCardHeading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.characterToken {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--gold);
+  border-radius: 50%;
+  color: var(--gold);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 21px;
+}
+
+.characterType {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 1px;
 }
 
 .characterName {
-  display: block;
-  color: #2f201b;
-  font-size: 26px;
+  color: var(--paper);
+  font-family: 'Songti SC',SimSun,serif;
+  font-size: 18px;
   font-weight: 700;
 }
 
 .characterAbility {
+  margin-top: 14px;
+  color: #cdbed4;
+  font-size: 13px;
+  line-height: 1.85;
+}
+
+.roleCountGrid {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 12px;
+}
+
+.roleCountLine,.roleCountCard {
   display: block;
-  margin-top: 8px;
-  color: #574840;
-  font-size: 22px;
-  line-height: 33px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--paper);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.scriptHint {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.nightOrderColumns {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 20px;
 }
 
 .wakeRow {
   display: flex;
   gap: 14px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   padding: 14px;
-  border: 1px solid #efe4d4;
+  border: 1px solid var(--line);
   border-radius: 6px;
+  background: var(--surface-raised);
 }
 
 .wakeOrder {
   display: block;
-  width: 44px;
-  color: #4b1113;
-  font-size: 26px;
-  font-weight: 700;
+  flex: 0 0 28px;
+  color: var(--gold);
+  font-family: Georgia,serif;
+  font-size: 20px;
   text-align: center;
 }
 
 .wakeInfo {
   flex: 1;
+  min-width: 0;
 }
 
 .wakeName {
-  display: block;
-  color: #2f201b;
-  font-size: 24px;
-  font-weight: 700;
+  color: var(--paper);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .backButton {
-  margin: 0 0 28px 0;
-  border-radius: 14px;
-  background: #4b1113;
-  color: #fffaf0;
-  font-size: 26px;
+  min-height: 44px;
+  margin: 0 0 22px;
+  padding: 10px 16px;
+  border: 1px solid #806140;
+  border-radius: 6px;
+  background: #49352c;
+  color: var(--paper);
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.backButton::after {
+  border: 0;
+}
+
+@media (max-width:950px) {
+  .characterCardGrid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+}
+
+@media (max-width:600px) {
+  .characterCardGrid,.nightOrderColumns {
+    grid-template-columns: 1fr;
+  }
+  .roleCountGrid {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+  .scriptSection {
+    padding: 18px 14px;
+  }
+  .catalogToolbar {
+    padding: 14px;
+  }
+  .characterCard {
+    padding: 18px;
+  }
 }

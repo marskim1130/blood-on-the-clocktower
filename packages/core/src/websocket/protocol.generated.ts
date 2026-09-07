@@ -1,8 +1,8 @@
-// Code generated from proto/game.proto (b836f9c2b639b731). DO NOT EDIT.
+// Code generated from proto/game.proto (a2bd378896954fea). DO NOT EDIT.
 // Run: pnpm proto:generate
 
-export type ClientMessageType = 'CREATE_ROOM' | 'JOIN_ROOM' | 'RESUME_ROOM' | 'REJOIN_ROOM' | 'GET_ROOM_STATE' | 'CLOSE_ROOM' | 'LEAVE_ROOM' | 'KICK_PLAYER' | 'UPDATE_ROOM_SETTINGS' | 'SET_STORYTELLER' | 'ASSIGN_CHARACTERS' | 'SUBMIT_EVENT' | 'START_GAME' | 'CHANGE_PHASE' | 'NOMINATE' | 'CAST_VOTE' | 'RESOLVE_NOMINATION' | 'EXECUTE_PLAYER' | 'USE_SLAYER_ABILITY' | 'KILL_PLAYER' | 'SUBMIT_NIGHT_ACTION' | 'RESOLVE_NIGHT' | 'END_GAME';
-export type ServerMessageType = 'CREATE_ROOM_RESULT' | 'JOIN_ROOM_RESULT' | 'RESUME_ROOM_RESULT' | 'COMMAND_RESULT' | 'ROOM_STATE' | 'ROOM_STATE_CHANGED' | 'KICKED' | 'ROOM_CLOSED' | 'ERROR';
+export type ClientMessageType = 'CREATE_ROOM' | 'JOIN_ROOM' | 'RESUME_ROOM' | 'REJOIN_ROOM' | 'GET_ROOM_STATE' | 'CLOSE_ROOM' | 'LEAVE_ROOM' | 'KICK_PLAYER' | 'UPDATE_ROOM_SETTINGS' | 'SET_STORYTELLER' | 'ASSIGN_CHARACTERS' | 'SUBMIT_EVENT' | 'START_GAME' | 'CHANGE_PHASE' | 'NOMINATE' | 'CAST_VOTE' | 'RESOLVE_NOMINATION' | 'EXECUTE_PLAYER' | 'USE_SLAYER_ABILITY' | 'KILL_PLAYER' | 'SUBMIT_NIGHT_ACTION' | 'RESOLVE_NIGHT' | 'END_GAME' | 'SET_SEAT_ORDER' | 'SET_READY' | 'CONFIRM_CHARACTER' | 'FINALIZE_DAY' | 'RECORD_VOTE' | 'CONFIRM_NIGHT_ACTION' | 'ACKNOWLEDGE_NIGHT_ACTION' | 'SKIP_NIGHT_ACTION' | 'PUBLISH_GRIMOIRE' | 'PREPARE_DAWN' | 'CONFIRM_DAWN' | 'ADVANCE_NOMINATION_STAGE' | 'CONTROL_NOMINATION_TIMER' | 'EXPIRE_NOMINATION_TIMER' | 'TRANSFER_OWNERSHIP' | 'RESTART_GAME' | 'UNDO_GAME' | 'REDO_GAME' | 'REQUEST_RECOVERY' | 'REVIEW_RECOVERY' | 'GET_RECOVERY_REQUESTS';
+export type ServerMessageType = 'CREATE_ROOM_RESULT' | 'JOIN_ROOM_RESULT' | 'RESUME_ROOM_RESULT' | 'COMMAND_RESULT' | 'ROOM_STATE' | 'ROOM_STATE_CHANGED' | 'KICKED' | 'ROOM_CLOSED' | 'ERROR' | 'RECOVERY_STATUS' | 'RECOVERY_REQUESTS' | 'SESSION_REPLACED';
 export type ProtocolErrorCode = 'INVALID_MESSAGE' | 'UNSUPPORTED_PROTOCOL' | 'ROOM_NOT_FOUND' | 'INVALID_CREDENTIAL' | 'STALE_CONNECTION' | 'FORBIDDEN' | 'PARTICIPANT_SET_FROZEN' | 'UNEXPECTED_SEQUENCE' | 'SEQUENCE_CONFLICT' | 'IDEMPOTENCY_CONFLICT' | 'PERSISTENCE_UNAVAILABLE' | 'PERSISTENCE_CONFLICT' | 'INTERNAL' | 'ROOM_FULL' | 'INVALID_COMMAND';
 export type IdentityState = 'member' | 'retained';
 
@@ -21,6 +21,8 @@ export interface RoomPlayer {
   readonly votes: number;
   readonly poisonedUntil?: number;
   readonly shownCharacter?: GameCharacter;
+  readonly isReady: boolean;
+  readonly hasConfirmedCharacter: boolean;
 }
 
 export interface RoomNomination {
@@ -28,6 +30,22 @@ export interface RoomNomination {
   readonly nomineeId: string;
   readonly votes: Readonly<Record<string, boolean>>;
   readonly resolved: boolean;
+  readonly voterOrder: readonly string[];
+  readonly currentVoterIndex: number;
+  readonly stage?: string;
+  readonly deadlineUnixMs?: number;
+  readonly paused?: boolean;
+  readonly remainingMs?: number;
+}
+
+export interface RoomNominationResult {
+  readonly dayNumber: number;
+  readonly nominatorId: string;
+  readonly nomineeId: string;
+  readonly votes: Readonly<Record<string, boolean>>;
+  readonly yesVotes: number;
+  readonly noVotes: number;
+  readonly requiredVotes: number;
 }
 
 export interface RoomDeathRecord {
@@ -67,6 +85,23 @@ export interface IdentityStatus {
   readonly nextClientSequence?: number;
 }
 
+export interface OperationLogEntry {
+  readonly id: number;
+  readonly action: string;
+  readonly actorId: string;
+  readonly createdAtUnixMs: number;
+  readonly fromPhase: number;
+  readonly toPhase: number;
+  readonly disclosureWarning: boolean;
+}
+
+export interface RecoveryRequest {
+  readonly requestId: string;
+  readonly playerId: string;
+  readonly playerName: string;
+  readonly requestedAtUnixMs: number;
+}
+
 export interface RoomState {
   readonly roomId: string;
   readonly players: readonly RoomPlayer[];
@@ -88,6 +123,22 @@ export interface RoomState {
   readonly storytellerName?: string;
   readonly nightNumber: number;
   readonly fortuneTellerRedHerringId?: string;
+  readonly nominationResults?: readonly RoomNominationResult[];
+  readonly executionCandidateId?: string;
+  readonly executionCandidateVotes?: number;
+  readonly executionTied?: boolean;
+  readonly nightTurnStatus?: string;
+  readonly pendingNightAction?: RoomNightAction;
+  readonly confirmedNightAction?: RoomNightAction;
+  readonly demonBluffCharacterIds?: readonly string[];
+  readonly grimoireRevealed?: boolean;
+  readonly dawnReviewPending?: boolean;
+  readonly pendingDawnDeathIds?: readonly string[];
+  readonly operationLog?: readonly OperationLogEntry[];
+  readonly canUndo?: boolean;
+  readonly canRedo?: boolean;
+  readonly undoCrossesPhase?: boolean;
+  readonly redoCrossesPhase?: boolean;
 }
 
 export interface ClientMessage {
@@ -117,6 +168,14 @@ export interface ClientMessage {
   readonly actionType?: string;
   readonly targetIds?: readonly string[];
   readonly result?: string;
+  readonly seatOrder?: readonly string[];
+  readonly ready?: boolean;
+  readonly demonBluffCharacterIds?: readonly string[];
+  readonly timerAction?: string;
+  readonly deadlineUnixMs?: number;
+  readonly confirmPhaseChange?: boolean;
+  readonly recoveryCredential?: string;
+  readonly recoveryRequestId?: string;
 }
 
 export interface ServerMessage {
@@ -130,4 +189,9 @@ export interface ServerMessage {
   readonly roomRevision?: number;
   readonly acceptedSequence?: number;
   readonly nextClientSequence?: number;
+  readonly playerId?: string;
+  readonly recoveryRequestId?: string;
+  readonly recoveryStatus?: string;
+  readonly recoveryCredential?: string;
+  readonly recoveryRequests?: readonly RecoveryRequest[];
 }

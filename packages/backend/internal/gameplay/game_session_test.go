@@ -1117,7 +1117,7 @@ func TestGameSessionProjectionReturnsImmutableSnapshot(t *testing.T) {
 
 type unknownCmd struct{}
 
-func (unknownCmd) commandTag() {}
+func (unknownCmd) actorID() string { return "" }
 
 func TestGameSessionUnknownCommand(t *testing.T) {
 	gs := NewGameSession()

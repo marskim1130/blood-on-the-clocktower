@@ -11,6 +11,9 @@ export function RoomRecoveryPanel() {
   const importRoomIdentity = useRoomSession((state) => state.importRoomIdentity);
   const pending = useRoomSession((state) => state.pendingCommand);
   const recoveryStatus = useRoomSession((state) => state.recoveryStatus);
+  const canRetryRecovery = useRoomSession((state) => state.canRetryRecovery);
+  const retryRecovery = useRoomSession((state) => state.retryRecovery);
+  const status = useRoomSession((state) => state.status);
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -53,7 +56,9 @@ export function RoomRecoveryPanel() {
 
   return (
     <View className='recoveryEntry'>
-      {recoveryStatus === 'pending' && <Text className='sectionDescription'>恢复申请已提交，等待说书人或房主审批。批准前不会显示身份。请保持此页面打开。</Text>}
+      {recoveryStatus === 'pending' && <Text className='sectionDescription'>正在申请恢复，等待说书人或房主审批。批准前不会显示身份。请保持此页面打开。</Text>}
+      {recoveryStatus === 'failed' && <Text className='sectionDescription'>恢复暂时中断，审批结果未知。重试将继续查询原申请。</Text>}
+      {canRetryRecovery && <Button className='commandButton recoveryAction' disabled={status !== 'connected'} onClick={retryRecovery}>重试恢复申请</Button>}
       {recoveryStatus === 'rejected' && <Text className='sectionDescription'>申请未获批准，请与桌上的说书人核实后重试。</Text>}
       {recoveryStatus === 'expired' && <Text className='sectionDescription'>恢复申请已过期，请重新提交。</Text>}
       <Button className='quietButton' onClick={() => setOpen(true)}>{identity ? '保存私人恢复码' : '使用恢复码找回座位'}</Button>

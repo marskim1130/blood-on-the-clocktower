@@ -127,4 +127,21 @@ describe('TaroWebSocketTransport', () => {
     expect(opened).toHaveBeenCalledTimes(1);
     expect(transport.readyState).toBe(1);
   });
+
+  it('将底层异步发送失败返回给调用方', async () => {
+    const task = new MockSocketTask();
+    task.open();
+    taroMock.connectSocket.mockResolvedValue(task);
+    const transport = new TaroWebSocketTransport('ws://example.test/ws');
+    transport.connect();
+    await Promise.resolve();
+
+    const failure = new Error('socket send rejected');
+    const failedSend = Promise.reject(failure);
+    // 旧实现丢弃返回值时，让失败仅来自行为断言，而非未处理的 Promise。
+    void failedSend.catch(() => {});
+    task.send.mockReturnValueOnce(failedSend);
+
+    await expect(Promise.resolve(transport.send('recovery-request'))).rejects.toBe(failure);
+  });
 });

@@ -69,8 +69,8 @@ type ExpireNominationTimerCmd struct {
 	DeadlineUnixMs int64
 }
 
-func (ControlNominationTimerCmd) commandTag() {}
-func (ExpireNominationTimerCmd) commandTag()  {}
+func (c ControlNominationTimerCmd) actorID() string { return c.SenderID }
+func (c ExpireNominationTimerCmd) actorID() string  { return c.SenderID }
 
 type ResolveNominationCmd struct {
 	SenderID string
@@ -162,41 +162,39 @@ type KillPlayerCmd struct {
 	Cause    game.DeathCause
 }
 
-// Command is a marker interface for all commands.
+// Command is the closed set of game actions and their actors.
 type Command interface {
-	commandTag()
+	actorID() string
 }
 
-func (SetStorytellerCmd) commandTag()   {}
-func (AssignCharactersCmd) commandTag() {}
-func (SubmitEventCmd) commandTag()      {}
-func (StartGameCmd) commandTag()        {}
-func (ChangePhaseCmd) commandTag()      {}
-func (FinalizeDayCmd) commandTag()      {}
-func (NominateCmd) commandTag()         {}
-func (CastVoteCmd) commandTag()         {}
-func (RecordVoteCmd) commandTag()       {}
-func (AdvanceNominationStageCmd) commandTag() {
-}
-func (ResolveNominationCmd) commandTag()  {}
-func (ExecutePlayerCmd) commandTag()      {}
-func (UseSlayerAbilityCmd) commandTag()   {}
-func (SubmitNightActionCmd) commandTag()  {}
-func (ConfirmNightActionCmd) commandTag() {}
-func (AcknowledgeNightActionCmd) commandTag() {
-}
-func (SkipNightActionCmd) commandTag()    {}
-func (PrepareDawnCmd) commandTag()        {}
-func (ConfirmDawnCmd) commandTag()        {}
-func (ResolveNightCmd) commandTag()       {}
-func (KickPlayerCmd) commandTag()         {}
-func (UpdateRoomSettingsCmd) commandTag() {}
-func (SetSeatOrderCmd) commandTag()       {}
-func (SetReadyCmd) commandTag()           {}
-func (ConfirmCharacterCmd) commandTag()   {}
-func (EndGameCmd) commandTag()            {}
-func (PublishGrimoireCmd) commandTag()    {}
-func (KillPlayerCmd) commandTag()         {}
+func (c SetStorytellerCmd) actorID() string         { return c.SenderID }
+func (c AssignCharactersCmd) actorID() string       { return c.SenderID }
+func (c SubmitEventCmd) actorID() string            { return c.SenderID }
+func (c StartGameCmd) actorID() string              { return c.SenderID }
+func (c ChangePhaseCmd) actorID() string            { return c.SenderID }
+func (c FinalizeDayCmd) actorID() string            { return c.SenderID }
+func (c NominateCmd) actorID() string               { return c.SenderID }
+func (c CastVoteCmd) actorID() string               { return c.SenderID }
+func (c RecordVoteCmd) actorID() string             { return c.SenderID }
+func (c AdvanceNominationStageCmd) actorID() string { return c.SenderID }
+func (c ResolveNominationCmd) actorID() string      { return c.SenderID }
+func (c ExecutePlayerCmd) actorID() string          { return c.SenderID }
+func (c UseSlayerAbilityCmd) actorID() string       { return c.SenderID }
+func (c SubmitNightActionCmd) actorID() string      { return c.SenderID }
+func (c ConfirmNightActionCmd) actorID() string     { return c.SenderID }
+func (c AcknowledgeNightActionCmd) actorID() string { return c.SenderID }
+func (c SkipNightActionCmd) actorID() string        { return c.SenderID }
+func (c PrepareDawnCmd) actorID() string            { return c.SenderID }
+func (c ConfirmDawnCmd) actorID() string            { return c.SenderID }
+func (c ResolveNightCmd) actorID() string           { return c.SenderID }
+func (c KickPlayerCmd) actorID() string             { return c.SenderID }
+func (c UpdateRoomSettingsCmd) actorID() string     { return c.SenderID }
+func (c SetSeatOrderCmd) actorID() string           { return c.SenderID }
+func (c SetReadyCmd) actorID() string               { return c.SenderID }
+func (c ConfirmCharacterCmd) actorID() string       { return c.SenderID }
+func (c EndGameCmd) actorID() string                { return c.SenderID }
+func (c PublishGrimoireCmd) actorID() string        { return c.SenderID }
+func (c KillPlayerCmd) actorID() string             { return c.SenderID }
 
 // Result of applying a command.
 type ApplyResult struct {
@@ -208,6 +206,7 @@ type ApplyResult struct {
 // No knowledge of rooms, connections, or broadcasting.
 type GameSession struct {
 	mu              sync.Mutex
+	history         gameHistory
 	players         []game.Player
 	storytellerID   string
 	storytellerName string
@@ -262,11 +261,13 @@ func (gs *GameSession) SetPlayers(players []game.Player) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 	gs.players = players
+	gs.history.Undo, gs.history.Redo = nil, nil
 }
 
 func (gs *GameSession) AddPlayer(player game.Player) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
+	gs.history.Undo, gs.history.Redo = nil, nil
 	for i, p := range gs.players {
 		if p.ID == player.ID {
 			if player.Name != "" {
@@ -292,8 +293,9 @@ func (gs *GameSession) AddOrReconnectPlayer(player game.Player, maxPlayers int) 
 
 	for i, p := range gs.players {
 		if p.ID == player.ID {
-			if player.Name != "" {
+			if player.Name != "" && player.Name != p.Name {
 				gs.players[i].Name = player.Name
+				gs.history.Undo, gs.history.Redo = nil, nil
 			}
 			return false, nil
 		}
@@ -311,12 +313,14 @@ func (gs *GameSession) AddOrReconnectPlayer(player game.Player, maxPlayers int) 
 	}
 
 	gs.players = append(gs.players, player)
+	gs.history.Undo, gs.history.Redo = nil, nil
 	return true, nil
 }
 
 func (gs *GameSession) RemovePlayer(playerID string) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
+	gs.history.Undo, gs.history.Redo = nil, nil
 	if playerID == gs.storytellerID {
 		gs.storytellerID = ""
 		gs.storytellerName = ""
@@ -410,7 +414,16 @@ func (gs *GameSession) Nomination() *game.Nomination {
 func (gs *GameSession) Apply(cmd Command) (ApplyResult, error) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
+	switch c := cmd.(type) {
+	case UndoGameCmd:
+		return gs.applyHistoryLocked(c.SenderID, false, c.ConfirmPhaseChange)
+	case RedoGameCmd:
+		return gs.applyHistoryLocked(c.SenderID, true, c.ConfirmPhaseChange)
+	}
+	return gs.applyRecordedLocked(cmd)
+}
 
+func (gs *GameSession) applyLocked(cmd Command) (ApplyResult, error) {
 	switch c := cmd.(type) {
 	case SetStorytellerCmd:
 		return gs.applySetStoryteller(c)

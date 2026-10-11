@@ -39,26 +39,42 @@ type gameSessionSnapshot struct {
 	Winner                    *game.GameEndedEvent    `json:"winner,omitempty"`
 }
 
+type persistedGameSessionSnapshot struct {
+	gameSessionSnapshot
+	History gameHistory `json:"operationHistory"`
+}
+
 func (gs *GameSession) Clone() *GameSession {
-	return newGameSessionFromSnapshot(gs.snapshot())
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	cloned := newGameSessionFromSnapshot(gs.snapshotLocked())
+	cloned.history = gs.history.clone()
+	return cloned
 }
 
 func (gs *GameSession) MarshalSnapshot() ([]byte, error) {
-	return json.Marshal(gs.snapshot())
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	return json.Marshal(persistedGameSessionSnapshot{gameSessionSnapshot: gs.snapshotLocked(), History: gs.history})
 }
 
 func LoadGameSessionSnapshot(data []byte) (*GameSession, error) {
-	var snapshot gameSessionSnapshot
+	var snapshot persistedGameSessionSnapshot
 	if err := json.Unmarshal(data, &snapshot); err != nil {
 		return nil, err
 	}
-	return newGameSessionFromSnapshot(snapshot), nil
+	loaded := newGameSessionFromSnapshot(snapshot.gameSessionSnapshot)
+	loaded.history = snapshot.History
+	return loaded, nil
 }
 
 func (gs *GameSession) snapshot() gameSessionSnapshot {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
+	return gs.snapshotLocked()
+}
 
+func (gs *GameSession) snapshotLocked() gameSessionSnapshot {
 	return gameSessionSnapshot{
 		Players:                   clonePlayers(gs.players),
 		StorytellerID:             gs.storytellerID,
@@ -92,40 +108,45 @@ func (gs *GameSession) snapshot() gameSessionSnapshot {
 }
 
 func newGameSessionFromSnapshot(snapshot gameSessionSnapshot) *GameSession {
+	gs := &GameSession{}
+	gs.restoreSnapshotLocked(snapshot)
+	return gs
+}
+
+// restoreSnapshotLocked replaces only game state; the mutex and history stay live.
+func (gs *GameSession) restoreSnapshotLocked(snapshot gameSessionSnapshot) {
 	scriptID := snapshot.ScriptID
 	if scriptID == "" {
 		scriptID = game.TroubleBrewingScriptID
 	}
-	return &GameSession{
-		players:                   clonePlayers(snapshot.Players),
-		storytellerID:             snapshot.StorytellerID,
-		storytellerName:           snapshot.StorytellerName,
-		originalPlayers:           snapshot.OriginalPlayers,
-		scriptID:                  scriptID,
-		phase:                     snapshot.Phase,
-		dayNumber:                 snapshot.DayNumber,
-		nightNumber:               snapshot.NightNumber,
-		nightWakeIndex:            snapshot.NightWakeIndex,
-		nomination:                cloneNomination(snapshot.Nomination),
-		nominationResults:         cloneNominationResults(snapshot.NominationResults),
-		nightActions:              cloneNightActions(snapshot.NightActions),
-		pendingNightAction:        cloneNightAction(snapshot.PendingNightAction),
-		confirmedNightAction:      cloneNightAction(snapshot.ConfirmedNightAction),
-		nightAcknowledged:         cloneBoolMap(snapshot.NightAcknowledged),
-		dawnReviewPending:         snapshot.DawnReviewPending,
-		pendingDawnDeathIDs:       append([]string(nil), snapshot.PendingDawnDeathIDs...),
-		deaths:                    cloneDeaths(snapshot.Deaths),
-		ghostVotesUsed:            nonNilBoolMap(snapshot.GhostVotesUsed),
-		slayerUsed:                nonNilBoolMap(snapshot.SlayerUsed),
-		nominatorsToday:           nonNilBoolMap(snapshot.NominatorsToday),
-		nomineesToday:             nonNilBoolMap(snapshot.NomineesToday),
-		virginAbilityUsed:         nonNilBoolMap(snapshot.VirginAbilityUsed),
-		butlerMasters:             nonNilStringMap(snapshot.ButlerMasters),
-		fortuneTellerRedHerringID: snapshot.FortuneTellerRedHerringID,
-		demonBluffCharacterIDs:    append([]string(nil), snapshot.DemonBluffCharacterIDs...),
-		grimoireRevealed:          snapshot.GrimoireRevealed,
-		winner:                    cloneWinner(snapshot.Winner),
-	}
+	gs.players = clonePlayers(snapshot.Players)
+	gs.storytellerID = snapshot.StorytellerID
+	gs.storytellerName = snapshot.StorytellerName
+	gs.originalPlayers = snapshot.OriginalPlayers
+	gs.scriptID = scriptID
+	gs.phase = snapshot.Phase
+	gs.dayNumber = snapshot.DayNumber
+	gs.nightNumber = snapshot.NightNumber
+	gs.nightWakeIndex = snapshot.NightWakeIndex
+	gs.nomination = cloneNomination(snapshot.Nomination)
+	gs.nominationResults = cloneNominationResults(snapshot.NominationResults)
+	gs.nightActions = cloneNightActions(snapshot.NightActions)
+	gs.pendingNightAction = cloneNightAction(snapshot.PendingNightAction)
+	gs.confirmedNightAction = cloneNightAction(snapshot.ConfirmedNightAction)
+	gs.nightAcknowledged = cloneBoolMap(snapshot.NightAcknowledged)
+	gs.dawnReviewPending = snapshot.DawnReviewPending
+	gs.pendingDawnDeathIDs = append([]string(nil), snapshot.PendingDawnDeathIDs...)
+	gs.deaths = cloneDeaths(snapshot.Deaths)
+	gs.ghostVotesUsed = nonNilBoolMap(snapshot.GhostVotesUsed)
+	gs.slayerUsed = nonNilBoolMap(snapshot.SlayerUsed)
+	gs.nominatorsToday = nonNilBoolMap(snapshot.NominatorsToday)
+	gs.nomineesToday = nonNilBoolMap(snapshot.NomineesToday)
+	gs.virginAbilityUsed = nonNilBoolMap(snapshot.VirginAbilityUsed)
+	gs.butlerMasters = nonNilStringMap(snapshot.ButlerMasters)
+	gs.fortuneTellerRedHerringID = snapshot.FortuneTellerRedHerringID
+	gs.demonBluffCharacterIDs = append([]string(nil), snapshot.DemonBluffCharacterIDs...)
+	gs.grimoireRevealed = snapshot.GrimoireRevealed
+	gs.winner = cloneWinner(snapshot.Winner)
 }
 
 func nonNilBoolMap(values map[string]bool) map[string]bool {

@@ -269,12 +269,12 @@ func toSessionCommand(msg ClientMessage) (session.Command, error) {
 		command.Kind = session.CommandTransferOwnership
 	case MsgRestartGame:
 		command.Kind = session.CommandRestartGame
-	case MsgUndoGame, MsgRedoGame:
+	case MsgUndoGame:
 		command.Kind = session.CommandUndoGame
-		if msg.Type == MsgRedoGame {
-			command.Kind = session.CommandRedoGame
-		}
-		command.Payload = historyCommand{redo: msg.Type == MsgRedoGame, confirmPhaseChange: msg.ConfirmPhaseChange}
+		command.Payload = gameplay.UndoGameCmd{SenderID: msg.PlayerID, ConfirmPhaseChange: msg.ConfirmPhaseChange}
+	case MsgRedoGame:
+		command.Kind = session.CommandRedoGame
+		command.Payload = gameplay.RedoGameCmd{SenderID: msg.PlayerID, ConfirmPhaseChange: msg.ConfirmPhaseChange}
 	case MsgUpdateRoomSettings:
 		command.Kind = session.CommandUpdateSettings
 		command.Payload = gameplay.UpdateRoomSettingsCmd{SenderID: msg.PlayerID, MaxPlayers: msg.MaxPlayers, ScriptID: msg.ScriptID}

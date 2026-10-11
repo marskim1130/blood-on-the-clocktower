@@ -44,6 +44,15 @@ The projection gate owns Room Revision filtering. Downstream consumers receive o
 
 The Core client keeps identity in memory. Durable Resume Credential storage belongs to the Frontend adapter.
 
+#### 恢复申请的状态归属
+
+- `GameWebSocketClient.recovery` 是恢复申请的只读、不可变状态，不含恢复码或身份凭据；现有 `onMessage` 订阅同时通知本地发送状态和已认可的服务端结果。
+- `pending`、`failed`、`approved`、`rejected`、`expired` 均由 Core 决定。同步抛错、异步发送拒绝和普通协议错误不等于审批拒绝；失败后用 `retryRecovery()` 手动重试同一申请编号。
+- 结果未知的申请继续阻止其它身份操作及私密投影，接收关联正确的迟到终态；迟到的 `pending` 不解除手动重试要求。普通断线的待审申请自动重发，失败申请等待用户重试。
+- 发送失败只影响当前连接和当前发送尝试；旧连接、旧尝试或终态之后的异步拒绝不能回退恢复状态。
+- 有效批准先更新完整双凭据并通知前端保存，再发送 `RESUME_ROOM`。入房发送失败保留批准身份并允许重连；无效凭据或房间不存在仍清身份。
+- `WebSocketTransport.send` 可返回 Promise，以便浏览器同步失败和 Taro 异步失败经过同一客户端状态入口。
+
 ## Business Rules
 
 1. Shared rule modules are pure and do not mutate committed room state

@@ -126,28 +126,6 @@ function fixture(storedIdentity: ClientRoomIdentity | null = null) {
 }
 
 describe('room session store', () => {
-  it('reuses a non-secret recovery ticket after refreshing and repasting the code', () => {
-    const { client, storage, dependencies, store } = fixture();
-    store.getState().initialize();
-    const recovery = { roomId: 'room', playerId: 'player', recoveryCredential: 'NEVER-PERSIST' };
-    store.getState().importRoomIdentity(recovery);
-    expect([...storage.values()].join(' ')).not.toContain('NEVER-PERSIST');
-    const refreshed = createRoomSessionStore(dependencies);
-    refreshed.getState().initialize();
-    refreshed.getState().importRoomIdentity(recovery);
-    expect(client.calls.filter(call => call.method === 'requestRecovery').at(-1)?.args).toEqual(['room', 'player', 'NEVER-PERSIST', 'recovery-ticket-1']);
-  });
-  it('requests approval without persisting or resuming the imported identity', () => {
-    const { client, storage, store } = fixture();
-    store.getState().initialize();
-    const identity = { roomId: 'ROOM2', playerId: 'old-player', recoveryCredential: 'recovery-secret' };
-    store.getState().importRoomIdentity(identity);
-    expect(store.getState().identity).toBeNull();
-    expect(storage.get(STORAGE_KEYS.roomIdentity)).toBeUndefined();
-    expect(client.calls.filter(call => call.method === 'resumeRoom')).toEqual([]);
-    expect(client.calls).toContainEqual({ method: 'requestRecovery', args: ['ROOM2', 'old-player', 'recovery-secret'] });
-    expect(client.calls.some(call => call.method === 'joinRoom')).toBe(false);
-  });
   it('initializes one client and resumes the stored identity once', () => {
     const identity = { roomId: 'ROOM1', playerId: 'p1', resumeCredential: 'secret' };
     const { client, store } = fixture(identity);
@@ -334,29 +312,6 @@ describe('room session store', () => {
     });
     expect(store.getState().pendingCommand).toBeNull();
   });
-  it('persists approved credentials only when the core has accepted the grant', () => {
-    const { client, storage, store } = fixture();
-    store.getState().initialize();
-    store.getState().importRoomIdentity({ roomId: 'ROOM2', playerId: 'old-player', recoveryCredential: 'old-recovery' });
-    client.identity = { roomId: 'ROOM2', playerId: 'old-player', resumeCredential: 'new-device', recoveryCredential: 'new-recovery' };
-    client.emit({ type: 'RECOVERY_STATUS', recoveryStatus: 'approved' });
-    expect(storage.get(STORAGE_KEYS.roomIdentity)).toEqual({ version: 2, ...client.identity });
-    expect(storage.has(STORAGE_KEYS.recoveryTicket)).toBe(false);
-    expect(store.getState().experience.roomState).toBeNull();
-  });
-
-  it('clears only the pending ticket when recovery is rejected or expires', () => {
-    for (const recoveryStatus of ['rejected', 'expired']) {
-      const { client, storage, store } = fixture();
-      store.getState().initialize();
-      store.getState().importRoomIdentity({ roomId: 'room', playerId: 'player', recoveryCredential: 'secret' });
-      expect(storage.has(STORAGE_KEYS.recoveryTicket)).toBe(true);
-      client.emit({ type: 'RECOVERY_STATUS', recoveryStatus });
-      expect(storage.has(STORAGE_KEYS.recoveryTicket)).toBe(false);
-      expect(storage.has(STORAGE_KEYS.roomIdentity)).toBe(false);
-    }
-  });
-
   it('removes local identity and private state when a new device replaces this session', () => {
     const { client, storage, store } = fixture({ roomId: 'ROOM1', playerId: 'p1', resumeCredential: 'old' });
     store.getState().initialize();

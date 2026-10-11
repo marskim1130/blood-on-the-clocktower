@@ -29,6 +29,16 @@ Uses an application-level Zustand Room Session Store. The frontend:
 
 The page owns transport side effects and rendering only. It must not reconstruct committed room state from incremental events, maintain parallel nomination/death/night/winner stores, or repeat the Core Room Revision gate.
 
+### 恢复状态的展示与持久化
+
+房间会话存储通过现有消息订阅读取 Core 的恢复状态与可重试标记，不能从原始恢复通知或普通错误自行推断批准、拒绝、过期。页面只在 Core 允许时显示“重试恢复申请”，连接可用后由用户触发。
+
+- 首次发送前保存仅含申请编号、房间及玩家标识的非秘密票据；恢复码只留在内存。刷新后重新粘贴恢复码并复用票据。
+- 批准后立即保存 Core 已认可的完整身份，再移除同房间、同玩家的票据；刷新后成功恢复并保存身份时也补清遗留票据，不清理其它身份的票据。批准后的入房失败不退回待审批。拒绝、过期或身份失效清理相应票据。
+- 丢弃客户端或切换开发地址时清理内存恢复视图，保留非秘密票据供重新粘贴。
+- 设备存储异常不能阻断消息处理；界面明确提示未保存，当前页面继续使用已认可的内存身份。批准身份未能保存时保留原票据，不声称持久化成功。
+- 恢复行为通过真实 Core 与房间会话存储的整合测试验证，传输和存储使用测试适配器；页面测试负责按钮与文案的交互合同。
+
 ### Component Architecture
 
 - **Pages**: Route-level components (lobby, game, settings)

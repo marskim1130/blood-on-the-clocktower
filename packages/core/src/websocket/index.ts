@@ -35,7 +35,7 @@ const READY_STATE_CLOSED = 3;
 export interface WebSocketTransport {
   readonly readyState: number;
   connect(): void;
-  send(data: string): void;
+  send(data: string): void | Promise<void>;
   close(): void;
   onOpen(handler: () => void): void;
   onMessage(handler: (data: string) => void): void;
@@ -143,6 +143,15 @@ export interface ClientRoomIdentity {
   readonly recoveryCredential?: string;
 }
 
+export interface RecoveryState {
+  readonly requestId: string;
+  readonly roomId: string;
+  readonly playerId: string;
+  readonly status: 'pending' | 'failed' | 'approved' | 'rejected' | 'expired';
+  readonly canRetry: boolean;
+  readonly failure?: 'send' | 'server' | undefined;
+}
+
 interface PendingIdentity {
   readonly playerId: string;
   readonly requestKind: 'create' | 'join';
@@ -160,6 +169,10 @@ function createRequestId(): string {
 
 export class GameWebSocketClient {
   private transport: WebSocketTransport | null = null;
+  private connectionGeneration = 0;
+  private sendAttempt = 0;
+  private recoverySendAttempt = 0;
+  private resumeSendAttempt = 0;
   private readonly options: ResolvedWebSocketClientOptions;
   private readonly handlers: Set<MessageHandler> = new Set();
   private readonly statusHandlers: Set<StatusHandler> = new Set();
@@ -170,6 +183,7 @@ export class GameWebSocketClient {
   private resumeSession: ClientRoomIdentity | null = null;
   private pendingIdentity: PendingIdentity | null = null;
   private pendingRecovery: ClientMessage | null = null;
+  private _recovery: RecoveryState | null = null;
   private resumeRequestPending = false;
   private resumeRequestSent = false;
   private nextClientSequence: number | null = null;
@@ -227,6 +241,7 @@ export class GameWebSocketClient {
     }
 
     const transport = this.options.transportFactory(this.options.url);
+    this.connectionGeneration++;
     this.transport = transport;
 
     transport.onOpen(() => {
@@ -238,13 +253,21 @@ export class GameWebSocketClient {
 
     transport.onMessage((data) => {
       if (this.transport !== transport) return;
+      let msg: ServerMessage;
       try {
-        const msg: ServerMessage = JSON.parse(data);
-        const acceptedMessage = this.acceptProjection(msg);
-        this.captureProtocolState(acceptedMessage);
-        this.handlers.forEach((handler) => handler(acceptedMessage));
+        msg = JSON.parse(data) as ServerMessage;
       } catch {
         console.warn('Failed to parse WebSocket message');
+        return;
+      }
+      const recoveryMessage = this.acceptRecoveryMessage(msg);
+      if (!recoveryMessage) return;
+      const acceptedMessage = this.acceptProjection(recoveryMessage);
+      this.captureProtocolState(acceptedMessage);
+      this.handlers.forEach((handler) => handler(acceptedMessage));
+      if (acceptedMessage.type === 'RECOVERY_STATUS' && acceptedMessage.recoveryStatus === 'approved') {
+        // Subscribers persist the complete grant before resuming can deliver another reply.
+        this.replayIdentityRequestIfNeeded();
       }
     });
 
@@ -277,6 +300,7 @@ export class GameWebSocketClient {
 
   disconnect(): void {
     this.intentionalDisconnect = true;
+    this.connectionGeneration++;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -287,6 +311,7 @@ export class GameWebSocketClient {
   }
 
   createRoom(playerId: string, playerName: string, maxPlayers: number, scriptId?: string, requestId = this.options.requestIdFactory()): void {
+    if (this.pendingRecovery) throw new Error('恢复申请尚未结束，请重试原申请');
     const message: ClientMessage = {
       protocolVersion: 2,
       type: 'CREATE_ROOM',
@@ -301,6 +326,7 @@ export class GameWebSocketClient {
   }
 
   joinRoom(roomId: string, playerId: string, playerName: string, joinRequestId = this.options.requestIdFactory()): void {
+    if (this.pendingRecovery) throw new Error('恢复申请尚未结束，请重试原申请');
     const message: ClientMessage = {
       protocolVersion: 2,
       type: 'JOIN_ROOM',
@@ -314,7 +340,11 @@ export class GameWebSocketClient {
   }
 
   resumeRoom(roomId: string, playerId: string, resumeCredential: string): void {
-    this.resumeSession = { roomId, playerId, resumeCredential };
+    if (this.pendingRecovery) throw new Error('恢复申请尚未结束，请重试原申请');
+    const previous = this.resumeSession;
+    this.resumeSession = previous?.roomId === roomId && previous.playerId === playerId && previous.resumeCredential === resumeCredential
+      ? previous
+      : { roomId, playerId, resumeCredential };
     this.resumeRequestPending = true;
     this.resumeRequestSent = false;
     if (this.transport?.readyState === READY_STATE_OPEN) {
@@ -334,11 +364,58 @@ export class GameWebSocketClient {
     this.sendSequenced({ type: 'CLOSE_ROOM' });
   }
 
+  get recovery(): RecoveryState | null {
+    return this._recovery;
+  }
+
   requestRecovery(roomId: string, playerId: string, recoveryCredential: string, requestId = this.options.requestIdFactory()): string {
+    if (this.pendingRecovery) throw new Error('恢复申请尚未结束，请重试原申请');
+    if (this.pendingIdentity) throw new Error('正在创建或加入房间，请等待结果');
     if (this.resumeSession) throw new Error('请先离开当前房间');
     this.pendingRecovery = { protocolVersion: 2, type: 'REQUEST_RECOVERY', roomId, playerId, recoveryCredential, requestId };
-    if (this.transport?.readyState === READY_STATE_OPEN) this.send(this.pendingRecovery);
+    this._recovery = Object.freeze({ requestId, roomId, playerId, status: 'pending', canRetry: false });
+    this.notifyRecovery();
+    if (this.transport?.readyState === READY_STATE_OPEN) this.sendRecovery();
     return requestId;
+  }
+
+  retryRecovery(): void {
+    if (!this.pendingRecovery || !this._recovery?.canRetry) return;
+    if (this.transport?.readyState !== READY_STATE_OPEN) throw new Error('请先重新连接服务器');
+    this._recovery = Object.freeze({ ...this._recovery, status: 'pending', canRetry: false, failure: undefined });
+    this.notifyRecovery();
+    this.sendRecovery();
+  }
+
+  private notifyRecovery(): void {
+    const recovery = this._recovery;
+    if (!recovery) return;
+    // Local notifications share the subscription, but never enter the wire-state gate.
+    this.handlers.forEach(handler => handler({
+      type: 'RECOVERY_STATUS', roomId: recovery.roomId, playerId: recovery.playerId,
+      recoveryRequestId: recovery.requestId, recoveryStatus: recovery.status,
+    }));
+  }
+
+  private sendRecovery(): void {
+    const request = this.pendingRecovery;
+    if (!request) return;
+    const generation = this.connectionGeneration;
+    let failed = false;
+    try {
+      this.send(request);
+    } catch {
+      failed = true;
+    }
+    if (failed && this.connectionGeneration === generation && this.pendingRecovery === request) {
+      this.failRecoverySend();
+    }
+  }
+
+  private failRecoverySend(): void {
+    if (this._recovery?.status !== 'pending') return;
+    this._recovery = Object.freeze({ ...this._recovery, status: 'failed', canRetry: true, failure: 'send' });
+    this.notifyRecovery();
   }
 
   getRecoveryRequests(): void { this.sendAuthenticated({ type: 'GET_RECOVERY_REQUESTS' }); }
@@ -504,10 +581,37 @@ export class GameWebSocketClient {
   }
 
   send(msg: OutboundClientMessage): void {
-    if (this.transport?.readyState !== READY_STATE_OPEN) {
+    const transport = this.transport;
+    if (transport?.readyState !== READY_STATE_OPEN) {
       throw new Error('WebSocket is not connected');
     }
-    this.transport.send(JSON.stringify({ ...msg, protocolVersion: 2 } satisfies ClientMessage));
+    const generation = this.connectionGeneration;
+    const attempt = ++this.sendAttempt;
+    const identity = this.resumeSession;
+    if (msg.type === 'REQUEST_RECOVERY') this.recoverySendAttempt = attempt;
+    if (msg.type === 'RESUME_ROOM') this.resumeSendAttempt = attempt;
+    const completion = transport.send(JSON.stringify({ ...msg, protocolVersion: 2 } satisfies ClientMessage));
+    if (!completion) return;
+    void completion.catch(() => {
+      if (this.transport !== transport || this.connectionGeneration !== generation) return;
+      if (msg.type === 'REQUEST_RECOVERY') {
+        if (this.pendingRecovery === msg && this.recoverySendAttempt === attempt) this.failRecoverySend();
+      } else if (msg.type === 'RESUME_ROOM') {
+        if (this.resumeSession === identity && this.resumeSendAttempt === attempt && this.resumeRequestPending) {
+          this.invalidateFailedTransport();
+        }
+      } else if (this.resumeSession === identity) {
+        this.invalidateFailedTransport();
+      }
+    });
+  }
+
+  private invalidateFailedTransport(): void {
+    const transport = this.transport;
+    this.transport = null;
+    this.resumeRequestSent = false;
+    transport?.close();
+    this.setStatus('error');
   }
 
   onMessage(handler: MessageHandler): () => void {
@@ -534,12 +638,37 @@ export class GameWebSocketClient {
     }, this.options.reconnectInterval);
   }
 
+  private acceptRecoveryMessage(msg: ServerMessage): ServerMessage | null {
+    if (msg.type !== 'RECOVERY_STATUS') return msg;
+    if (!this.pendingRecovery ||
+      typeof msg.recoveryRequestId !== 'string' || msg.recoveryRequestId !== this.pendingRecovery.requestId ||
+      typeof msg.roomId !== 'string' || msg.roomId !== this.pendingRecovery.roomId ||
+      typeof msg.playerId !== 'string' || msg.playerId !== this.pendingRecovery.playerId) return null;
+
+    const status = msg.recoveryStatus;
+    if (status !== 'pending' && status !== 'approved' && status !== 'rejected' && status !== 'expired') return null;
+    if (status === 'pending' && this._recovery?.status === 'failed') return null;
+    const accepted: ServerMessage = {
+      type: 'RECOVERY_STATUS', recoveryRequestId: msg.recoveryRequestId,
+      roomId: msg.roomId, playerId: msg.playerId, recoveryStatus: status,
+    };
+    if (status !== 'approved') return accepted;
+    if (typeof msg.resumeCredential !== 'string' || !msg.resumeCredential.trim() ||
+      typeof msg.recoveryCredential !== 'string' || !msg.recoveryCredential.trim()) return null;
+    // Recovery notifications never carry an authoritative projection or sequence.
+    return { ...accepted, resumeCredential: msg.resumeCredential, recoveryCredential: msg.recoveryCredential };
+  }
+
   private captureProtocolState(msg: ServerMessage): void {
     if (msg.type === 'RECOVERY_STATUS' && this.pendingRecovery && msg.recoveryRequestId === this.pendingRecovery.requestId) {
+      if (this._recovery) this._recovery = Object.freeze({
+        ...this._recovery, status: msg.recoveryStatus as RecoveryState['status'], canRetry: false, failure: undefined,
+      });
       if (msg.recoveryStatus === 'approved' && msg.roomId && msg.playerId && msg.roomId === this.pendingRecovery.roomId && msg.playerId === this.pendingRecovery.playerId && msg.resumeCredential && msg.recoveryCredential) {
         this.pendingRecovery = null;
-        this.resumeRoom(msg.roomId, msg.playerId, msg.resumeCredential);
-        this.resumeSession = { ...this.resumeSession!, recoveryCredential: msg.recoveryCredential };
+        this.resumeSession = { roomId: msg.roomId, playerId: msg.playerId, resumeCredential: msg.resumeCredential, recoveryCredential: msg.recoveryCredential };
+        this.resumeRequestPending = true;
+        this.resumeRequestSent = false;
       } else if (msg.recoveryStatus === 'rejected' || msg.recoveryStatus === 'expired') {
         this.pendingRecovery = null;
       }
@@ -563,7 +692,9 @@ export class GameWebSocketClient {
     }
 
     if (msg.type === 'ERROR') {
-      this.pendingRecovery = null;
+      if (this.pendingRecovery && this._recovery) {
+        this._recovery = Object.freeze({ ...this._recovery, status: 'failed', canRetry: true, failure: 'server' });
+      }
       this.pendingIdentity = null;
       this.resumeRequestPending = false;
       this.resumeRequestSent = false;
@@ -713,6 +844,7 @@ export class GameWebSocketClient {
 
   private clearRoomIdentity(): void {
     this.pendingRecovery = null;
+    this._recovery = null;
     this.resumeSession = null;
     this.pendingIdentity = null;
     this.resumeRequestPending = false;
@@ -726,7 +858,7 @@ export class GameWebSocketClient {
 
   private replayIdentityRequestIfNeeded(): void {
     if (this.pendingRecovery) {
-      this.send(this.pendingRecovery);
+      if (this._recovery?.status === 'pending') this.sendRecovery();
       return;
     }
     if (this.pendingIdentity) {
@@ -740,6 +872,7 @@ export class GameWebSocketClient {
 
     if (!this.resumeSession || !this.resumeRequestPending || this.resumeRequestSent) return;
 
+    const identity = this.resumeSession;
     this.resumeRequestSent = true;
     try {
       this.send({
@@ -749,8 +882,7 @@ export class GameWebSocketClient {
         resumeCredential: this.resumeSession.resumeCredential,
       });
     } catch {
-      this.resumeRequestSent = false;
-      this.setStatus('error');
+      if (this.resumeSession === identity && this.resumeRequestPending) this.invalidateFailedTransport();
     }
   }
 }

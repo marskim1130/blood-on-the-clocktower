@@ -31,8 +31,9 @@ it('等待审批期间即使收到投影也不交给页面', () => {
   const messages: unknown[] = [];
   client.onMessage(message => messages.push(message));
   client.requestRecovery('room', 'player', 'secret', 'request-2');
-  receive({ type: 'RECOVERY_STATUS', recoveryRequestId: 'request-2', recoveryStatus: 'pending', state: { secret: 'role' }, roomRevision: 4 });
-  expect(messages).toEqual([{ type: 'RECOVERY_STATUS', recoveryRequestId: 'request-2', recoveryStatus: 'pending' }]);
+  messages.length = 0;
+  receive({ type: 'RECOVERY_STATUS', recoveryRequestId: 'request-2', roomId: 'room', playerId: 'player', recoveryStatus: 'pending', state: { secret: 'role' }, roomRevision: 4 });
+  expect(messages).toEqual([{ type: 'RECOVERY_STATUS', recoveryRequestId: 'request-2', roomId: 'room', playerId: 'player', recoveryStatus: 'pending' }]);
 });
 
 it('重连重发同一恢复申请而不会尝试直接恢复', () => {

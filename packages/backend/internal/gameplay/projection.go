@@ -11,6 +11,11 @@ const (
 // Projection is the privacy-safe game view for one recipient.
 // Room lifecycle metadata is added by the WebSocket adapter.
 type Projection struct {
+	OperationLog              []OperationLogEntry
+	CanUndo                   bool
+	CanRedo                   bool
+	UndoCrossesPhase          bool
+	RedoCrossesPhase          bool
 	Players                   []game.Player
 	ScriptID                  string
 	ScriptName                string
@@ -149,7 +154,7 @@ func (gs *GameSession) project(forceSeeAll bool, recipientID string) *Projection
 	}
 	executionCandidateID, executionCandidateVotes, executionTied := gs.executionBlockLocked()
 
-	return &Projection{
+	projection := &Projection{
 		Players:                   players,
 		ScriptID:                  gs.scriptID,
 		ScriptName:                scriptName,
@@ -179,6 +184,10 @@ func (gs *GameSession) project(forceSeeAll bool, recipientID string) *Projection
 		PendingDawnDeathIDs:       pendingDawnDeathIDs,
 		FortuneTellerRedHerringID: fortuneTellerRedHerringID,
 	}
+	if forceSeeAll || (gs.storytellerID != "" && recipientID == gs.storytellerID) {
+		gs.projectHistoryLocked(projection)
+	}
+	return projection
 }
 
 func (gs *GameSession) nightTurnStatusLocked(step *game.NightWakeStep) string {

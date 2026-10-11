@@ -54,5 +54,6 @@ func (gs *GameSession) Restart(memberIDs []string) error {
 	gs.demonBluffCharacterIDs = nil
 	gs.grimoireRevealed = false
 	gs.winner = nil
+	gs.history = gameHistory{}
 	return nil
 }

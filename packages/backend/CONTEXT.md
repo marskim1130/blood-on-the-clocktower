@@ -17,12 +17,24 @@ The sole owner of room membership, storyteller assignment, room settings, reconn
 _Avoid_: Room state split across Hub, RoomManager, and GameSession
 
 **Gameplay Session**:
-The deep in-memory game rules module composed behind the Authoritative Game Session. It owns phases, character abilities, nominations, voting, night actions, deaths, win conditions, snapshots, and recipient-specific Gameplay Projections. It has no knowledge of credentials, Room Records, connections, or WebSocket messages.
+The deep in-memory game rules module composed behind the Authoritative Game Session. It owns phases, character abilities, nominations, voting, night actions, deaths, win conditions, Game History, snapshots, and recipient-specific Gameplay Projections. It has no knowledge of credentials, Room Records, connections, or WebSocket messages.
 _Avoid_: WebSocket handler, room lifecycle owner, one module per character
 
 **Gameplay Projection**:
 A privacy-safe game-only view for one recipient. The WebSocket adapter combines it with Authoritative Game Session metadata to produce the generated protocol `RoomState`.
 _Avoid_: Room Record, protocol envelope, incremental event stream
+
+**Game History（游戏历史）**:
+Gameplay Session 内部的游戏操作记录与撤销/重做状态。它通过同一 `Apply` 入口处理普通动作及撤销命令，通过 `ProjectionFor` 提供说书人私密日志和恢复能力。WebSocket adapter 只绑定已认证操作者并映射协议字段，不解析游戏快照或决定历史可见性。
+
+- 最多保留 30 步恢复记录、100 条操作日志；只有成功且更新游戏的普通动作产生历史，撤销/重做追加日志但不作为普通动作再次记录。
+- 游戏与历史在同一锁内克隆和持久化；历史条目仅包含游戏快照，不嵌套历史。恢复只替换游戏字段，日志序号继续递增。
+- 持久化沿用平铺游戏字段与 `operationHistory`；历史中的 `before`/`after` 仍为 base64 编码的字节串。缺少历史的旧快照仍可读，既有历史可继续撤销/重做。
+- 只有恢复用快照将投票计时转成暂停及剩余时间；普通持久化保留原计时状态。跨阶段恢复仍需明确确认。
+- 成员、座位、说书人及房间设置变更使恢复栈失效并保留日志；重赛清空全部历史。终局退席通过显式通知清栈，保留最终游戏玩家展示。
+- 成员、凭据、Client Sequence、Room Revision 和持久提交仍归 Authoritative Game Session；成员锁定依据由 Gameplay Session 提供，并随游戏恢复在同一 Room Record 事务中更新。
+
+_Avoid_: 房间事件溯源、凭据回滚、已泄露信息的撤回、WebSocket 自有历史
 
 **Room Member**:
 A player identity retained by the Authoritative Game Session independently of network connectivity. Disconnecting does not remove membership.

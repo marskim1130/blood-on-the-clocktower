@@ -13,6 +13,24 @@ import (
 	"github.com/marskim1130/blood-on-the-clocktower/internal/sessionstore"
 )
 
+func TestHistoryUsesAuthenticatedEngineActor(t *testing.T) {
+	e := newSessionGameEngine("room", "trouble_brewing")
+	_ = e.AddPlayer("st", "主持")
+	_ = e.AddPlayer("p1", "玩家")
+	if _, err := e.Execute("st", gameplay.SetStorytellerCmd{SenderID: "st", TargetPlayerID: "st"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("p1", gameplay.SetReadyCmd{SenderID: "p1", Ready: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Execute("p1", gameplay.UndoGameCmd{SenderID: "st"}); err == nil {
+		t.Fatal("command payload impersonated the storyteller")
+	}
+	if !e.Project("st").(*RoomState).Players[0].IsReady {
+		t.Fatal("rejected undo mutated the game")
+	}
+}
+
 func TestStorytellerCanUndoAndRedoGameActionWithoutChangingRoster(t *testing.T) {
 	e := newSessionGameEngine("room", "trouble_brewing")
 	_ = e.AddPlayer("st", "主持")
@@ -23,13 +41,13 @@ func TestStorytellerCanUndoAndRedoGameActionWithoutChangingRoster(t *testing.T) 
 	if _, err := e.Execute("p1", gameplay.SetReadyCmd{SenderID: "p1", Ready: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Execute("st", historyCommand{}); err != nil {
+	if _, err := e.Execute("st", gameplay.UndoGameCmd{SenderID: "st"}); err != nil {
 		t.Fatal(err)
 	}
 	if e.session.Players()[0].IsReady || e.session.Players()[0].ID != "p1" {
 		t.Fatal("undo did not restore ready state and roster")
 	}
-	if _, err := e.Execute("st", historyCommand{redo: true}); err != nil {
+	if _, err := e.Execute("st", gameplay.RedoGameCmd{SenderID: "st"}); err != nil {
 		t.Fatal(err)
 	}
 	if !e.session.Players()[0].IsReady {
@@ -44,7 +62,7 @@ func TestMembershipChangeInvalidatesUndoSnapshots(t *testing.T) {
 	_, _ = e.Execute("st", gameplay.SetStorytellerCmd{SenderID: "st", TargetPlayerID: "st"})
 	_, _ = e.Execute("p1", gameplay.SetReadyCmd{SenderID: "p1", Ready: true})
 	_ = e.AddPlayer("p2", "新玩家")
-	if _, err := e.Execute("st", historyCommand{}); err == nil {
+	if _, err := e.Execute("st", gameplay.UndoGameCmd{SenderID: "st"}); err == nil {
 		t.Fatal("undo can restore an obsolete roster")
 	}
 	if len(e.session.Players()) != 2 {
@@ -62,7 +80,7 @@ func TestUndoRestoresVotingTimerPaused(t *testing.T) {
 	if _, err := e.Execute("p1", gameplay.CastVoteCmd{SenderID: "p1", Decision: false}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Execute("st", historyCommand{}); err != nil {
+	if _, err := e.Execute("st", gameplay.UndoGameCmd{SenderID: "st"}); err != nil {
 		t.Fatal(err)
 	}
 	nomination := e.session.ProjectionFor("st").Nomination
@@ -87,10 +105,10 @@ func TestHistorySurvivesReloadRequiresStorytellerAndExplicitPhaseConfirmation(t 
 		t.Fatal(err)
 	}
 	e = loaded.(*sessionGameEngine)
-	if _, err = e.Execute("p1", historyCommand{confirmPhaseChange: true}); err == nil {
+	if _, err = e.Execute("p1", gameplay.UndoGameCmd{SenderID: "p1", ConfirmPhaseChange: true}); err == nil {
 		t.Fatal("player undid storyteller action")
 	}
-	if _, err = e.Execute("st", historyCommand{}); err == nil {
+	if _, err = e.Execute("st", gameplay.UndoGameCmd{SenderID: "st"}); err == nil {
 		t.Fatal("phase crossing did not require explicit confirmation")
 	}
 	if len(e.Project("p1").(*RoomState).OperationLog) != 0 || e.Project("p1").(*RoomState).CanUndo {
@@ -100,7 +118,7 @@ func TestHistorySurvivesReloadRequiresStorytellerAndExplicitPhaseConfirmation(t 
 	if !view.CanUndo || !view.UndoCrossesPhase || len(view.OperationLog) != 1 {
 		t.Fatalf("storyteller history missing: %+v", view)
 	}
-	if _, err = e.Execute("st", historyCommand{confirmPhaseChange: true}); err != nil {
+	if _, err = e.Execute("st", gameplay.UndoGameCmd{SenderID: "st", ConfirmPhaseChange: true}); err != nil {
 		t.Fatal(err)
 	}
 	if e.session.Phase() != game.GamePhaseDay {
@@ -147,7 +165,7 @@ func TestHistoryPersistenceFailureRollsBackGameAndHistoryAtomically(t *testing.T
 		t.Fatal(err)
 	}
 	actor.ClientSequence = 2
-	command := session.Command{Kind: session.CommandUndoGame, Fingerprint: "undo", Payload: historyCommand{}}
+	command := session.Command{Kind: session.CommandUndoGame, Fingerprint: "undo", Payload: gameplay.UndoGameCmd{SenderID: "st"}}
 	before, _ := room.Query(actor)
 	store.fail = true
 	if _, err = room.Execute(ctx, actor, command); !errors.Is(err, session.ErrPersistenceUnavailable) {
@@ -206,10 +224,25 @@ func TestHistoryIsBoundedAndSnapshotsDoNotNestHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(e.history.Undo) != maxUndoSteps || len(e.history.Logs) != maxOperationLogs {
+	snapshot, err := e.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved struct {
+		History struct {
+			Undo []struct {
+				Before []byte `json:"before"`
+			} `json:"undo"`
+			Logs []OperationLogEntry `json:"logs"`
+		} `json:"operationHistory"`
+	}
+	if err := json.Unmarshal(snapshot, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.History.Undo) != 30 || len(saved.History.Logs) != 100 {
 		t.Fatal("history exceeded retention limits")
 	}
-	for _, entry := range e.history.Undo {
+	for _, entry := range saved.History.Undo {
 		var raw map[string]json.RawMessage
 		if err := json.Unmarshal(entry.Before, &raw); err != nil {
 			t.Fatal(err)

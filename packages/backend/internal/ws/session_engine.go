@@ -1,7 +1,6 @@
 package ws
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/marskim1130/blood-on-the-clocktower/internal/game"
@@ -12,7 +11,6 @@ import (
 type sessionGameEngine struct {
 	roomID  string
 	session *gameplay.GameSession
-	history engineHistory
 }
 
 func newSessionGameEngine(roomID, scriptID string) *sessionGameEngine {
@@ -20,96 +18,77 @@ func newSessionGameEngine(roomID, scriptID string) *sessionGameEngine {
 }
 
 func (e *sessionGameEngine) Clone() session.Engine {
-	return &sessionGameEngine{roomID: e.roomID, session: e.session.Clone(), history: e.history.clone()}
+	return &sessionGameEngine{roomID: e.roomID, session: e.session.Clone()}
 }
 
 func (e *sessionGameEngine) SetRoomID(roomID string) { e.roomID = roomID }
 
 func (e *sessionGameEngine) AddPlayer(playerID, name string) error {
 	e.session.AddPlayer(game.Player{ID: playerID, Name: name, IsAlive: true})
-	e.history.Undo, e.history.Redo = nil, nil
 	return nil
 }
 
 func (e *sessionGameEngine) RemovePlayer(playerID string) {
 	e.session.RemovePlayer(playerID)
-	e.history.Undo, e.history.Redo = nil, nil
 }
 
 func (e *sessionGameEngine) Finished() bool { return e.session.Finished() }
 func (e *sessionGameEngine) Restart(memberIDs []string) error {
-	if err := e.session.Restart(memberIDs); err != nil {
-		return err
-	}
-	e.history = engineHistory{}
-	return nil
+	return e.session.Restart(memberIDs)
 }
 
 func (e *sessionGameEngine) StorytellerID() string { return e.session.StorytellerID() }
-func (e *sessionGameEngine) ClearGameHistory()     { e.history.Undo, e.history.Redo = nil, nil }
+func (e *sessionGameEngine) ClearGameHistory()     { e.session.ClearGameHistory() }
 func (e *sessionGameEngine) ParticipantLockState() bool {
-	if e.session.Phase() != game.GamePhaseSetup {
-		return true
-	}
-	for _, player := range e.session.Players() {
-		if player.Character != nil {
-			return true
-		}
-	}
-	return false
+	return e.session.ParticipantLockState()
 }
 
 func (e *sessionGameEngine) Execute(actorID string, payload any) (bool, error) {
-	if command, ok := payload.(historyCommand); ok {
-		return e.executeHistory(actorID, command)
+	// Bind game-history requests to the authenticated room actor.
+	switch command := payload.(type) {
+	case gameplay.UndoGameCmd:
+		command.SenderID = actorID
+		payload = command
+	case gameplay.RedoGameCmd:
+		command.SenderID = actorID
+		payload = command
 	}
 	command, ok := payload.(gameplay.Command)
 	if !ok {
 		return false, fmt.Errorf("invalid game command payload")
 	}
-	return e.executeRecorded(actorID, command)
+	result, err := e.session.Apply(command)
+	return result.Updated, err
 }
 
 func (e *sessionGameEngine) Project(recipientID string) any {
-	state := roomStateFromProjection(e.roomID, e.session.ProjectionFor(recipientID))
-	if state != nil && recipientID != "" && recipientID == e.session.StorytellerID() {
-		for _, entry := range e.history.Logs {
-			state.OperationLog = append(state.OperationLog, entry)
-		}
-		state.CanUndo, state.CanRedo = len(e.history.Undo) > 0, len(e.history.Redo) > 0
-		if state.CanUndo {
-			last := e.history.Undo[len(e.history.Undo)-1]
-			state.UndoCrossesPhase = last.FromPhase != last.ToPhase
-		}
-		if state.CanRedo {
-			last := e.history.Redo[len(e.history.Redo)-1]
-			state.RedoCrossesPhase = last.FromPhase != last.ToPhase
-		}
-	}
-	return state
+	return roomStateFromProjection(e.roomID, e.session.ProjectionFor(recipientID))
 }
 
-func (e *sessionGameEngine) Marshal() ([]byte, error) { return e.marshalWithHistory() }
+func (e *sessionGameEngine) Marshal() ([]byte, error) { return e.session.MarshalSnapshot() }
 
 func loadSessionGameEngine(roomID string, data []byte) (session.Engine, error) {
 	gameSession, err := gameplay.LoadGameSessionSnapshot(data)
 	if err != nil {
 		return nil, err
 	}
-	var saved struct {
-		History engineHistory `json:"operationHistory"`
-	}
-	if err := json.Unmarshal(data, &saved); err != nil {
-		return nil, err
-	}
-	return &sessionGameEngine{roomID: roomID, session: gameSession, history: saved.History}, nil
+	return &sessionGameEngine{roomID: roomID, session: gameSession}, nil
 }
 
 func roomStateFromProjection(roomID string, projection *gameplay.Projection) *RoomState {
 	if projection == nil {
 		return nil
 	}
+	var operationLog []OperationLogEntry
+	for _, entry := range projection.OperationLog {
+		operationLog = append(operationLog, OperationLogEntry(entry))
+	}
 	return &RoomState{
+		OperationLog:              operationLog,
+		CanUndo:                   projection.CanUndo,
+		CanRedo:                   projection.CanRedo,
+		UndoCrossesPhase:          projection.UndoCrossesPhase,
+		RedoCrossesPhase:          projection.RedoCrossesPhase,
 		RoomID:                    roomID,
 		Players:                   projection.Players,
 		ScriptID:                  projection.ScriptID,

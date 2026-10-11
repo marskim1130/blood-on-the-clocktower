@@ -5,6 +5,7 @@ import {
   TROUBLE_BREWING_SCRIPT,
   type ClientRoomIdentity,
   type ConnectionStatus,
+  type RecoveryState,
   type ServerMessage,
 } from '@clocktower/core';
 import { createTaroWebSocketTransport } from './taro-websocket-transport';
@@ -76,6 +77,7 @@ type SessionClient = Pick<
   GameWebSocketClient,
   | 'status'
   | 'identity'
+  | 'recovery'
   | 'hasPendingRequest'
   | 'connect'
   | 'disconnect'
@@ -85,6 +87,7 @@ type SessionClient = Pick<
   | 'joinRoom'
   | 'resumeRoom'
   | 'requestRecovery'
+  | 'retryRecovery'
   | 'reviewRecovery'
   | 'getRecoveryRequests'
   | 'undoGame'
@@ -151,7 +154,8 @@ export interface RoomSessionState {
   readonly pendingCommand: PendingCommand | null;
   readonly errorMessage: string;
   readonly logs: readonly string[];
-  readonly recoveryStatus: string | null;
+  readonly recoveryStatus: RecoveryState['status'] | null;
+  readonly canRetryRecovery: boolean;
   readonly recoveryRequests: NonNullable<ServerMessage['recoveryRequests']>;
   initialize(): void;
   connect(): void;
@@ -163,6 +167,7 @@ export interface RoomSessionState {
   clearError(): void;
   forgetRoomIdentity(): void;
   importRoomIdentity(identity: RecoveryIdentity): void;
+  retryRecovery(): void;
   getRecoveryRequests(): void;
   reviewRecovery(requestId: string, decision: boolean): void;
   undoGame(confirmPhaseChange?: boolean): void;
@@ -240,6 +245,8 @@ export function createRoomSessionStore(
 ): StoreApi<RoomSessionState> {
   let client: SessionClient | null = null;
   let initialResumeRequested = false;
+  let lastRecoveryState: RecoveryState | null = null;
+  let storageWarning = '';
 
   return createStore<RoomSessionState>((set, get) => {
     const appendLog = (message: string): void => {
@@ -247,18 +254,39 @@ export function createRoomSessionStore(
     };
 
     const clearIdentity = (): void => {
-      dependencies.removeValue(STORAGE_KEYS.roomIdentity);
-      dependencies.removeValue(STORAGE_KEYS.legacyRoomId);
-      set({ identity: null, recoveryRequests: [] });
+      set({ identity: null, recoveryRequests: [], recoveryStatus: null, canRetryRecovery: false });
+      try {
+        dependencies.removeValue(STORAGE_KEYS.roomIdentity);
+        dependencies.removeValue(STORAGE_KEYS.legacyRoomId);
+        dependencies.removeValue(STORAGE_KEYS.recoveryTicket);
+        storageWarning = '';
+      } catch {
+        storageWarning = '此设备的旧身份清理失败，请检查设备存储。';
+      }
     };
 
     const persistClientIdentity = (): void => {
       const current = client?.identity;
       if (!current) return;
       const identity = toStoredIdentity(current);
-      dependencies.persistIdentity(STORAGE_KEYS.roomIdentity, identity);
-      dependencies.persistString(STORAGE_KEYS.legacyRoomId, identity.roomId);
       set({ identity, playerId: identity.playerId });
+      try {
+        dependencies.persistIdentity(STORAGE_KEYS.roomIdentity, identity);
+        dependencies.persistString(STORAGE_KEYS.legacyRoomId, identity.roomId);
+      } catch {
+        storageWarning = '身份本地保存失败，当前页面可继续使用。请保持页面打开并检查设备存储。';
+        return;
+      }
+      try {
+        const ticket = JSON.parse(dependencies.getString(STORAGE_KEYS.recoveryTicket, '{}')) as { roomId?: unknown; playerId?: unknown } | null;
+        if (ticket?.roomId === identity.roomId && ticket.playerId === identity.playerId) {
+          dependencies.removeValue(STORAGE_KEYS.recoveryTicket);
+        }
+      } catch {
+        storageWarning = '身份已保存，但恢复申请记录清理失败，请检查设备存储。';
+        return;
+      }
+      storageWarning = '';
     };
 
     const handleMessage = (message: ServerMessage): void => {
@@ -267,16 +295,31 @@ export function createRoomSessionStore(
       let experience = applyServerMessage(previous.experience, message);
       let errorMessage = '';
       if (message.type === 'RECOVERY_REQUESTS') set({ recoveryRequests: message.recoveryRequests ?? [] });
-      if (message.type === 'RECOVERY_STATUS') {
-        set({ recoveryStatus: message.recoveryStatus ?? null });
-        if (message.recoveryStatus === 'approved' || message.recoveryStatus === 'rejected' || message.recoveryStatus === 'expired') dependencies.removeValue(STORAGE_KEYS.recoveryTicket);
-        if (message.recoveryStatus === 'approved') persistClientIdentity();
+      const recovery = client?.recovery ?? null;
+      if (recovery !== lastRecoveryState) {
+        lastRecoveryState = recovery;
+        set({ recoveryStatus: recovery?.status ?? null, canRetryRecovery: recovery?.canRetry ?? false });
+        try {
+          if (recovery?.status === 'pending' || recovery?.status === 'failed') {
+            const { requestId, roomId, playerId } = recovery;
+            dependencies.persistString(STORAGE_KEYS.recoveryTicket, JSON.stringify({ requestId, roomId, playerId }));
+            storageWarning = '';
+          } else if (recovery?.status === 'approved') {
+            persistClientIdentity();
+          } else if (recovery) {
+            dependencies.removeValue(STORAGE_KEYS.recoveryTicket);
+            storageWarning = '';
+          }
+        } catch {
+          storageWarning = '恢复申请编号保存失败，请保持页面打开并检查设备存储。';
+        }
+        if (recovery?.failure === 'send') errorMessage = '发送失败，审批结果未知，请手动重试。';
       }
       if (message.type === 'SESSION_REPLACED') {
         clearIdentity();
         client?.disconnect();
         initialResumeRequested = false;
-        set({ experience: clearRoomIdentityState(), pendingCommand: null, recoveryStatus: null, errorMessage: '身份已在另一设备经批准恢复，此设备已退出。' });
+        set({ experience: clearRoomIdentityState(), pendingCommand: null, recoveryStatus: null, errorMessage: ['身份已在另一设备经批准恢复，此设备已退出。', storageWarning].filter(Boolean).join(' ') });
         return;
       }
 
@@ -290,7 +333,6 @@ export function createRoomSessionStore(
       }
 
       if (message.type === 'ERROR') {
-        if (previous.recoveryStatus === 'pending') set({ recoveryStatus: 'rejected' });
         errorMessage = protocolErrorMessage(message.error, message.code);
         if (message.code === 'INVALID_CREDENTIAL' || message.code === 'ROOM_NOT_FOUND') {
           clearIdentity();
@@ -320,7 +362,7 @@ export function createRoomSessionStore(
 
       set({
         experience,
-        errorMessage,
+        errorMessage: [errorMessage, storageWarning].filter(Boolean).join(' '),
         pendingCommand: client?.hasPendingRequest ? previous.pendingCommand : null,
       });
       appendLog(message.type);
@@ -387,6 +429,7 @@ export function createRoomSessionStore(
       errorMessage: '',
       logs: [],
       recoveryStatus: null,
+      canRetryRecovery: false,
       recoveryRequests: [],
 
       initialize(): void {
@@ -424,7 +467,8 @@ export function createRoomSessionStore(
         client?.disconnect();
         client = null;
         initialResumeRequested = false;
-        set({ status: 'disconnected', pendingCommand: null });
+        lastRecoveryState = null;
+        set({ status: 'disconnected', pendingCommand: null, recoveryStatus: null, canRetryRecovery: false });
       },
       setInviteRoomId(roomId): void {
         set({ inviteRoomId: roomId.trim() });
@@ -439,7 +483,8 @@ export function createRoomSessionStore(
         client?.disconnect();
         client = null;
         initialResumeRequested = false;
-        set({ endpoint, status: 'disconnected' });
+        lastRecoveryState = null;
+        set({ endpoint, status: 'disconnected', pendingCommand: null, recoveryStatus: null, canRetryRecovery: false });
       },
       setMaxPlayers(maxPlayers): void {
         const value = Math.min(15, Math.max(5, Math.trunc(maxPlayers)));
@@ -460,7 +505,7 @@ export function createRoomSessionStore(
         client?.disconnect();
         client = null;
         initialResumeRequested = false;
-        set({ experience: clearRoomIdentityState(), pendingCommand: null });
+        set({ experience: clearRoomIdentityState(), pendingCommand: null, errorMessage: storageWarning });
         connect();
       },
       createRoom(): void {
@@ -480,17 +525,17 @@ export function createRoomSessionStore(
         }
         const activeClient = requireClient();
         if (!activeClient) return;
-        set({ recoveryStatus: 'pending', pendingCommand: 'resume', errorMessage: '' });
+        set({ pendingCommand: 'resume', errorMessage: '' });
         let previousRequestId: string | undefined;
         try {
           const ticket = JSON.parse(dependencies.getString(STORAGE_KEYS.recoveryTicket, '{}')) as { requestId?: unknown; roomId?: unknown; playerId?: unknown };
           if (ticket.roomId === identity.roomId && ticket.playerId === identity.playerId && typeof ticket.requestId === 'string' && ticket.requestId.length <= 128) previousRequestId = ticket.requestId;
         } catch { /* A damaged ticket is replaced without logging user data. */ }
-        const requestId = previousRequestId
+        previousRequestId
           ? activeClient.requestRecovery(identity.roomId, identity.playerId, identity.recoveryCredential, previousRequestId)
           : activeClient.requestRecovery(identity.roomId, identity.playerId, identity.recoveryCredential);
-        dependencies.persistString(STORAGE_KEYS.recoveryTicket, JSON.stringify({ requestId, roomId: identity.roomId, playerId: identity.playerId }));
       },
+      retryRecovery(): void { send('resume', active => active.retryRecovery()); },
       getRecoveryRequests(): void { const active = requireClient(); if (active && get().identity) active.getRecoveryRequests(); },
       reviewRecovery(requestId, decision): void { send('settings', active => active.reviewRecovery(requestId, decision)); },
       undoGame(confirmPhaseChange = false): void { send('settings', active => active.undoGame(confirmPhaseChange)); },

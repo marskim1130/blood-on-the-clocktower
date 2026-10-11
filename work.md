@@ -3858,3 +3858,334 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 - 范围包含此前房间/对局/恢复流程成果及本轮全站布局优化；检查新增文件清单和部署环境模板，常见私钥及令牌模式扫描未命中，真实.env和构建产物不纳入提交。
 - 本次仅提交到当前main分支，不推送远端；复用上轮已完成的264条测试、类型和双端构建验收，本次另执行差异空白检查。
 - 撤回：需要撤销本次成果时使用git revert对本次提交生成反向提交；本条日志可随反向提交撤回，不使用硬重置或删除工作区。
+
+## 2026-09-08 09:03 +08:00 --- 架构热点中的历史归属、恢复认可与恢复审批职责分散 --- 按 improve-codebase-architecture 做提交热点分析和并行只读审阅，生成三项可视化候选，等待选择后深入 --- 修改 work.md；新增系统临时目录 architecture-review-20260908-090322.html
+
+- 审阅基线 main / b768243，回顾40条提交并重点统计最近8条；读取领域文档与手机面杀验收清单，未发现ADR。首推Gameplay Session收回游戏历史，其次Core统一恢复认可、后端集中恢复审批生命周期。
+- 仅静态核对已有测试与调用链，未运行测试或实施重构，不预先设计interface；codebase-design依赖在本机技能目录及插件缓存缺失，采用主技能已明确的术语和删除判据。
+- 报告绝对路径：C:\Users\Asurf\AppData\Local\Temp\architecture-review-20260908-090322.html。使用Tailwind/Mermaid CDN及内嵌CSS后备图，源码和领域文档均未更改，保留learning目录的既有删除。
+- 撤回：仅删除上述新建HTML文件，并删除work.md本条审阅记录；后续如追加本轮验收段，也一并删除本轮段落。不要整体还原work.md或恢复用户既有learning删除。
+
+## 2026-09-08 09:07 +08:00 --- 架构报告需要交付校验 --- 检查HTML结构与导航，调用Codex本地文件预览 --- 修改work.md（本轮验收记录）
+
+- HTML结构通过：3项候选、6个前后对比面板、2个Mermaid图，标签闭合和锚点引用完整；git diff --check通过。最初校验脚本误将自闭合SVG path/br当作未匹配结束标签，修正临时校验脚本后通过，报告无需改动。
+- 浏览器file URL被安全策略禁止，未绕过限制，实际浏览器渲染/CDN加载与响应式视觉尚未验证。open_in_codex文件预览返回queued，已排队打开；不声称已在浏览器看见渲染效果。
+- 工具简报：mcp__cua_repl.js输入本地HTML地址，结果URL策略阻止；mcp__codex_app__open_in_codex输入报告绝对路径，结果queued；时间2026-09-08 09:06–09:07 +08:00。
+- 撤回：删除本条验收记录；报告及前一条审阅记录按该条所列方式撤回，保留其他工作区修改。
+
+## 2026-09-08 09:16 +08:00 --- 游戏历史仍由WebSocket解释，Gameplay重载丢失旧历史 --- 自主决策保持行为与存档兼容，先写单个旧历史重载及隐私回归 --- 新增 gameplay/history_test.go，修改work.md
+
+- 用户授权继续完成并开子代理自行决策，采用现有Apply/ProjectionFor/MarshalSnapshot与真实session提交为测试seam；由代理自行运行RED，不再等待用户逐项确认。子代理分别审查设计与整合回归。
+- 基线gameplay/ws/session/sessionstore测试通过；首个测试核对旧operationHistory经过Load/Clone/Marshal/Load后仍只对说书人可见，尚未修改生产代码。
+- 撤回：删除本轮新增history_test.go及本条记录，保留已有审阅记录和learning删除；后续生产改动按各循环日志逐块撤回。
+
+
+## 2026-09-08 09:18 +08:00 --- 旧历史经Gameplay重载后丢失（RED已确认） --- 保持旧JSON编码并加入原子克隆及说书人历史投影 --- 新增gameplay/history.go；修改game_session.go、game_session_snapshot.go、projection.go、history_test.go及work.md
+
+- 首个测试失败信息为legacy storyteller history was lost；本轮仅实现存档/克隆/投影，暂未改命令流。保留base64历史载荷、缺历史旧档可读、私密日志复制，避免投影别名。
+- 修正首条审计曾因命令工作目录写到packages/backend/work.md的问题，验证内容后追加回根work.md并删除仅本轮创建的临时日志；没有改动其他包文档。
+- 撤回：逐块逆向本轮history类型、快照与投影改动，删除新增history.go/test.go及对应日志，保留此前用户修改。
+
+## 2026-09-08 09:18 +08:00 --- 旧历史兼容测试已绿，但普通Gameplay命令尚未记录历史 --- 新增单个成功命令日志行为测试进入第二个RED --- 修改gameplay/history_test.go与work.md
+
+- 首个旧档重载/克隆/隐私测试通过；第二个测试通过真实Apply与ProjectionFor检查准备动作记录及ActorID。撤回：移除此测试和本条日志，不撤销已完成兼容行为。
+
+## 2026-09-08 09:19 +08:00 --- 普通游戏动作未记历史（第二个RED已确认） --- Apply在单锁内记录游戏快照、演员与日志，历史快照直接处理领域计时字段 --- 修改gameplay/history.go、game_session.go、history_test.go与work.md
+
+- sealed Command原marker替换为同样封闭的actorID方法，避免反射提取身份；保留30步/100日志及原动作名。默认Go缓存拒绝访问，测试使用系统临时clocktower-history-go-cache目录，未更改全局环境。撤回：逆向本轮Apply记录及marker替换、删除该条日志；临时缓存可按绝对目录删除，不影响源码与房间数据。
+- 第二循环编译核对发现同包unknownCmd拒绝测试仍实现旧marker，已同步为actorID以保留未知命令行为断言；修改gameplay/game_session_test.go。撤回：随本循环恢复其marker方法。
+
+## 2026-09-08 09:20 +08:00 --- Gameplay尚不能独立撤销/重做 --- 新增单个说书人撤销重做及日志连续性测试进入第三个RED --- 修改gameplay/history_test.go与work.md
+
+- 前两项回归已通过；第三项使用计划中的领域UndoGameCmd/RedoGameCmd，验证玩家被拒绝且真实说书人可恢复准备状态。撤回：删除本测试及本条记录。
+
+## 2026-09-08 09:21 +08:00 --- 第三个RED确认领域撤销命令缺失 --- 增加领域Undo/Redo、单锁恢复与保持历史日志连续 --- 修改gameplay/history.go、game_session.go、game_session_snapshot.go、history_test.go与work.md
+
+- Undo/Redo不进入普通动作记录；恢复使用统一逐字段恢复函数，保留互斥锁及历史日志。抽取脚本字段计数保护首次中止未写快照文件，核对28个字段后完成。撤回：逆向领域撤销命令和恢复函数抽取，恢复原快照构造，删除本条记录。
+
+## 2026-09-08 09:21 +08:00 --- 领域历史未在成员加入时失效 --- 写单个加入清除Undo/Redo且保留日志的第四个RED --- 修改gameplay/history_test.go与work.md
+
+- 前三项测试通过，本测试从Undo/Redo同时存在开始，防止只清一条栈的退化。撤回：移除该测试和本条日志。
+
+## 2026-09-08 09:22 +08:00 --- 第四个RED确认新成员仍可回滚旧名单 --- AddPlayer在领域锁内清除两条历史栈 --- 修改gameplay/game_session.go与work.md
+
+- 与原适配器AddPlayer行为一致，包括同ID更新；保留私密日志。撤回：移除此清栈行与本条日志。
+
+## 2026-09-08 09:22 +08:00 --- 新领域命令接入可能信任payload中的操作者 --- 子代理识别后新增单个认证actor绑定测试进入第五个RED --- 修改ws/history_test.go与work.md
+
+- Gameplay全量测试已绿；测试确保外层玩家无法用SenderID伪装说书人。撤回：移除此测试与本条记录。
+- 第五个RED确实显示command payload impersonated the storyteller；在ws/session_engine.go绑定Undo/Redo SenderID为已认证actor，权限仍由Gameplay判断。撤回：随本循环逆向该身份绑定补丁。
+
+## 2026-09-08 09:24 +08:00 --- 五项RED/GREEN完成后WebSocket仍有重复历史实现 --- 删除ws/history.go并将adapter接到领域命令/快照/投影 --- 修改gameplay/history.go、game_session.go、restart.go，ws/session_engine.go、hub_v2.go、history_test.go与work.md；删除ws/history.go
+
+- WS只绑定认证操作者并映射协议，不再维护历史栈、私密历史权限或修补快照。成员锁依据归Gameplay，终局退席仍经ClearGameHistory通知；成员变动清栈，重赛清全部历史。原历史测试迁用领域命令，限额测试从持久化接口验证30/100与非递归存档。撤回：整体逆向本轮迁移补丁并恢复原ws/history.go，避免两份历史所有者同时启用；旧JSON格式保留，无需删除房间存档。
+
+## 2026-09-08 09:25 +08:00 --- 需要证明旧存档不仅可显示且仍可操作 --- 加强既有兼容回归并更新游戏历史领域说明 --- 修改gameplay/history_test.go、backend/CONTEXT.md与work.md
+
+- 对照旧格式operationHistory完整JSON值，验证旧Undo/Redo载荷可执行、日志ID继续8/9且克隆候选不改已提交游戏和历史。领域文档明确历史所有权、30/100、计时快照差异和房间事务职责。撤回：逆向本轮兼容断言与Game History词条、删除本条日志。
+
+## 2026-09-08 09:26 +08:00 --- 独立审查发现直接重连改名可被旧游戏历史覆盖 --- 单个改名/同名重连行为测试进入第六个RED；补终局退席整合回归 --- 修改gameplay/history_test.go，新建ws/history_lifecycle_test.go，修改work.md
+
+- 子代理新建的单个终局退席真实WS测试已通过：清两条恢复栈，保留ST日志、胜负、五人最终展示及离席者自身角色，后续Undo/Redo拒绝且不耗序列。独立审查无迁移阻断项，但指出未用于生产的AddOrReconnectPlayer改名历史边界缺口，现用行为测试复现。撤回：删除该新增整合文件、本轮改名测试和本条日志。
+- 第六个RED已确认game undo can roll back a changed player name；修改gameplay/game_session.go，仅非空新名字实际改变时清两条恢复栈，同名重连仍保留历史。撤回：逆向该条件及清栈行。
+
+## 2026-09-08 09:28 +08:00 --- 历史归属迁移需验证房间锁标记与协议兼容 --- 子代理补第二条真实WS整合回归并运行最终检查 --- 修改ws/history_lifecycle_test.go与work.md
+
+- 第二条整合回归验证分配/撤销/重做的ParticipantSetFrozen、角色隐私、座位与成员不变、原凭据重连及序号保持，重做后退席被拒绝；定向测试通过。根代理后端go test ./...全量通过。
+- 协议生成器--check首次受沙箱spawnSync gofmt EPERM限制；经自动审批在沙箱外重跑同一只读检查通过。没有修改协议或生成文件，也没有执行发布。
+- 撤回：移除该第二条测试函数及本条日志；源码迁移按前述补丁整体反向，不删除既有Room Record。
+
+## 2026-09-08 09:28 +08:00 --- 第1项架构改进需要最终交付记录 --- 完成独立审查、六轮单项RED/GREEN与整体回归验收 --- 修改work.md（最终验收）
+
+- 交付：Gameplay Session独占游戏历史、撤销重做、计时恢复、旧快照兼容和私密投影；删除ws/history.go，ws/session_engine仅保留认证actor绑定与协议映射。新增8个行为/整合测试，既有历史测试持续通过。
+- 验证：go test ./... -count=1通过；go test -race ./internal/gameplay ./internal/ws ./internal/session ./internal/sessionstore -count=1通过；协议生成器--check通过；gofmt检查及git diff --check通过。仅后端改动，未重复运行无关前端构建。
+- 子代理独立设计审查与改动审查已完成；提出的操作者绑定和重连改名历史边界均已用RED/GREEN保护。旧operationHistory完整JSON值、可执行载荷、日志ID连续与Clone隔离通过；真实WS验证终局退席和成员锁同步。
+- 撤回：以本轮列出的backend源码/测试/CONTEXT差异为一个整体生成反向补丁，恢复原ws/history.go并移除本轮新增history文件；删除work.md本轮实施/验收段即可撤回记录。不要整体恢复work.md、不要恢复用户learning删除、不要删除真实房间存档。协议与旧存档格式未变，无需数据迁移。改动保留工作区，未提交/推送。
+
+## 2026-09-08 09:38 +08:00 --- 第2项Core与Frontend对恢复结果各自判定 --- 使用真实Core加store的单项整合测试进入RED --- 新增frontend/src/lib/room-recovery-integration.test.ts，修改work.md
+
+- 延续用户自主决策和子代理授权；基线恢复/store共29测试通过。选用Core只读恢复状态并复用onMessage，持久化仍归前端，失败与审批拒绝区分，后端协议不变。首个测试注入旧申请expired，期望当前等待状态/票据保留。测试仅替换transport/storage，不伪造Core身份。
+- 本机pnpm执行器未定位vitest，直接使用已安装Vitest 2.1.9入口；测试子进程受沙箱EPERM限制，经自动审批在沙箱外执行。撤回：删除本轮新测试文件和此日志，保留第1项后端改动与learning删除。
+
+## 2026-09-08 09:39 +08:00 --- 首个RED确认旧expired将当前等待错误改为过期 --- Core消息入口统一核对申请/房间/玩家三元关联 --- 修改core/src/websocket/index.ts、其recovery.test.ts及work.md
+
+- 错配结果在进入协议状态和页面处理前丢弃；原Core待审投影测试补齐真实服务端必带的roomId/playerId。编译Core更新本地dist及增量缓存供真实整合测试消费。撤回：逆向关联门及测试载荷补齐，产物可重建，保留其他架构改动。
+
+## 2026-09-08 09:40 +08:00 --- 关联正确但授权不完整的消息仍可能被前端当成批准 --- 新增单项不完整/未知结果整合测试进入第二个RED --- 修改room-recovery-integration.test.ts与work.md
+
+- 前一关联测试及Core恢复测试通过；本次验证缺失、空白或错误类型凭据和未知状态都不影响等待票据与身份。撤回：删除本测试及本条日志。
+
+## 2026-09-08 09:40 +08:00 --- 第二个RED确认不完整授权被显示为approved --- Core集中校验已知状态和完整双凭据并规范化恢复消息 --- 修改core/src/websocket/index.ts与work.md
+
+- 恢复消息只保留关联标识、认可状态及有效批准凭据，不携带投影或命令序号，避免恢复通知污染权威投影门。撤回：逆向acceptRecoveryMessage及调用接线，重新构建Core产物。
+
+## 2026-09-16 11:25:11 +08:00 --- 当前架构改进已有部分落地，需重新识别剩余职责分散 --- 使用 improve-codebase-architecture、codebase-design 和独立只读子代理审阅，生成三项可视化候选 --- 新增临时报告，追加 work.md
+
+- 基线：main / b768243 + 当前工作区；回顾提交历史及最近25/8条热点，读取三包领域文档、手机面杀验收清单；根及各包无ADR目录。
+- 候选：客户端恢复状态统一（强推荐，优先）、后端恢复审批生命周期归位（强推荐）、房间体验夜间操作集中（值得探索）。已迁入Gameplay Session的游戏历史与已补齐的恢复认可校验不重复列为待做。
+- 报告：C:\Users\Asurf\AppData\Local\Temp\architecture-review-20260916-112511.html 。包含三项候选、六个前后图面板、两张Mermaid图、代码位置、删除测试和测试缺口。仅静态审阅，未改实现、未运行项目测试、未设计具体interface；待用户选择后进入深入提问。
+- 撤回：仅用 Remove-Item -LiteralPath 'C:\Users\Asurf\AppData\Local\Temp\architecture-review-20260916-112511.html' 删除本次临时HTML，并删除work.md本次审阅及验证段；勿整体恢复work.md或撤销既有源码改动和learning删除。
+## 2026-09-16 11:25:46 +08:00 --- 架构报告需要交付验证 --- 检查候选数量、图面板、锚点及补丁空白，并通过系统默认应用打开报告 --- 修改 work.md（本次验证记录）
+
+- 通过：3项候选、6个前后图面板、2张Mermaid图，候选闭合及导航锚点完整；git diff --check无空白错误（既有文件有LF/CRLF提示）。提交总数核对为59。
+- Invoke-Item已成功调用打开 C:\Users\Asurf\AppData\Local\Temp\architecture-review-20260916-112511.html；未通过截图核验实际渲染，CDN图形加载未确认。未运行项目测试。
+- 撤回：删除本条及本次审阅记录，并按上一条指定路径删除报告；保留原有工作区改动。
+## 2026-09-27 16:43:04 +08:00 --- 客户端恢复发送异常可能卡住等待状态且缺失首次申请票据 --- 结合grilling与只读独立复核收束第1项方案，用户选择A手动重试 --- 修改work.md（决策与实施范围记录）
+
+- 用户已确认：本地发送失败显示“发送失败，审批结果未知”，解除重试按钮禁用；主动重试沿用原申请编号，不新增自动发送重试循环。正常断线重连继续重放同一申请。
+- 沿用已有决定：Core拥有只读恢复状态并复用现有消息通知；前端保存身份和非秘密票据；失败与审批拒绝区分，后端协议不变。批准前不建立身份或接受私密投影。
+- 拟实施：让票据取得/保存不依赖首次发送成功；保留失败申请以支持同编号手动重试及迟到终态关联校验；前端消费Core状态并显示重试入口，刷新后重贴恢复码复用票据。通用ERROR显示失败，不冒充审批拒绝。
+- 批准衔接：有效批准立即保存新双凭据并移除申请票据；随后入房暂时失败可重连，不退回待审批。INVALID_CREDENTIAL或ROOM_NOT_FOUND继续按现有规则清身份和私密投影。
+- 计划改动：core/src/websocket/index.ts及恢复测试；frontend/src/lib/room-session-store.ts及真实Core整合测试；恢复面板及对应行为测试；相关领域说明和本日志。拟验证发送异常、同编号重试、普通错误、迟到批准、刷新复用、批准后重连、已有隐私及终态行为，完成Core构建、前端/核心测试、类型及两端构建检查。
+- 本轮仅记录方案，未写实现或测试，未执行项目测试；独立复核确认无新增产品问题，等待用户确认整体理解后实施。
+- 撤回：只删除work.md本条决策记录；不回退既有源码、测试、报告或learning删除。
+
+## 2026-09-27 16:49:43 +08:00 --- 第1项实施需要保留既有未提交成果 --- 记录已确认方案并备份本轮将触及文件 --- 修改work.md；新增临时备份 C:\Users\Asurf\AppData\Local\Temp\clocktower-recovery-before-20260927-164943
+
+- 用户已确认实施；测试接缝为真实Core与前端store，仅替换传输和存储。恢复基线31测试通过；沙箱内Vitest子进程EPERM，自动审批允许沙箱外执行。使用TDD逐项验证。
+- 回退本轮源码：从上述临时备份按原相对路径复制回对应文件；本轮新建测试文件仅删除本轮新增者，删除work.md本轮实施段。保留原有后端、learning删除和前两项恢复入口测试；生成产物按恢复后的源码重建。
+
+## 2026-09-27 16:49:50 +08:00 --- 发送异常未处理会锁住恢复操作 --- 添加真实Core整合测试进入RED --- 修改room-recovery-integration.test.ts与work.md
+
+- 通过传输适配器模拟可能已发送但抛错，检查无秘密票据、失败文案及用户手动同编号重试。撤回：删除本条测试及failSend适配器增量、删除本日志；也可使用本轮临时备份恢复该测试文件。
+
+## 2026-09-27 16:51:02 +08:00 --- 首个RED确认transport异常穿透且票据未写 --- Core提供只读恢复状态和手动重试，前端经现有消息订阅同步状态与票据 --- 修改core/websocket/index.ts、frontend/room-session-store.ts、work.md
+
+- 先发布非秘密申请状态再发送；同步异常转failed，保留申请与私密投影门；重试复用原申请。未终结恢复继续阻止其他操作，仅重试入口解锁。撤回：使用本轮临时备份恢复这两个文件并删除本日志；后续生成产物可重建。
+
+## 2026-09-27 16:51:56 +08:00 --- 第一轮需兼容严格可选类型，普通错误仍被误当拒绝 --- 修正状态类型并新增迟到终态整合测试进入下一轮RED --- 修改Core状态类型/订阅测试、room-recovery-integration.test.ts、work.md
+
+- 初始本地状态通知与服务端消息分别验证；普通ERROR后仍允许原申请迟到批准，迟到pending不能锁住重试。撤回：移除本轮新增测试和类型/订阅调整及此日志，或恢复本轮备份。
+
+## 2026-09-27 16:52:40 +08:00 --- 第二个RED确认通用错误被显示为rejected --- Core保留失败申请，前端统一消费Core状态；过滤失败后的迟到pending --- 修改core/websocket/index.ts、frontend/room-session-store.ts、work.md
+
+- 普通ERROR转failed，迟到终态继续校验；无效凭据和房间不存在沿用身份清理并移除票据。撤回：反向本轮差异及日志，或按本轮备份整体回退。
+
+## 2026-09-27 16:53:26 +08:00 --- 批准与立即入房的通知顺序缺少行为保护 --- 添加传输同步返回致命错误的整合测试进入RED --- 修改room-recovery-integration.test.ts、work.md
+
+- 验证新双凭据在RESUME发送前已落盘，后续无效身份错误不被外层批准覆盖。撤回：移除本次测试和onSend测试适配增量及此日志。
+
+## 2026-09-27 16:53:51 +08:00 --- 第三个RED确认批准入房早于前端保存凭据 --- 先更新完整身份并通知订阅者，再重连；收窄JSON解析异常范围 --- 修改core/websocket/index.ts、work.md
+
+- 同步入房错误不能被旧批准通知覆盖；保留现有凭据失效清理。撤回：反向本轮批准顺序和解析范围差异及日志。
+
+## 2026-09-27 16:55:16 +08:00 --- 页面尚未呈现失败申请的专用重试入口 --- 新增真实DOM点击测试进入RED --- 新增room-recovery-panel.test.tsx；修改work.md
+
+- 使用React 18.2.0 createRoot/act验证失败可重试、等待不可重复提交、断线禁用；Core状态转换另由真实整合测试保证。Context7 query_docs查询React v18测试环境，确认事件需包在act中。撤回：删除本轮新增UI测试及此日志。
+
+## 2026-09-27 16:56:03 +08:00 --- DOM测试确认缺少重试按钮 --- 接入Core派生的可重试状态及专用按钮 --- 修改room-recovery-panel.tsx、其测试、work.md
+
+- 重试不受其他操作忙碌锁影响，但断线时禁用；失败不显示审批拒绝，等待文案不提前声称服务端已接收。撤回：还原本轮面板备份、移除新增UI测试及本日志。
+
+## 2026-09-27 16:57:22 +08:00 --- 旧恢复store测试伪造Core身份，无法验证认可来源 --- 用真实Core整合测试替换四条旧伪造测试 --- 修改room-session-store.test.ts、room-recovery-integration.test.ts、work.md
+
+- 增加跨刷新不同编号工厂验证（排除碰巧同编号的假通过），以及拒绝/过期清票据后可发新申请；批准真实路径已有整合保护。撤回：恢复旧store测试备份、移除本轮新增整合测试及此日志。
+
+## 2026-09-27 16:58:33 +08:00 --- 恢复失败仍需防止调用方发起另一份身份操作 --- 新增真实Core身份互斥整合测试进入RED --- 修改room-recovery-integration.test.ts、work.md
+
+- 只允许重试原申请；Core也需拒绝创建/加入/替换恢复，避免迟到批准覆盖新身份。撤回：移除此测试及本日志。
+
+## 2026-09-27 16:59:06 +08:00 --- 身份互斥RED确认仅UI忙碌锁不足 --- 在Core身份入口拒绝未终结恢复和交叉身份请求 --- 修改core/websocket/index.ts、work.md
+
+- 创建/加入/直接重连不能绕过恢复流程；已有创建/加入也不能被恢复申请覆盖。撤回：移除对应入口guard及本日志。
+
+## 2026-09-27 16:59:55 +08:00 --- 小程序发送Promise被忽略，同步测试不足以验证实际发送失败 --- 添加异步发送拒绝整合测试进入RED --- 修改room-recovery-integration.test.ts、work.md
+
+- 传输适配器可返回Promise，拒绝后应仍采用手动同编号重试；未修改业务决策。撤回：移除此测试和sendCompletion测试适配增量及本日志。
+
+## 2026-09-27 17:01:02 +08:00 --- Taro 适配器发送 Promise 被忽略，实施前需保存撤回点 --- 备份适配器及现有测试到本轮临时备份目录，测试边界沿用已确认的真实适配器公开 send 入口 --- 新增临时备份 packages/frontend/src/lib/taro-websocket-transport.ts、taro-websocket-transport.test.ts，追加 work.md
+
+- 备份根目录：C:/Users/Asurf/AppData/Local/Temp/clocktower-recovery-before-20260927-164943。撤回：将上述备份按相对路径复制回工作区，仅删除本条日志；不覆盖其他文件。
+
+## 2026-09-27 17:01:08 +08:00 --- 异步发送RED确认Promise拒绝未到恢复状态 --- Core接收传输Promise并按连接代次和发送尝试关联失败 --- 修改core/websocket/index.ts、整合测试名称、work.md
+
+- 恢复申请异步失败进入同一手动重试状态；旧连接/旧发送尝试或终态后的拒绝不回退状态。RESUME发送失败使连接失效但保留批准凭据，可由现有重连入口继续。同步恢复失败通知放在send的catch外。撤回：按本轮备份整体回退Core，移除新增异步测试及日志。
+
+## 2026-09-27 17:01:38 +08:00 --- 异步发送拒绝未穿过 Taro 适配器公开边界 --- 新增单条公开 send 行为测试进入 RED，使用真实适配器与外部 SocketTask 假对象 --- 修改 packages/frontend/src/lib/taro-websocket-transport.test.ts、work.md
+
+- 断言调用方可捕获底层 Promise 的原始拒绝；未改生产实现。撤回：删除本条新增测试及日志，或仅将本轮临时备份目录中的该测试文件复制回原相对路径。
+
+## 2026-09-27 17:02:17 +08:00 --- 批准后重连仍需保护完整凭据 --- 添加批准后发送失败、重连及后续普通错误整合测试 --- 修改room-recovery-integration.test.ts、work.md
+
+- 同一已批准身份再次resume不得丢失恢复凭据；普通ERROR不应重做批准落盘副作用。撤回：删除本轮测试及本日志。
+
+## 2026-09-27 17:02:19 +08:00 --- RED 确认调用方收到 undefined 而非发送 Promise 拒绝 --- 将适配器 send 返回类型扩为 void 或 Promise<void>，返回底层完成信号并保留拒绝及同步抛错 --- 修改 packages/frontend/src/lib/taro-websocket-transport.ts、work.md
+
+- RED：Vitest 2.1.9 定向文件 3 通过、1 预期失败，失败为 promise resolved undefined instead of rejecting；无额外重试机制。撤回：将本轮临时备份目录中的 taro-websocket-transport.ts 按相对路径复制回工作区，删除本条日志；对应测试须一并撤回新增条目。
+
+## 2026-09-27 17:02:39 +08:00 --- 新RED确认重复resume丢失恢复凭据 --- 保留同身份双凭据并仅对Core恢复状态变化执行前端落盘副作用 --- 修改core/websocket/index.ts、frontend/room-session-store.ts、work.md
+
+- 使用Core不可变状态引用辨别转换，普通ERROR不重复执行批准持久化；通过现有消息通知接缝同步，未增加第二套状态机。撤回：反向本轮凭据保持及转换同步差异、移除本日志。
+
+## 2026-09-27 17:02:46 +08:00 --- Taro 异步发送失败转发需完成验收 --- 定向重跑同一 Vitest 文件并检查两个文件补丁空白 --- 修改 work.md（验收记录）
+
+- GREEN：node node_modules/vitest/vitest.mjs run packages/frontend/src/lib/taro-websocket-transport.test.ts，4 条测试全部通过；适配器两个文件 git diff --check 通过（仅既有 LF/CRLF 提示）。同步抛错仍由原 send 调用直接传播，未添加重试或修改 Core/store/UI。撤回：从 C:/Users/Asurf/AppData/Local/Temp/clocktower-recovery-before-20260927-164943 按相对路径恢复本切片两个文件，并仅删除本切片四条审计记录。
+
+## 2026-09-27 17:03:25 +08:00 --- 前端丢弃客户端后可能残留可重试视图 --- 添加客户端处置整合测试进入RED --- 修改room-recovery-integration.test.ts、work.md
+
+- 处置内存状态后应重新粘贴恢复码，非秘密票据继续保留。撤回：移除本测试与本日志。
+
+## 2026-09-27 17:03:49 +08:00 --- 处置RED确认旧failed视图残留 --- 丢弃或替换客户端时同步清理内存恢复视图 --- 修改room-session-store.ts、work.md
+
+- disconnect与开发环境换地址清恢复状态/忙碌锁，保留票据。撤回：反向这两处清理差异及日志。
+
+## 2026-09-27 17:04:49 +08:00 --- 类型检查发现跨端配置无全局document声明 --- 在DOM测试内局部声明实际使用的jsdom形状，不更改生产跨端类型配置 --- 修改room-recovery-panel.test.tsx、work.md
+
+- tsc仅报新增测试DOM类型，协议校验gofmt子进程被沙箱EPERM阻止，后续单独申请沙箱外执行。撤回：还原该测试局部类型差异及本日志。
+
+## 2026-09-27 17:06:06 +08:00 --- 异步发送关联保护需要补齐重试/重连/终态的回归证据 --- 增加迟到Promise拒绝的三条行为验证 --- 修改room-recovery-integration.test.ts、work.md
+
+- 在新尝试、新连接和批准后分别触发旧发送拒绝，断言不回退现状；此为已实现并发保护的补充验证。撤回：移除此参数化测试及日志。
+
+## 2026-09-27 17:07:01 +08:00 --- 独立复核发现批准后的辅助查询异步失败仍可卡死重连 --- 新增实际自动查询路径整合测试进入RED --- 修改room-recovery-integration.test.ts、work.md
+
+- RESUME成功后store自动查询审批列表，发送Promise拒绝后必须仍可重连。撤回：移除此测试及本日志。
+
+## 2026-09-27 17:07:22 +08:00 --- 辅助查询RED确认error状态仍挂在OPEN传输 --- 共享可重连的传输失效处理并忽略身份已变化的旧失败 --- 修改core/websocket/index.ts、work.md
+
+- 现有重连入口可重新建立连接并恢复批准身份。撤回：反向本轮普通异步失败处理及方法重命名，移除本日志。
+
+## 2026-09-27 17:08:59 +08:00 --- 行为复核发现票据写入抛错会中断同步通知和发送 --- 添加设备存储失败整合测试进入RED --- 修改room-recovery-integration.test.ts、work.md
+
+- 故障时申请仍应可在当前页面完成，批准身份内存可用并明确提示未能本地保存；不得假称已持久化。撤回：移除此测试与storageFails适配增量及日志。
+
+## 2026-09-27 17:09:46 +08:00 --- 存储RED确认同步通知被设备写入故障中断 --- 前端隔离存储异常，保留内存权威身份并持续提示未保存 --- 修改room-session-store.ts、work.md
+
+- 票据保存失败不拦截发送；身份保存失败不假称落盘、不删除原票据，当前页面仍可完成批准和入房；清身份先清内存私密视图，设备清理故障提示。撤回：反向本轮存储异常隔离差异及日志。
+
+## 2026-09-27 17:10:43 +08:00 --- 恢复归属和失败行为需要与领域说明一致 --- 更新现有WebSocket客户端与房间体验的职责约定 --- 修改core/CONTEXT.md、frontend/CONTEXT.md、work.md
+
+- 记录Core唯一恢复状态、同编号手动重试、异步尝试关联、批准保存顺序与前端存储故障提示。撤回：恢复本轮备份中的两份CONTEXT并删除此日志。
+
+## 2026-09-27 17:11:28 +08:00 --- 存储故障复核发现两个提前返回出口遗漏提示 --- 补齐设备被替换和主动丢弃身份的清理失败提示 --- 修改room-session-store.ts、work.md
+
+- 只补齐已有storageWarning展示，不改变身份清理规则。撤回：反向两处提示合并及本日志。
+
+## 2026-09-27 17:14:10 +08:00 --- 第1项架构深化需要最终验收与可撤回交付 --- 完成独立架构/行为复核及最终回归和双端构建 --- 修改work.md（最终验收）；更新本地生成产物与临时构建日志
+
+- 已交付：Core只读恢复状态为唯一判断来源，发送失败手动同编号重试；未终结申请保留关联/私密投影门并与其他身份操作互斥；失败后迟到pending不锁住重试，迟到终态仍有效；普通待审断线继续重发。
+- 跨端：传输send支持同步与Promise失败；按连接代次和发送尝试忽略迟到拒绝。批准通知先保存完整双凭据再RESUME；发送失败使连接可重新建立，同身份重连保留恢复凭据。Taro适配器不吞Promise拒绝。
+- 前端：本地票据仅含申请编号/房间/玩家，无秘密；刷新重贴复用；只在Core允许时显示重试按钮；处置客户端清内存恢复视图。设备存储错误不再阻断通知，明确提示未保存，身份保存失败保留原票据。
+- 测试：替换4条伪造Core恢复行为的store测试；真实Core整合测试现17条，新增DOM按钮交互和Taro发送Promise验证。最终28个测试文件、279条全部通过。已有静态渲染测试仍有Taro属性DOM提示，不影响通过。
+- 其他检查：TypeScript项目构建通过，协议生成器--check通过，git diff --check通过。相关实现/新测试的ESLint 0错误；整合测试适配器有2条原有未使用参数警告。
+- 构建：最终H5通过（9779ms，主包268 KiB、入口374 KiB，2条体积警告）；微信小程序通过（6.29s，无构建警告）。未进行微信真机或浏览器端到端验收；本轮无后端/协议修改，未重跑无关Go测试。
+- 独立审查：职责/标准与行为两路审查提出的辅助查询重连及存储异常阻断均有RED/GREEN保护；提示遗漏已补齐。原有后端改动和learning删除保持，未提交或推送。
+- 临时构建日志：C:\Users\Asurf\AppData\Local\Temp\clocktower-recovery-h5-final-20260927.log；C:\Users\Asurf\AppData\Local\Temp\clocktower-recovery-weapp-final-20260927.log。生成产物可由源码重建，双端构建串行共用frontend/dist，当前为微信产物。
+- 工具简报：mcp__context7__resolve_library_id / query_docs；输入React 18 createRoot、act与测试环境；结果官方v18文档，按本机React/ReactDOM 18.2.0使用react-dom/test-utils；时间2026-09-27 16:54（+08:00）。来源：https://github.com/reactjs/react.dev/blob/v18/src/content/blog/2022/03/08/react-18-upgrade-guide.md 。
+- 撤回本轮：从C:\Users\Asurf\AppData\Local\Temp\clocktower-recovery-before-20260927-164943按相对路径恢复备份的Core/Frontend源码、测试和CONTEXT；仅删除本轮新建packages/frontend/src/components/room-recovery-panel.test.tsx；恢复整合测试时使用备份（该文件原已存在，不可整份删除）；删除work.md本轮实施段，按恢复后源码重建产物。临时日志可逐一按上述绝对路径删除。不要整体git restore或回退其他原有改动。
+## 2026-09-27 17:21:39 +08:00 --- 用户要求正式复核第1项恢复改动 --- 按code-review并行执行规范与需求两轴审查，使用真实Core与Store只读复现 --- 修改work.md（审查记录），未修改实现或测试
+
+- 固定基线：HEAD b768243252e99019fe931091bbae19852c14d248，无新提交；本轮工作区增量逐文件对比 C:\Users\Asurf\AppData\Local\Temp\clocktower-recovery-before-20260927-164943。新增room-recovery-panel.test.tsx整份审查。排除既有backend和learning改动。
+- 规范轴：1项P3硬违反，0项值得单列的代码气味；需求轴：1项P3实现不完整，无其他确定需求缺失或扩张。两轴指向同一处：room-session-store.ts:299-301/321，批准首次持久化失败后，RESUME_ROOM_RESULT补存成功未清理恢复票据。
+- 证据：通过内存转译执行真实Core和Store，模拟首次persistIdentity失败、第二次成功；当前最终身份存在、票据仍存在、保存警告已清空。需求轴另对精确旧备份复现确认旧版最终票据不存在。影响是非秘密终态票据残留，不声称造成凭据泄漏或当前恢复必然失败。
+- 建议：将批准身份保存成功与移除原票据统一处理，补齐首次失败/后续成功回归路径。本次仅审查，未执行修复，也未重复运行已通过的全量测试。
+- 撤回：仅删除work.md本条正式审查记录；无需还原任何源码或测试。
+
+## 2026-09-27 17:33:28 +08:00 --- 用户要求修复审查P3补存后票据残留 --- 备份当前实现并沿用真实Core/store的TDD接缝 --- 修改work.md；新增临时备份 C:\Users\Asurf\AppData\Local\Temp\clocktower-ticket-cleanup-before-20260927-173328
+
+- 范围仅本P3：批准身份保存成功后统一清票据；失败继续保留票据。撤回本次修复时，从此目录恢复同名文件到packages/frontend/src/lib并删除work.md本次P3修复段，不要使用之前架构实施前备份，以免撤掉已交付功能。
+
+## 2026-09-27 17:33:35 +08:00 --- 补存成功清票据缺少回归保护 --- 添加首次身份写入失败、第二次成功的真实Core整合测试进入RED --- 修改room-recovery-integration.test.ts、work.md
+
+- 仅注入存储适配器一次写入故障，检查失败保票据、成功保存完整双凭据后删票据并清提示。撤回：移除此测试和fixture返回dependencies增量及日志，或恢复本次P3修复前备份。
+
+## 2026-09-27 17:34:14 +08:00 --- RED确认入房回复补存成功后票据仍残留 --- 将批准票据清理收归身份持久化成功路径 --- 修改room-session-store.ts、work.md
+
+- 首次批准和后续RESUME补存复用同一保存/清理顺序；身份写入失败继续保票据；票据清理自身失败独立提示且不抛出到消息订阅。拒绝/过期清理不变。撤回：用clocktower-ticket-cleanup-before-20260927-173328备份恢复store及本轮测试文件，删除本次P3修复日志。
+
+## 2026-09-27 17:34:51 +08:00 --- P3票据清理修复需要验收记录 --- 完成单项RED/GREEN、相关回归、类型检查与独立只读复核 --- 修改work.md（验收）；更新本地TypeScript生成产物
+
+- 修复：persistClientIdentity统一处理完整身份保存成功后的批准票据清理；首次写入失败保持票据，后续RESUME补存成功完成清理，清理自身异常不会外抛。
+- 验证：新增回归先因票据仍存在失败，修复后Core恢复4条、store21条、恢复整合18条，共43条全部通过；TypeScript项目构建和本轮diff --check通过。独立限范围审查无新增问题。本轮未重复完整构建或无关测试。
+- 仅修改room-session-store.ts、room-recovery-integration.test.ts及work.md；保留所有其它既有工作区改动，未提交。
+- 撤回：从C:\Users\Asurf\AppData\Local\Temp\clocktower-ticket-cleanup-before-20260927-173328恢复两个同名文件到packages/frontend/src/lib，删除本轮P3修复日志并按恢复后源码重建TypeScript产物；勿使用整轮架构实施前备份或整体git restore。
+## 2026-10-05 12:01:10 +08:00 --- 架构热点仍有跨 module 时序与状态知识分散 --- 按 improve-codebase-architecture 与 codebase-design 完成三路只读探索并生成可视化候选报告 --- 修改临时 architecture-review-20261005-115905.html、work.md
+
+- 依据：全部59条提交记录、最近7次架构相关提交、三份CONTEXT.md、验收清单及当前未提交源码；未发现ADR文件。保留既有Game History、恢复状态和票据补存改进。
+- 报告：C:\Users\Asurf\AppData\Local\Temp\architecture-review-20261005-115905.html；三项候选为命令接纳与Projection Delivery编排（首选）、普通命令完成与身份退出事实、Room Experience夜间交互。包含前后图、源码行号、deletion test、测试缺口及推荐强度。
+- 验证边界：仅静态源码与现有测试阅读；后端反向锁顺序已确认，死锁及投递倒序是待复现推断。未运行测试、未修改业务代码、未设计具体interface，等待用户选择后按技能进入grilling。
+- 撤回：仅删除上述精确临时HTML文件，并删除本条architecture-review-20261005-115905日志；不要整体恢复work.md或任何已有未提交文件。
+
+## 2026-10-05 12:01:59 +08:00 --- 本地HTML自动预览被浏览器file协议策略拒绝 --- 保留静态报告并交付文件链接，展开证据便于直接阅读 --- 修改architecture-review-20261005-115905.html、work.md
+
+- mcp__cua_repl.js尝试在内置浏览器打开本地报告，被URL协议安全策略拒绝；未用其他浏览器、服务器或间接执行方式绕过。未完成渲染截图验证，不声称已打开或已视觉验收。
+- HTML证据区由折叠改为静态展开；完成候选数量、前后图数量、锚点目标、脚本数量及标签数量静态检查，并对既有修改文件复核SHA-256。
+- 撤回：删除临时报告及本轮两条architecture-review-20261005-115905日志；其它源码和原有日志保持不动。
+
+## 2026-10-11 10:25:16 +08:00 --- 全部未提交变更需要正式复核，发现刷新后已批准恢复票据残留 --- 按code-review并行开展规范与需求两轴审查，并以真实Core/Store内存执行对照HEAD验证 --- 修改work.md（本次审查记录）；运行测试与TypeScript构建产生可重建缓存/产物
+
+- 审查基点：b768243252e99019fe931091bbae19852c14d248；用户明确覆盖当前全部未提交修改、删除及5个未跟踪新增文件。使用git diff --ignore-space-at-eol HEAD核对逻辑差异，提交列表为空；覆盖9项learning删除，未发现遗留引用。
+- 规范轴：0项确认问题，未发现值得单列的新增代码气味；需求轴：1项P3，room-session-store.ts:280-282仅在当前Core recovery为approved时清理票据，未覆盖刷新重建客户端后的补存路径。依据frontend/CONTEXT.md:37的批准后保存完整身份再清票据要求。
+- 只读复现：批准时完整身份写入成功，但legacyRoomId写入抛错；随后刷新重建真实Core与Store，存储恢复，接收RESUME_ROOM_RESULT。HEAD最终身份存在、票据不存在；当前最终身份存在、票据仍存在、提示为空。另验证票据删除自身抛错后刷新也会残留。复现通过内存转译执行源码，没有落盘测试或输出凭据。
+- 影响限于非秘密终态票据残留，不声称身份丢失或正常后续恢复必然受阻。建议成功恢复后的清理涵盖跨刷新路径，并核对票据所属身份。本次没有修改实现或测试，没有提交或推送。
+- 验证：Vitest 2.1.9全量28文件、280测试通过；Go go test -race ./...全通过；TypeScript项目构建通过；git diff --check通过（仅既有行尾提示）。Vitest初次沙箱执行因realpath EPERM未执行测试；Go初次普通测试因临时存档/本机WebSocket权限受阻，自动审批后在沙箱外执行上述测试通过。React静态渲染保留既有Taro属性警告。未开展微信真机、React Native或完整浏览器端到端验收。
+- 撤回：仅删除本条2026-10-11全部未提交变更审查记录；业务源码和测试没有本轮修改，无需恢复。测试缓存与TypeScript生成产物可按现有源码重建，不回退其他既有工作区变更，也不整体恢复work.md。
+
+## 2026-10-11 10:33:40 +08:00 --- 用户要求修复审查P3后提交已审查工作区，跨刷新清理缺少回归保护 --- 沿用已完成的真实Core/Store对照诊断，先备份修复涉及文件 --- 新增临时备份 C:\Users\Asurf\AppData\Local\Packages\sandbox.{6b68ec21-9ea1-4cda-a5ba-99f6f7f44d57}\AC\Temp\clocktower-review-fix-20261011-103340；修改work.md
+
+- 根因与最小复现已由上一条审查确认，本次直接固化回归而不重复假设探索。修复范围为前端身份持久化后的票据归属校验、对应整合测试及领域说明。
+- 提交范围沿用用户确认的全部未提交变更，包括已审查的游戏历史下沉、恢复流程与learning删除；仅本地提交，不推送。
+- 撤回本次修复：从上述临时目录按原位置恢复room-session-store.ts、room-recovery-integration.test.ts与CONTEXT.md，删除本次修复日志；不得整体git restore以免撤掉既有实现。备份仅包含此三个文件，无凭据或房间存档。
+
+## 2026-10-11 10:34:00 +08:00 --- 跨刷新补清票据及身份隔离没有自动回归 --- 添加真实Core/Store整合用例，覆盖旧房间号写失败、票据删除失败和异身份保留 --- 修改room-recovery-integration.test.ts、work.md
+
+- 回归保留共享存储并重建客户端与Store，确认刷新后Core恢复状态为空，直到服务器恢复身份成功才清理同身份票据；房间或玩家不匹配的票据必须保留。待先运行测试观察既有实现失败。
+- 撤回：从本轮备份恢复room-recovery-integration.test.ts，或仅删除本轮新增两个参数化用例与本条日志。
+
+## 2026-10-11 10:34:26 +08:00 --- 首次回归失败于模拟恢复回复遗漏恢复凭据，尚未到目标断言 --- 按hub_v2.go真实回复补齐recoveryCredential字段 --- 修改room-recovery-integration.test.ts、work.md
+
+- 首次运行22例中20通过、2失败，但失败为完整身份字段差异；不将其当作目标问题的RED证据。修正测试载荷后重跑。
+- 撤回：随本轮回归用例整体撤回，删除本条日志。
+
+## 2026-10-11 10:35:09 +08:00 --- 两条真实回归确认刷新后票据仍存在 --- 身份持久化成功后读取票据并按roomId/playerId清理，摆脱内存approved状态依赖 --- 修改room-session-store.ts、frontend/CONTEXT.md、work.md
+
+- RED：恢复整合22例中20通过，2例准确失败于票据应不存在但实际仍存在。修复保持保存失败保票据、清理异常提示与消息处理不中断的既有行为；异房间或异玩家票据保留。
+- 撤回：按本轮临时备份恢复store与CONTEXT，连同本轮新增回归和审计条目一起撤回；不要撤销已审查的其它工作区改动。
+
+## 2026-10-11 10:37:21 +08:00 --- 跨刷新票据清理修复需要验收并纳入用户要求的提交 --- 完成RED/GREEN、身份隔离、类型和静态检查，准备提交全部已审查变更 --- 修改work.md（最终验收）；更新可重建TypeScript产物与缓存
+
+- 修复：完整身份持久化成功后，按票据roomId/playerId匹配清理；刷新后不依赖Core的approved内存状态。写入失败继续保留票据，读取/清理失败继续提示，异房间/异玩家票据不会被删除。
+- 新增4条实际行为回归：legacyRoomId写失败后刷新、票据删除失败后刷新、异房间票据保留、异玩家票据保留。修复前两个目标断言失败，修复后Core恢复4例、store21例、恢复整合22例全部通过，共47例。
+- TypeScript项目构建在沙箱外通过；沙箱内依赖类型解析异常经同命令重跑排除。相关两文件ESLint为0错误、2条原有未使用参数警告；git diff --check通过。完整前端/核心280例和Go全量竞态检测沿用同会话审查结果；本次后端没有进一步修改，未重复全量测试或双端构建。
+- 备份限制与更正：沙箱临时目录未能跨调用保留，前述临时备份恢复方式不可用。本次P3撤回应精确逆向以下三项：将persistClientIdentity清票据逻辑恢复为仅client.recovery.status为approved时直接删除（保留原try/catch）；删除room-recovery-integration.test.ts末尾本轮新增两个it.each（4例）；将frontend/CONTEXT.md批准后清票据条目恢复为本轮修改前的表述，再删除本轮修复日志。不要整体恢复到HEAD，以免撤掉此前已审查的所有实现。
+- 本地提交包括此前已审查的历史归属迁移、客户端恢复流程、9项learning删除及本次P3修复；不推送。若需撤回整个提交，使用git revert对应提交；仅撤回P3按上一项精确操作。

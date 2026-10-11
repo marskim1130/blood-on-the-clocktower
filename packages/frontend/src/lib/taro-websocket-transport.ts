@@ -83,11 +83,12 @@ export class TaroWebSocketTransport implements WebSocketTransport {
       });
   }
 
-  send(data: string): void {
+  send(data: string): void | Promise<void> {
     if (this.state !== READY_STATE_OPEN || !this.task) {
       throw new Error('WebSocket is not connected');
     }
-    void this.task.send({ data });
+    const sent = this.task.send({ data });
+    if (sent) return sent.then(() => undefined);
   }
 
   close(): void {

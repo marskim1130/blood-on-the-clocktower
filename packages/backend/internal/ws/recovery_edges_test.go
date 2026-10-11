@@ -82,9 +82,7 @@ func TestExpiredRecoveryDoesNotRotateCredentials(t *testing.T) {
 	device := newFakeConnection()
 	hub.handleMessageV2(device, ClientMessage{Type: MsgRequestRecovery, RoomID: created.RoomID, PlayerID: "p1", RequestID: "edge-expired", RecoveryCredential: code})
 	_ = waitForContractMessage(t, device, func(m ServerMessage) bool { return m.RecoveryStatus == "pending" })
-	hub.recoveryMu.Lock()
-	hub.recoveryRequests[recoveryKey(created.RoomID, "edge-expired")].request.RequestedAtUnixMs = time.Now().Add(-11 * time.Minute).UnixMilli()
-	hub.recoveryMu.Unlock()
+	hub.cleanupRecoveryRequests(time.Now().Add(11 * time.Minute))
 	hub.handleMessageV2(owner, ClientMessage{Type: MsgGetRecoveryRequests, RoomID: created.RoomID, PlayerID: "creator", ResumeCredential: created.ResumeCredential})
 	expired := waitForContractMessage(t, device, func(m ServerMessage) bool { return m.RecoveryStatus == "expired" })
 	if expired.ResumeCredential != "" || expired.State != nil {

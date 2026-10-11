@@ -4189,3 +4189,106 @@ rm packages/core/src/state-machine/__tests__/state_syntax.test.ts
 - TypeScript项目构建在沙箱外通过；沙箱内依赖类型解析异常经同命令重跑排除。相关两文件ESLint为0错误、2条原有未使用参数警告；git diff --check通过。完整前端/核心280例和Go全量竞态检测沿用同会话审查结果；本次后端没有进一步修改，未重复全量测试或双端构建。
 - 备份限制与更正：沙箱临时目录未能跨调用保留，前述临时备份恢复方式不可用。本次P3撤回应精确逆向以下三项：将persistClientIdentity清票据逻辑恢复为仅client.recovery.status为approved时直接删除（保留原try/catch）；删除room-recovery-integration.test.ts末尾本轮新增两个it.each（4例）；将frontend/CONTEXT.md批准后清票据条目恢复为本轮修改前的表述，再删除本轮修复日志。不要整体恢复到HEAD，以免撤掉此前已审查的所有实现。
 - 本地提交包括此前已审查的历史归属迁移、客户端恢复流程、9项learning删除及本次P3修复；不推送。若需撤回整个提交，使用git revert对应提交；仅撤回P3按上一项精确操作。
+
+## 2026-10-11 11:58:31 +08:00 --- 连接接管与排队命令的并发语义未被领域文档明确覆盖 --- 记录用户三次选择A确认的行为并标记为待实施设计目标 --- 修改packages/backend/CONTEXT.md、work.md
+
+- 已确认：进行中命令完成后再接管并返回最新提交状态；同房命令与接管按服务器接收顺序处理、不插队；设备断线不取消已排队命令，继续正常校验并沿用序号去重。
+- 仅补充领域约定，未修改实现或运行业务测试。只读复核发现入房、恢复审批、建房重试、关闭和过期清理也涉及连接与提交后投递顺序；最终实施方案仍待grilling共同理解确认。
+- improve-codebase-architecture引用的domain-modeling技能在用户技能目录及项目技能目录中未找到；本轮按已读架构技能的内联记录要求，直接补充已确认条目，没有引入新领域名词。
+- 验证：核对新增条目仅对应用户确认的三项及既有持久化/去重约束，运行git diff --check。
+- 撤回：精确删除backend/CONTEXT.md中“2026-10-11 连接接管顺序（已确认设计目标，待实施）”整节，以及本条日志；勿整体恢复其它文件或已有工作记录。
+
+## 2026-10-11 13:59:08 +08:00 --- 接管等待持久化后可能仍返回旧投影 --- 增加真实Hub与可暂停内存存储的首条并发回归 --- 修改packages/backend/internal/ws/room_flow_test.go、work.md
+
+- 测试要求先完成设置提交，再接管并返回revision 2和新设置；先运行现状确认RED。撤回：删除本轮新测试文件及本条日志；保留先前确认的CONTEXT约定。
+
+## 2026-10-11 14:00:35 +08:00 --- 接管回归RED返回revision 1和sequence 1 --- 引入每房间FIFO接纳并改为在轮到请求时读取投影 --- 修改room_flow.go、hub.go、hub_v2.go、room_flow_test.go、work.md
+
+- 首条现状回归已确认失败；新增接纳入口使测试无需sleep确定排队顺序，队列空闲后释放worker和索引。当前先完成第一条垂直切片，其余入口和断线语义继续实施。撤回：删除新增room_flow文件，将本批修改的既有ws文件恢复到36a81d8，并删除本条日志；不要恢复CONTEXT和此前工作记录。
+
+## 2026-10-11 14:01:13 +08:00 --- 已排队命令在断线清理后可能丢失执行资格 --- 新增断线期间两条已接纳命令按顺序完成的行为回归 --- 修改room_flow_test.go、work.md
+
+- 通过接纳入口精确排队，暂停第一条写入后断线，再接管验证revision 3及第二条设置。撤回：删除TestAdmittedCommandsSurviveDisconnectInReceiveOrder及本条日志。
+
+## 2026-10-11 14:03:43 +08:00 --- 断线回归RED显示清理被跨持久化读锁阻塞 --- 用接纳时连接代次校验替代WithCurrent长持锁，按房间顺序发布提交和撤销连接 --- 修改room_flow.go、active_connections.go、hub_v2.go、recovery.go、work.md
+
+- 普通断线仅取消投递，不改变已接纳命令资格；接管、离开、踢出与审批撤销显式失效旧代次，执行仍由session鉴权去重。撤回：将本批既有ws文件恢复到36a81d8并删除room_flow.go及相应新测试和日志；保留此前文档决定。
+
+## 2026-10-11 14:04:04 +08:00 --- 生成协议的消息类型字段为string --- 修正接纳分类函数参数类型以匹配现有协议 --- 修改room_flow.go、work.md
+
+- 撤回随本轮room_flow.go整体撤回；无协议格式变化。
+
+## 2026-10-11 14:04:57 +08:00 --- 全局恢复锁可能让一个房间审核写入阻塞其它房间接管 --- 增加两个真实房间的暂停审核写入回归 --- 修改room_flow_test.go、work.md
+
+- 要求房间A审批写入暂停时房间B仍完成接管。撤回：删除TestRecoveryWriteDoesNotBlockAnotherRoomsTakeover及本条日志。
+
+## 2026-10-11 14:06:18 +08:00 --- 跨房间接管回归RED被全局recoveryMu阻塞 --- 将恢复状态处理归入同房FIFO，全局锁仅保护有界请求索引 --- 修改recovery.go、hub_v2.go、expiry.go、recovery_edges_test.go、work.md
+
+- 保留256条索引限制与恢复审批规则；定期清理按房间提交任务，过期测试改走真实维护入口，不修改私有map。撤回：将这四个既有ws文件恢复到36a81d8，并删除对应新增回归及本条日志；需与本轮room_flow变更一起撤回。
+
+## 2026-10-11 14:07:02 +08:00 --- 幂等建房重试仍可能绕开同房命令直接接管 --- 新增暂停写入时重放原建房请求的行为回归 --- 修改room_flow_test.go、work.md
+
+- 要求沿用原房间并排在既有命令后附着连接、返回最新状态。撤回：删除TestCreateRetryWaitsForPriorCommandsBeforeAttaching及本条日志。
+
+## 2026-10-11 14:08:37 +08:00 --- 建房重试回归RED确认绕过前序命令 --- 已有Create Request先定位房间入队，创建结果在所属房间顺序内重新读取并附着连接 --- 修改session/registry.go、ws/room_flow.go、ws/hub_v2.go、work.md
+
+- 新房建成后也经房间顺序附着，排队期间被关闭的旧请求按现有Create语义重新定位结果；响应不沿用等待前的投影。撤回：将这三个文件恢复到36a81d8（新增room_flow.go删除），连同本轮测试及相应日志一起撤回，保留已确认领域约定。
+
+## 2026-10-11 14:09:57 +08:00 --- 过期删除跨持久化持有全局createMu --- 增加暂停过期删除时另建房间仍能成功的回归 --- 修改room_flow_test.go、work.md
+
+- Memory存储仅暂停指定房间删除，观察另一房间真实CREATE结果。撤回：删除TestExpiryWriteDoesNotBlockCreatingAnotherRoom及对应暂停Delete夹具增量和本条日志。
+
+## 2026-10-11 14:10:59 +08:00 --- 过期删除回归RED阻塞无关房间创建 --- 维护扫描取得房间快照后逐房排队，持久删除与连接清理在同一次房间操作完成 --- 修改session/registry.go、session/expiry.go、ws/expiry.go、work.md
+
+- Registry新增单房清理入口并移除遍历期间的createMu；不改变七天条件、迁移/失败保留规则和存储格式，也不改造File存储自身的写锁。撤回：这些既有文件恢复到36a81d8，并连同room_flow及相应测试/日志撤回。
+
+## 2026-10-11 14:13:07 +08:00 --- 接管路径对同一连接重放Resume可能关闭自己 --- 增加同连接Resume后仍保持连接并能提交命令的回归 --- 修改room_flow_test.go、work.md
+
+- 撤回：删除TestResumeOnCurrentConnectionKeepsItOpen及本条日志。
+
+## 2026-10-11 14:25:30 +08:00 --- 同连接Resume回归RED显示关闭自己，复核也发现接管步骤重复 --- 集中连接附着及旧出站队列清理，同连接重放保持代次与连接 --- 修改active_connections.go、room_flow.go、hub_v2.go、work.md
+
+- Join的投递移至提交返回后，由外部房间FIFO保护顺序；不再在session锁内调用transport。撤回：本轮三个ws文件与room_flow新增文件及回归整体按36a81d8撤回，删除对应日志。
+
+## 2026-10-11 14:31:35 +08:00 --- Spec复核发现已有Create重试仍等待无关房间Create写入 --- 增加慢建房、既有重试、后续接管的真实交错回归 --- 修改room_flow_test.go、work.md
+
+- 撤回：删除TestCreateRetryDoesNotImportAnotherRoomsSlowCreate及pauseCreate夹具增量和本条日志。
+
+## 2026-10-11 14:50:22 +08:00 --- Spec复核回归RED确认无关建房写入阻塞既有重试与接管 --- 已存在Create Request直接读取不可变提交视图，只有首次创建进入createMu --- 修改session/registry.go、work.md
+
+- 获得创建锁后再次检查幂等记录；关闭/撤销身份返回既有错误，Retained Identity沿用私密安全的project规则，不复活成员。撤回：registry.go恢复36a81d8并与本轮接纳、单房清理及相关测试一起撤回；删除本条日志。
+
+## 2026-10-11 15:03:24 +08:00 --- 单项回归仍需验证混合入口、失败与真实读取路径 --- 补齐同房Join/命令/接管、同连接代次、失败重试去重、审批投递、关闭恢复及真实WebSocket断线验收 --- 修改room_flow_test.go、work.md
+
+- 测试从真实Hub接纳或HTTP升级后的WebSocket发送请求，使用有序投递查询作观察屏障，不读队列或私有session状态。生产每连接背压保持，已接收指已解码并进入房间接纳；未读取socket字节不等于已接纳命令。撤回：删除本条新增六个Test函数及新增imports，再删除本条日志；或随本轮全部新room_flow测试撤回。
+
+## 2026-10-11 15:07:21 +08:00 --- 实施后的房间接纳与接管合同需同步文档 --- 更新Room Command Flow现行约定并明确解码接纳及背压范围 --- 修改packages/backend/CONTEXT.md、docs/protocol/websocket-v2.md、work.md
+
+- 后端全量go test ./...和go test -race ./...均通过；13条新增回归包含真实HTTP升级WebSocket。此前本机连接在沙箱被拒绝，获得沙箱外测试执行后通过。没有修改前端或协议生成物，没有运行无关前端构建。
+- 文档撤回：协议文档删除新增的房间请求顺序一节；CONTEXT恢复本轮实施前的三条已确认待实施约定并删除Room Command Flow说明；删除本条日志。源码撤回仍按各批记录执行，保留用户已确认需求。
+- 审计补记：前一次Add-Content因PowerShell将中文弯引号解析成字符串分隔符而失败，未追加不完整记录；本条用单引号here-string补齐上述文档修改与验收记录。
+
+## 2026-10-11 15:08:54 +08:00 --- 最终兼容性检查发现统一接纳门禁可能遮盖原有查询和未知消息错误码 --- 添加未附着查询与未知类型的协议行为回归 --- 修改room_flow_test.go、work.md
+
+- 保留原有GET_ROOM_STATE的INVALID_CREDENTIAL及未知类型的INTERNAL，避免本轮编排改变调用方的错误处理。撤回：删除TestRoomAdmissionPreservesProtocolErrorKinds及本条日志。
+
+## 2026-10-11 15:09:34 +08:00 --- 协议兼容回归RED确认两类错误被统一门禁覆盖 --- 在唯一消息分派中确定处理入口与原有连接错误，再核对接纳代次 --- 修改room_flow.go、hub_v2.go、work.md
+
+- 删除重复的消息类型分类switch，未知类型仍直接返回原错误，GET_ROOM_STATE保留原INVALID_CREDENTIAL，其余已绑定命令仍使用STALE_CONNECTION。FIFO、断线继续执行及session校验不变。
+- 撤回：将本批两个ws文件随整个本轮实现恢复到36a81d8（新增room_flow.go删除），并删除对应测试与本条日志；不要单独撤销代次校验。
+
+## 2026-10-11 15:11:33 +08:00 --- 本轮房间请求编排需要最终验收与统一撤回说明 --- 完成14项新增回归、后端全量测试、全量竞态检测及规范/需求双轴复核 --- 修改work.md（验收记录）
+
+- 最终实现：同房解码请求FIFO；接纳时记录连接代次、执行时校验；断线不取消已接纳命令；接管返回前序提交后的完整视图；同连接重放不自关闭。入房、建房重试、恢复审批和关闭/过期清理的连接效果与投影入队遵循同房顺序。
+- 消除跨持久化的全局连接/恢复索引锁；过期扫描不再持createMu，已有建房重试不等待无关新房写入。保留单活动后端、现有文件/Redis存储和网络异步发送；没有变更游戏规则、前端、协议字段或持久化格式。
+- 最终验证：go test ./... -count=1 -timeout=120s全部通过；go test -race ./... -count=1 -timeout=120s全部通过；14个新增Test函数（含协议错误码子场景）通过。测试含暂停持久化、接管、断线、恢复审核顺序、失败重试去重、关闭后恢复、跨房并行及真实WebSocket读取路径。gofmt和git diff --check通过。
+- 独立复核：Standards轴原接管重复和验证范围已解决，最终0项未解决问题；Spec轴原Create重试引入其他房间慢写的问题已由RED/GREEN回归关闭，最终0项未解决问题。最后的消息分派兼容修复也经两轴只读复核。
+- 工作区未提交、未推送。保留本轮开始前已确认的三条用户决定。
+- 统一撤回（只针对本轮）：删除新增packages/backend/internal/ws/room_flow.go与room_flow_test.go；将session/{registry.go,expiry.go}及ws/{hub.go,hub_v2.go,active_connections.go,recovery.go,expiry.go,recovery_edges_test.go}这8个既有Go文件恢复到36a81d8；docs/protocol/websocket-v2.md恢复该基点。CONTEXT仅恢复本轮实施前的已确认待实施三条约定，移除实施说明；work.md仅删除本轮实施日志，保留需求确认和更早日志。执行前确认这些文件没有后续用户修改，禁止对整个工作区执行git restore。
+
+## 2026-10-11 15:35:36 +08:00 --- 用户要求将本轮已验收修改提交到Git --- 核对13个文件范围与空暂存区后准备本地提交 --- 修改work.md（提交审计）并提交本轮13个文件
+
+- 提交范围：Room Command Flow实现、连接接管与代次、恢复审批和过期清理编排、Create重试、14项新增回归、领域与协议文档及本轮审计日志。核对没有其它工作区变更或预先暂存内容。
+- 验证沿用本轮最终已通过的后端全量测试、全量竞态检测及规范/需求复核；本次仅新增提交审计，不重复运行未变化的业务测试。提交前检查git diff --check和暂存范围。
+- 提交标题：refactor: 统一房间请求与连接接管顺序。仅创建本地提交。
+- 撤回：使用git revert撤销本条所在提交，生成反向提交并保留历史；仅撤回部分实现时遵循前条精确文件说明，先确认没有后续用户修改。

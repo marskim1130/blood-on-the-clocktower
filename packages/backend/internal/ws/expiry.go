@@ -8,17 +8,36 @@ import (
 
 // CleanupInactiveRooms only notifies clients after authoritative durable deletion.
 func (h *Hub) CleanupInactiveRooms(ctx context.Context, now time.Time) {
-	removed, failures := h.registry.CleanupInactive(ctx, now)
-	for _, err := range failures {
-		log.Printf("inactive room cleanup failed: %v", err)
+	roomIDs := h.registry.RoomIDs()
+	type outcome struct {
+		roomID  string
+		removed bool
+		err     error
 	}
-	for _, roomID := range removed {
-		for _, connection := range h.active.RemoveRoom(roomID) {
-			h.outbound.sendAndClose(connection, ServerMessage{Type: ServerMsgRoomClosed, RoomID: roomID})
+	results := make(chan outcome, len(roomIDs))
+	for _, roomID := range roomIDs {
+		roomID := roomID
+		h.rooms.submit(roomID, func() {
+			removed, err := h.registry.CleanupInactiveRoom(ctx, roomID, now)
+			if removed && err == nil {
+				for _, connection := range h.active.RemoveRoom(roomID) {
+					h.outbound.sendAndClose(connection, ServerMessage{Type: ServerMsgRoomClosed, RoomID: roomID})
+				}
+			}
+			results <- outcome{roomID: roomID, removed: removed, err: err}
+		})
+	}
+	removedCount := 0
+	for range roomIDs {
+		result := <-results
+		if result.err != nil {
+			log.Printf("inactive room %s cleanup failed: %v", result.roomID, result.err)
+		} else if result.removed {
+			removedCount++
 		}
 	}
-	if len(removed) > 0 {
-		log.Printf("deleted %d rooms inactive for more than seven days", len(removed))
+	if removedCount > 0 {
+		log.Printf("deleted %d rooms inactive for more than seven days", removedCount)
 	}
 }
 
@@ -35,10 +54,8 @@ func (h *Hub) RunInactiveRoomCleanup(ctx context.Context) {
 			return
 		case now := <-ticker.C:
 			h.CleanupInactiveRooms(ctx, now)
-		case <-recoveryTicker.C:
-			h.recoveryMu.Lock()
-			h.pruneRecoveryRequestsLocked()
-			h.recoveryMu.Unlock()
+		case now := <-recoveryTicker.C:
+			h.cleanupRecoveryRequests(now)
 		}
 	}
 }

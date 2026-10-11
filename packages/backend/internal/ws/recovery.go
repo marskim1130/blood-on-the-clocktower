@@ -28,21 +28,48 @@ func (h *Hub) recoveryCredential(roomID, playerID string) (string, bool) {
 
 func recoveryKey(roomID, requestID string) string { return roomID + ":" + requestID }
 
-func (h *Hub) pruneRecoveryRequestsLocked() {
-	for key, pending := range h.recoveryRequests {
-		if time.Since(time.UnixMilli(pending.request.RequestedAtUnixMs)) >= session.RecoveryRequestLifetime {
+// Request contents are owned by the room flow; the global lock only protects
+// the bounded index. Never hold it while executing a room operation.
+func (h *Hub) recoveryRequestsForRoom(roomID string) map[string]*pendingRecovery {
+	h.recoveryMu.Lock()
+	defer h.recoveryMu.Unlock()
+	requests := make(map[string]*pendingRecovery)
+	for key, request := range h.recoveryRequests {
+		if request.roomID == roomID {
+			requests[key] = request
+		}
+	}
+	return requests
+}
+
+func (h *Hub) addRecoveryRequest(key string, request *pendingRecovery) bool {
+	h.recoveryMu.Lock()
+	defer h.recoveryMu.Unlock()
+	if len(h.recoveryRequests) >= 256 {
+		return false
+	}
+	if h.recoveryRequests == nil {
+		h.recoveryRequests = make(map[string]*pendingRecovery)
+	}
+	h.recoveryRequests[key] = request
+	return true
+}
+
+func (h *Hub) pruneRecoveryRequests(roomID string, now time.Time) {
+	for key, pending := range h.recoveryRequestsForRoom(roomID) {
+		if now.Sub(time.UnixMilli(pending.request.RequestedAtUnixMs)) >= session.RecoveryRequestLifetime {
 			if pending.status == "pending" {
 				h.outbound.send(pending.connection, ServerMessage{Type: ServerMsgRecoveryStatus, RoomID: pending.roomID, PlayerID: pending.request.PlayerID, RecoveryRequestID: pending.request.RequestID, RecoveryStatus: "expired"})
 			}
+			h.recoveryMu.Lock()
 			delete(h.recoveryRequests, key)
+			h.recoveryMu.Unlock()
 		}
 	}
 }
 
 func (h *Hub) handleRequestRecovery(conn Connection, msg ClientMessage) {
-	h.recoveryMu.Lock()
-	defer h.recoveryMu.Unlock()
-	h.pruneRecoveryRequestsLocked()
+	h.pruneRecoveryRequests(msg.RoomID, time.Now())
 	if msg.RequestID == "" || len(msg.RequestID) > 128 || len(msg.RecoveryCredential) > 1024 {
 		h.sendV2Error(conn, session.ErrInvalidCommand, 0)
 		return
@@ -69,33 +96,30 @@ func (h *Hub) handleRequestRecovery(conn Connection, msg ClientMessage) {
 		h.sendV2Error(conn, session.ErrForbidden, 0)
 		return
 	}
-	if h.recoveryRequests == nil {
-		h.recoveryRequests = map[string]*pendingRecovery{}
-	}
+	requests := h.recoveryRequestsForRoom(msg.RoomID)
 	key := recoveryKey(msg.RoomID, msg.RequestID)
-	pending := h.recoveryRequests[key]
+	pending := requests[key]
 	if pending != nil && (pending.request.PlayerID != msg.PlayerID || pending.credential != msg.RecoveryCredential) {
 		h.sendV2Error(conn, session.ErrIdempotencyConflict, 0)
 		return
 	}
 	if pending == nil {
-		if len(h.recoveryRequests) >= 256 {
-			h.sendV2Error(conn, session.ErrInvalidCommand, 0)
-			return
-		}
-		for _, existing := range h.recoveryRequests {
+		for _, existing := range requests {
 			if existing.roomID == msg.RoomID && existing.request.PlayerID == msg.PlayerID && existing.status == "pending" {
 				h.sendV2Error(conn, session.ErrInvalidCommand, 0)
 				return
 			}
 		}
 		pending = &pendingRecovery{roomID: msg.RoomID, credential: msg.RecoveryCredential, request: RecoveryRequest{RequestID: msg.RequestID, PlayerID: msg.PlayerID, PlayerName: name, RequestedAtUnixMs: time.Now().UnixMilli()}, status: "pending"}
-		h.recoveryRequests[key] = pending
+		if !h.addRecoveryRequest(key, pending) {
+			h.sendV2Error(conn, session.ErrInvalidCommand, 0)
+			return
+		}
 	}
 	pending.connection = conn
 	h.outbound.send(conn, ServerMessage{Type: ServerMsgRecoveryStatus, RoomID: msg.RoomID, PlayerID: msg.PlayerID, RecoveryRequestID: msg.RequestID, RecoveryStatus: pending.status})
 	if target, _, connected := h.active.Get(msg.RoomID, approver); connected {
-		h.sendRecoveryRequestsLocked(target, msg.RoomID, approver)
+		h.sendRecoveryRequests(target, msg.RoomID, approver)
 	}
 }
 
@@ -104,13 +128,13 @@ func (h *Hub) sendRecoveryApproval(conn Connection, roomID, playerID, requestID,
 	h.outbound.send(conn, ServerMessage{Type: ServerMsgRecoveryStatus, RoomID: roomID, PlayerID: playerID, RecoveryRequestID: requestID, RecoveryStatus: "approved", ResumeCredential: credential, RecoveryCredential: recoveryCredential})
 }
 
-func (h *Hub) sendRecoveryRequestsLocked(conn Connection, roomID, playerID string) {
+func (h *Hub) sendRecoveryRequests(conn Connection, roomID, playerID string) {
 	requests := []RecoveryRequest{}
 	s, ok := h.registry.Get(roomID)
 	if !ok {
 		return
 	}
-	for _, pending := range h.recoveryRequests {
+	for _, pending := range h.recoveryRequestsForRoom(roomID) {
 		if pending.roomID != roomID || pending.status != "pending" {
 			continue
 		}
@@ -124,13 +148,7 @@ func (h *Hub) sendRecoveryRequestsLocked(conn Connection, roomID, playerID strin
 }
 
 func (h *Hub) handleGetRecoveryRequests(conn Connection, msg ClientMessage) {
-	h.recoveryMu.Lock()
-	defer h.recoveryMu.Unlock()
-	h.pruneRecoveryRequestsLocked()
-	if !h.currentConnection(conn, msg.RoomID, msg.PlayerID) {
-		h.sendV2Error(conn, session.ErrStaleConnection, 0)
-		return
-	}
+	h.pruneRecoveryRequests(msg.RoomID, time.Now())
 	s, ok := h.registry.Get(msg.RoomID)
 	if !ok {
 		h.sendV2Error(conn, session.ErrRoomNotFound, 0)
@@ -140,14 +158,12 @@ func (h *Hub) handleGetRecoveryRequests(conn Connection, msg ClientMessage) {
 		h.sendV2Error(conn, err, 0)
 		return
 	}
-	h.sendRecoveryRequestsLocked(conn, msg.RoomID, msg.PlayerID)
+	h.sendRecoveryRequests(conn, msg.RoomID, msg.PlayerID)
 }
 
 func (h *Hub) handleReviewRecovery(conn Connection, msg ClientMessage) {
-	h.recoveryMu.Lock()
-	defer h.recoveryMu.Unlock()
-	h.pruneRecoveryRequestsLocked()
-	pending := h.recoveryRequests[recoveryKey(msg.RoomID, msg.RecoveryRequestID)]
+	h.pruneRecoveryRequests(msg.RoomID, time.Now())
+	pending := h.recoveryRequestsForRoom(msg.RoomID)[recoveryKey(msg.RoomID, msg.RecoveryRequestID)]
 	if pending == nil || msg.Decision == nil {
 		h.sendV2Error(conn, session.ErrInvalidCommand, 0)
 		return
@@ -167,12 +183,7 @@ func (h *Hub) handleReviewRecovery(conn Connection, msg ClientMessage) {
 		return
 	}
 	command := session.Command{Kind: session.CommandReviewRecovery, TargetID: pending.request.PlayerID, Fingerprint: fingerprint(msg), RecoveryCredential: pending.credential, RecoveryRequestID: pending.request.RequestID, Decision: *msg.Decision}
-	var result session.CommandResult
-	err := h.active.WithCurrent(msg.RoomID, msg.PlayerID, conn, func() error {
-		var err error
-		result, err = s.Execute(context.Background(), actor, command)
-		return err
-	})
+	result, err := s.Execute(context.Background(), actor, command)
 	if err != nil {
 		next := uint64(0)
 		if query, queryErr := s.Query(actor); queryErr == nil {
@@ -194,14 +205,32 @@ func (h *Hub) handleReviewRecovery(conn Connection, msg ClientMessage) {
 			return
 		}
 		pending.status = "approved"
-		if old, _, connected := h.active.Get(msg.RoomID, pending.request.PlayerID); connected && !result.Duplicate {
-			h.active.Remove(old)
-			h.outbound.sendAndClose(old, ServerMessage{Type: ServerMsgSessionReplaced, RoomID: msg.RoomID})
+		if !result.Duplicate {
+			if old := h.active.Revoke(msg.RoomID, pending.request.PlayerID); old != nil {
+				h.outbound.sendAndClose(old, ServerMessage{Type: ServerMsgSessionReplaced, RoomID: msg.RoomID})
+			}
 		}
 		h.sendRecoveryApproval(pending.connection, msg.RoomID, pending.request.PlayerID, pending.request.RequestID, credential)
 	} else {
 		pending.status = "rejected"
 		h.outbound.send(pending.connection, ServerMessage{Type: ServerMsgRecoveryStatus, RoomID: msg.RoomID, PlayerID: pending.request.PlayerID, RecoveryRequestID: pending.request.RequestID, RecoveryStatus: "rejected"})
 	}
-	h.sendRecoveryRequestsLocked(conn, msg.RoomID, msg.PlayerID)
+	h.sendRecoveryRequests(conn, msg.RoomID, msg.PlayerID)
+}
+
+func (h *Hub) cleanupRecoveryRequests(now time.Time) {
+	h.recoveryMu.Lock()
+	roomIDs := make(map[string]bool)
+	for _, pending := range h.recoveryRequests {
+		roomIDs[pending.roomID] = true
+	}
+	h.recoveryMu.Unlock()
+	var completions []<-chan struct{}
+	for roomID := range roomIDs {
+		roomID := roomID
+		completions = append(completions, h.rooms.submit(roomID, func() { h.pruneRecoveryRequests(roomID, now) }))
+	}
+	for _, done := range completions {
+		<-done
+	}
 }

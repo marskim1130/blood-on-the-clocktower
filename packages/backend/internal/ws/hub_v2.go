@@ -14,20 +14,21 @@ import (
 	"github.com/marskim1130/blood-on-the-clocktower/internal/session"
 )
 
-func (h *Hub) handleMessageV2(conn Connection, msg ClientMessage) {
+func (h *Hub) dispatchRoomMessage(conn Connection, msg ClientMessage, generation uint64) {
+	var handle func(Connection, ClientMessage)
+	requiresConnection := true
+	connectionError := session.ErrStaleConnection
 	switch msg.Type {
-	case MsgCreateRoom:
-		h.handleCreateRoomV2(conn, msg)
 	case MsgJoinRoom:
-		h.handleJoinRoomV2(conn, msg)
+		handle, requiresConnection = h.handleJoinRoomV2, false
 	case MsgResumeRoom:
-		h.handleResumeRoomV2(conn, msg)
+		handle, requiresConnection = h.handleResumeRoomV2, false
 	case MsgRequestRecovery:
-		h.handleRequestRecovery(conn, msg)
+		handle, requiresConnection = h.handleRequestRecovery, false
 	case MsgReviewRecovery:
-		h.handleReviewRecovery(conn, msg)
+		handle = h.handleReviewRecovery
 	case MsgGetRecoveryRequests:
-		h.handleGetRecoveryRequests(conn, msg)
+		handle = h.handleGetRecoveryRequests
 	case MsgRejoinRoom, MsgLeaveRoom, MsgKickPlayer, MsgUpdateRoomSettings, MsgSetStoryteller,
 		MsgSetSeatOrder, MsgSetReady, MsgConfirmCharacter,
 		MsgAdvanceNominationStage, MsgControlNominationTimer, MsgExpireNominationTimer,
@@ -36,47 +37,54 @@ func (h *Hub) handleMessageV2(conn Connection, msg ClientMessage) {
 		MsgRecordVote, MsgResolveNomination, MsgFinalizeDay, MsgExecutePlayer, MsgUseSlayerAbility, MsgKillPlayer, MsgSubmitNightAction,
 		MsgConfirmNightAction, MsgAcknowledgeNightAction, MsgSkipNightAction, MsgPrepareDawn, MsgConfirmDawn,
 		MsgResolveNight, MsgEndGame, MsgPublishGrimoire, MsgCloseRoom:
-		h.handleCommandV2(conn, msg)
+		handle, requiresConnection = h.handleCommandV2, msg.Type != MsgCloseRoom
 	case MsgGetRoomState:
-		h.handleGetRoomStateV2(conn, msg)
+		handle, connectionError = h.handleGetRoomStateV2, session.ErrInvalidCredential
 	default:
 		h.sendV2Error(conn, errors.New("unsupported message type"), 0)
+		return
 	}
+	if requiresConnection && !h.active.AcceptsGeneration(msg.RoomID, msg.PlayerID, generation) {
+		h.sendV2Error(conn, connectionError, 0)
+		return
+	}
+	handle(conn, msg)
 }
 
-func (h *Hub) handleCreateRoomV2(conn Connection, msg ClientMessage) {
+func (h *Hub) createRoomV2(msg ClientMessage) (session.CreateResult, error) {
 	if msg.RequestID == "" || msg.PlayerID == "" {
-		h.sendV2Error(conn, errors.New("requestId and playerId are required"), 0)
-		return
+		return session.CreateResult{}, errors.New("requestId and playerId are required")
 	}
 	if msg.MaxPlayers < 5 || msg.MaxPlayers > 15 {
-		h.sendV2Error(conn, fmt.Errorf("%w: maxPlayers must be between 5 and 15", session.ErrInvalidCommand), 0)
-		return
+		return session.CreateResult{}, fmt.Errorf("%w: maxPlayers must be between 5 and 15", session.ErrInvalidCommand)
 	}
 	scriptID := strings.TrimSpace(msg.ScriptID)
 	if scriptID == "" {
 		scriptID = game.TroubleBrewingScriptID
 	}
 	if game.GetScriptByID(scriptID) == nil {
-		h.sendV2Error(conn, fmt.Errorf("%w: unsupported script", session.ErrInvalidCommand), 0)
-		return
+		return session.CreateResult{}, fmt.Errorf("%w: unsupported script", session.ErrInvalidCommand)
 	}
 	engine := newSessionGameEngine("", scriptID)
-	result, err := h.registry.Create(context.Background(), session.CreateInput{RequestID: msg.RequestID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, MaxPlayers: msg.MaxPlayers, ScriptID: scriptID, Fingerprint: fingerprint(msg), Engine: engine})
+	return h.registry.Create(context.Background(), session.CreateInput{RequestID: msg.RequestID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, MaxPlayers: msg.MaxPlayers, ScriptID: scriptID, Fingerprint: fingerprint(msg), Engine: engine})
+}
+
+func (h *Hub) attachCreatedRoom(conn Connection, result session.CreateResult) {
+	s, ok := h.registry.Get(result.RoomID)
+	if !ok {
+		h.sendV2Error(conn, session.ErrRoomNotFound, 0)
+		return
+	}
+	view, err := s.Query(session.Actor{PlayerID: result.PlayerID, Credential: result.ResumeCredential})
 	if err != nil {
 		h.sendV2Error(conn, err, 0)
 		return
 	}
-	generation, previous := h.active.Takeover(result.RoomID, result.PlayerID, conn)
-	_ = generation
-	if previous != nil {
-		h.outbound.remove(previous)
-		_ = previous.Close()
-	}
-	state, _ := result.State.(*RoomState)
-	decorateRoomState(state, result.Metadata)
+	h.attachConnection(result.RoomID, result.PlayerID, conn)
+	state, _ := view.Room.(*RoomState)
+	decorateRoomState(state, view.Metadata)
 	recoveryCredential, _ := h.recoveryCredential(result.RoomID, result.PlayerID)
-	h.outbound.send(conn, ServerMessage{Type: ServerMsgCreateRoomResult, RoomID: result.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RecoveryCredential: recoveryCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgCreateRoomResult, RoomID: result.RoomID, State: state, IdentityStatus: view.Identity, ResumeCredential: result.ResumeCredential, RecoveryCredential: recoveryCredential, RoomRevision: view.RoomRevision, NextClientSequence: view.NextClientSequence})
 }
 
 func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
@@ -85,27 +93,20 @@ func (h *Hub) handleJoinRoomV2(conn Connection, msg ClientMessage) {
 		h.sendV2Error(conn, session.ErrRoomNotFound, 0)
 		return
 	}
-	_, err := s.JoinObserved(context.Background(), session.JoinInput{RequestID: msg.JoinRequestID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, Fingerprint: fingerprint(msg)}, func(result session.JoinResult) {
-		_, previous := h.active.Takeover(msg.RoomID, msg.PlayerID, conn)
-		if previous != nil {
-			h.outbound.remove(previous)
-			_ = previous.Close()
-		}
-		state, _ := result.State.(*RoomState)
-		decorateRoomState(state, result.Metadata)
-		recoveryCredential, _ := h.recoveryCredential(msg.RoomID, msg.PlayerID)
-		h.outbound.send(conn, ServerMessage{Type: ServerMsgJoinRoomResult, RoomID: msg.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RecoveryCredential: recoveryCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
-		h.enqueueDeliveries(msg.RoomID, msg.PlayerID, result.RoomRevision, result.Deliveries, result.Metadata)
-	})
+	result, err := s.JoinObserved(context.Background(), session.JoinInput{RequestID: msg.JoinRequestID, PlayerID: msg.PlayerID, PlayerName: msg.PlayerName, Fingerprint: fingerprint(msg)}, nil)
 	if err != nil {
 		h.sendV2Error(conn, err, 0)
 		return
 	}
+	h.attachConnection(msg.RoomID, msg.PlayerID, conn)
+	state, _ := result.State.(*RoomState)
+	decorateRoomState(state, result.Metadata)
+	recoveryCredential, _ := h.recoveryCredential(msg.RoomID, msg.PlayerID)
+	h.outbound.send(conn, ServerMessage{Type: ServerMsgJoinRoomResult, RoomID: msg.RoomID, State: state, IdentityStatus: memberIdentityStatus(result.Metadata, result.NextClientSequence), ResumeCredential: result.ResumeCredential, RecoveryCredential: recoveryCredential, RoomRevision: result.RoomRevision, NextClientSequence: result.NextClientSequence})
+	h.enqueueDeliveries(msg.RoomID, msg.PlayerID, result.RoomRevision, result.Deliveries, result.Metadata)
 }
 
 func (h *Hub) handleResumeRoomV2(conn Connection, msg ClientMessage) {
-	h.recoveryMu.Lock()
-	defer h.recoveryMu.Unlock()
 	s, ok := h.registry.Get(msg.RoomID)
 	if !ok {
 		h.sendV2Error(conn, session.ErrRoomNotFound, 0)
@@ -116,11 +117,7 @@ func (h *Hub) handleResumeRoomV2(conn Connection, msg ClientMessage) {
 		h.sendV2Error(conn, err, 0)
 		return
 	}
-	_, previous := h.active.Takeover(msg.RoomID, msg.PlayerID, conn)
-	if previous != nil {
-		h.outbound.remove(previous)
-		_ = previous.Close()
-	}
+	h.attachConnection(msg.RoomID, msg.PlayerID, conn)
 	state, _ := result.Room.(*RoomState)
 	decorateRoomState(state, result.Metadata)
 	recoveryCredential, _ := s.RecoveryCredentialFor(msg.PlayerID)
@@ -128,10 +125,6 @@ func (h *Hub) handleResumeRoomV2(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) handleGetRoomStateV2(conn Connection, msg ClientMessage) {
-	if !h.currentConnection(conn, msg.RoomID, msg.PlayerID) {
-		h.sendV2Error(conn, session.ErrInvalidCredential, 0)
-		return
-	}
 	s, ok := h.registry.Get(msg.RoomID)
 	if !ok {
 		h.sendV2Error(conn, session.ErrRoomNotFound, 0)
@@ -149,10 +142,6 @@ func (h *Hub) handleGetRoomStateV2(conn Connection, msg ClientMessage) {
 
 func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
 	detached := msg.Type == MsgCloseRoom
-	if !detached && !h.currentConnection(conn, msg.RoomID, msg.PlayerID) {
-		h.sendV2Error(conn, session.ErrStaleConnection, 0)
-		return
-	}
 	s, ok := h.registry.Get(msg.RoomID)
 	if !ok {
 		h.sendV2Error(conn, session.ErrRoomNotFound, 0)
@@ -163,25 +152,7 @@ func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
 		h.sendV2Error(conn, err, 0)
 		return
 	}
-	var result session.CommandResult
-	execute := func() error {
-		var executeErr error
-		result, executeErr = s.ExecuteObserved(context.Background(), session.Actor{PlayerID: msg.PlayerID, Credential: msg.ResumeCredential, ClientSequence: msg.ClientSequence, Detached: detached}, command, func(committed session.CommandResult) {
-			h.enqueueCommandResult(conn, msg.RoomID, committed)
-			if !committed.Duplicate {
-				h.enqueueDeliveries(msg.RoomID, msg.PlayerID, committed.RoomRevision, committed.Deliveries, committed.Metadata)
-			}
-		})
-		return executeErr
-	}
-	if detached {
-		err = execute()
-	} else {
-		err = h.active.WithCurrent(msg.RoomID, msg.PlayerID, conn, execute)
-		if errors.Is(err, errStaleActiveConnection) {
-			err = session.ErrStaleConnection
-		}
-	}
+	result, err := s.Execute(context.Background(), session.Actor{PlayerID: msg.PlayerID, Credential: msg.ResumeCredential, ClientSequence: msg.ClientSequence, Detached: detached}, command)
 	if err != nil {
 		nextClientSequence := uint64(0)
 		if queryResult, queryErr := s.Query(session.Actor{PlayerID: msg.PlayerID, Credential: msg.ResumeCredential}); queryErr == nil {
@@ -190,15 +161,20 @@ func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
 		h.sendV2Error(conn, err, nextClientSequence)
 		return
 	}
+	h.enqueueCommandResult(conn, msg.RoomID, result)
+	if !result.Duplicate {
+		h.enqueueDeliveries(msg.RoomID, msg.PlayerID, result.RoomRevision, result.Deliveries, result.Metadata)
+	}
 	if msg.Type == MsgCloseRoom {
 		h.registry.Remove(msg.RoomID)
 	}
 	for _, effect := range result.ConnectionEffects {
 		switch effect {
 		case session.CloseSender:
+			h.active.Revoke(msg.RoomID, msg.PlayerID)
 			h.outbound.closeWhenDrained(conn)
 		case session.CloseTarget:
-			if target, _, ok := h.active.Get(msg.RoomID, result.TargetPlayerID); ok {
+			if target := h.active.Revoke(msg.RoomID, result.TargetPlayerID); target != nil {
 				h.outbound.sendAndClose(target, ServerMessage{Type: ServerMsgKicked, RoomID: msg.RoomID})
 			}
 		case session.CloseAll:
@@ -210,6 +186,11 @@ func (h *Hub) handleCommandV2(conn Connection, msg ClientMessage) {
 }
 
 func (h *Hub) enqueueCommandResult(connection Connection, roomID string, result session.CommandResult) {
+	// Disconnection cancels delivery, not an admitted command. Detached close
+	// may legitimately reply on a connection that has no member attachment.
+	if _, _, _, connected := h.active.Identity(connection); !connected && !hasConnectionEffect(result.ConnectionEffects, session.CloseAll) {
+		return
+	}
 	state, _ := result.DirectResponse.(*RoomState)
 	var identityStatus *session.IdentityStatus
 	if status, ok := result.DirectResponse.(session.IdentityStatus); ok {
@@ -376,10 +357,6 @@ func toGameCommand(msg ClientMessage) (gameplay.Command, error) {
 	return nil, errors.New("unsupported command")
 }
 
-func (h *Hub) currentConnection(conn Connection, roomID, playerID string) bool {
-	current, generation, ok := h.active.Get(roomID, playerID)
-	return ok && current == conn && h.active.IsCurrent(roomID, playerID, conn, generation)
-}
 func decorateRoomState(state *RoomState, metadata session.RoomMetadata) {
 	if state == nil {
 		return

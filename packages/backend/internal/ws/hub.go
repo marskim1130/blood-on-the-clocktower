@@ -24,6 +24,7 @@ type Hub struct {
 	registry         *session.Registry
 	active           *ActiveConnectionRegistry
 	outbound         *outboundDispatcher
+	rooms            *roomFlow
 	recoveryMu       sync.Mutex
 	recoveryRequests map[string]*pendingRecovery
 }
@@ -55,6 +56,7 @@ func newHubWithSessionStore(store session.Store, credentialKey []byte) *Hub {
 	hub := &Hub{
 		registry: registry,
 		active:   NewActiveConnectionRegistry(),
+		rooms:    newRoomFlow(),
 	}
 	hub.outbound = newOutboundDispatcher(func(connection Connection) { hub.active.Remove(connection) })
 	return hub

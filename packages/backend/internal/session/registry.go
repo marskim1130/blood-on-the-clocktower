@@ -90,21 +90,15 @@ type CreateResult struct {
 }
 
 func (r *Registry) Create(ctx context.Context, input CreateInput) (CreateResult, error) {
+	if result, exists, err := r.replayCreate(input); exists {
+		return result, err
+	}
 	r.createMu.Lock()
 	defer r.createMu.Unlock()
-	r.mu.RLock()
-	if roomID := r.creates[input.RequestID]; roomID != "" {
-		s := r.sessions[roomID]
-		r.mu.RUnlock()
-		view := s.committed.Load()
-		record := view.record.CreateRequests[input.RequestID]
-		if record.Fingerprint != input.Fingerprint {
-			return CreateResult{}, ErrIdempotencyConflict
-		}
-		identity := view.record.Members[record.PlayerID]
-		return CreateResult{RoomID: roomID, PlayerID: record.PlayerID, ResumeCredential: r.codec.Encode(roomID, record.PlayerID, identity.CredentialNonce), RoomRevision: view.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: view.engine.Project(record.PlayerID), Metadata: metadataFromRecord(view.record)}, nil
+	// Another create may have completed while we waited for the creation lock.
+	if result, exists, err := r.replayCreate(input); exists {
+		return result, err
 	}
-	r.mu.RUnlock()
 	if err := input.Engine.AddPlayer(input.PlayerID, input.PlayerName); err != nil {
 		return CreateResult{}, err
 	}
@@ -144,11 +138,59 @@ func (r *Registry) Create(ctx context.Context, input CreateInput) (CreateResult,
 	return CreateResult{}, fmt.Errorf("create room: %w", ErrPersistenceUnavailable)
 }
 
+func (r *Registry) replayCreate(input CreateInput) (CreateResult, bool, error) {
+	r.mu.RLock()
+	roomID := r.creates[input.RequestID]
+	s := r.sessions[roomID]
+	r.mu.RUnlock()
+	if roomID == "" {
+		return CreateResult{}, false, nil
+	}
+	if s == nil {
+		return CreateResult{}, true, ErrRoomNotFound
+	}
+	view := s.committed.Load()
+	if view.closed {
+		return CreateResult{}, true, ErrRoomNotFound
+	}
+	record := view.record.CreateRequests[input.RequestID]
+	if record.Fingerprint != input.Fingerprint {
+		return CreateResult{}, true, ErrIdempotencyConflict
+	}
+	identity, member := view.record.Members[record.PlayerID]
+	if !member {
+		identity, member = view.record.Retained[record.PlayerID]
+	}
+	if !member {
+		return CreateResult{}, true, ErrInvalidCredential
+	}
+	return CreateResult{RoomID: roomID, PlayerID: record.PlayerID, ResumeCredential: r.codec.Encode(roomID, record.PlayerID, identity.CredentialNonce), RoomRevision: view.record.RoomRevision, NextClientSequence: identity.LastSequence + 1, State: project(view, record.PlayerID, identity.State == IdentityRetained), Metadata: metadataFromRecord(view.record)}, true, nil
+}
+
 func (r *Registry) Get(roomID string) (*AuthoritativeGameSession, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	s, ok := r.sessions[roomID]
 	return s, ok
+}
+
+// CreatedRoomID resolves a retry for admission to its existing room's order.
+// Create still validates the fingerprint and resolves concurrent deletion.
+func (r *Registry) CreatedRoomID(requestID string) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.creates[requestID]
+}
+
+// RoomIDs is a snapshot for maintenance; each room is rechecked when processed.
+func (r *Registry) RoomIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	roomIDs := make([]string, 0, len(r.sessions))
+	for roomID := range r.sessions {
+		roomIDs = append(roomIDs, roomID)
+	}
+	return roomIDs
 }
 
 func (r *Registry) Healthy() bool {

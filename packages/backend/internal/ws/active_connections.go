@@ -1,11 +1,6 @@
 package ws
 
-import (
-	"errors"
-	"sync"
-)
-
-var errStaleActiveConnection = errors.New("stale active connection")
+import "sync"
 
 type connectionIdentity struct {
 	RoomID   string
@@ -37,6 +32,9 @@ func (r *ActiveConnectionRegistry) Takeover(roomID, playerID string, connection 
 	defer r.mu.Unlock()
 
 	identity := connectionIdentity{RoomID: roomID, PlayerID: playerID}
+	if current := r.connections[identity]; current.Connection == connection {
+		return current.Generation, nil
+	}
 	generation := r.generations[identity] + 1
 	r.generations[identity] = generation
 
@@ -56,14 +54,26 @@ func (r *ActiveConnectionRegistry) IsCurrent(roomID, playerID string, connection
 	return ok && current.Connection == connection && current.Generation == generation
 }
 
-func (r *ActiveConnectionRegistry) WithCurrent(roomID, playerID string, connection Connection, action func() error) error {
+// AcceptsGeneration validates an already admitted request. A transport failure
+// removes the connection, but only a takeover or explicit revocation invalidates
+// its admitted requests. This method never holds a registry lock across work.
+func (r *ActiveConnectionRegistry) AcceptsGeneration(roomID, playerID string, generation uint64) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	current, ok := r.connections[connectionIdentity{RoomID: roomID, PlayerID: playerID}]
-	if !ok || current.Connection != connection {
-		return errStaleActiveConnection
+	return generation != 0 && r.generations[connectionIdentity{RoomID: roomID, PlayerID: playerID}] == generation
+}
+
+func (r *ActiveConnectionRegistry) Revoke(roomID, playerID string) Connection {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	identity := connectionIdentity{RoomID: roomID, PlayerID: playerID}
+	current := r.connections[identity].Connection
+	delete(r.connections, identity)
+	if current != nil {
+		delete(r.identities, current)
 	}
-	return action()
+	r.generations[identity]++
+	return current
 }
 
 func (r *ActiveConnectionRegistry) Identity(connection Connection) (string, string, uint64, bool) {

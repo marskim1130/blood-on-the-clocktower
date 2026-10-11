@@ -15,28 +15,33 @@ const RoomInactivityLimit = 7 * 24 * time.Hour
 // CleanupInactive serializes expiry with room commands and removes registry entries
 // only after the persisted room has been deleted with its current revision.
 func (r *Registry) CleanupInactive(ctx context.Context, now time.Time) ([]string, []error) {
-	r.createMu.Lock()
-	defer r.createMu.Unlock()
-	r.mu.RLock()
-	sessions := make([]*AuthoritativeGameSession, 0, len(r.sessions))
-	for _, s := range r.sessions {
-		sessions = append(sessions, s)
-	}
-	r.mu.RUnlock()
 	var removed []string
 	var failures []error
-	for _, s := range sessions {
-		expired, err := s.expireInactive(ctx, now)
+	for _, roomID := range r.RoomIDs() {
+		expired, err := r.CleanupInactiveRoom(ctx, roomID, now)
 		if err != nil {
-			failures = append(failures, fmt.Errorf("room %s expiry: %w", s.RoomID(), err))
+			failures = append(failures, fmt.Errorf("room %s expiry: %w", roomID, err))
 			continue
 		}
 		if expired {
-			r.Remove(s.RoomID())
-			removed = append(removed, s.RoomID())
+			removed = append(removed, roomID)
 		}
 	}
 	return removed, failures
+}
+
+// CleanupInactiveRoom lets the transport order durable expiry and its connection
+// effects together with requests. It never holds a registry lock during I/O.
+func (r *Registry) CleanupInactiveRoom(ctx context.Context, roomID string, now time.Time) (bool, error) {
+	s, exists := r.Get(roomID)
+	if !exists {
+		return false, nil
+	}
+	expired, err := s.expireInactive(ctx, now)
+	if err == nil && expired {
+		r.Remove(roomID)
+	}
+	return expired, err
 }
 
 func (s *AuthoritativeGameSession) expireInactive(ctx context.Context, now time.Time) (bool, error) {
